@@ -61,7 +61,8 @@ pnpm holds back versions published less than a day ago (`minimumReleaseAge`). `p
 - `pnpm fix`: apply the Ultracite fixes.
 - `pnpm build`: build the packages with tsdown and the maintenance bot with `eve build`.
 - `pnpm --filter @publira/maintenance-bot dev`: start the bot locally with `eve dev`, once the packages are built, which opens eve's terminal UI. It needs a model connection, which eve asks for on first start; `--no-ui` starts the server alone.
-- `pnpm --filter @publira/maintenance-bot check-release-age-exclusions <owner/repo>`: run that job from the terminal without eve, once the packages are built. Requests are anonymous; set `GH_TOKEN` to a token of your own to raise the GitHub API rate limit.
+- `pnpm --filter @publira/maintenance-bot check-release-age-exclusions <owner/repo>`: run that job from the terminal without eve, once the packages are built. It reads the repository as the GitHub App when `apps/maintenance-bot/.env.local` holds a development App's credentials; otherwise requests are anonymous, and `GH_TOKEN` set to a token of your own raises the GitHub API rate limit.
+- `pnpm --filter @publira/maintenance-bot list-app-repositories`: list the repositories the App in `.env.local` is installed on, which checks its credentials.
 
 Run `pnpm check`, `pnpm typecheck`, and `pnpm test` before committing. The lefthook pre-commit hook formats staged files but does not lint or test them.
 
@@ -81,9 +82,17 @@ A Vercel build provisions eve's sandbox template and needs the project's OIDC to
 
 ## GitHub authentication
 
-The bot will authenticate as a GitHub App, with installation tokens, once #3 lands. Until then the agent's tools call the GitHub API anonymously, so they read public repositories only, within the anonymous rate limit of 60 requests an hour.
+The bot authenticates as the Publira GitHub App. `@publira/github` signs the App's JWT and requests installation tokens (`createGitHubApp`); `apps/maintenance-bot/src/github-app.ts` reads its credentials from `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET`. Without them the bot still starts, its tools read public repositories anonymously, and the webhook route answers 503. The README lists the App's permissions and how to configure each environment.
 
-Do not give the deployed bot a personal access token or a `GITHUB_TOKEN` variable to work around that: it would act as a person, with that person's access, instead of as the App. `GH_TOKEN` in the CLI is for local runs only.
+Do not give the deployed bot a personal access token or a `GITHUB_TOKEN` variable: it would act as a person, with that person's access, instead of as the App. `GH_TOKEN` in the CLI is for local runs only. Do not log a token, a key, the webhook secret, or a whole payload; pass the log the fields it needs one by one.
+
+Request a new App permission only for a concrete API call that needs it, and say which in the pull request. Jobs cannot change `.github/workflows/`, which would need the Workflows permission.
+
+### Webhooks
+
+GitHub delivers the App's events to `POST /github/webhooks` (`agent/channels/github-webhooks.ts`). The route verifies the signature, answers at once, and runs the handler for the event, from `src/webhooks/handlers.ts`, in the background. Subscribe the App to an event only once it has a handler.
+
+GitHub can deliver an event twice, and a failed delivery can be redelivered, and the bot has no database to remember deliveries in. A handler, like a scheduled job, therefore checks what is already in place before it writes: write through `commitToBranch`, `ensurePullRequest`, and `ensureReview` from `@publira/github`, which leave a change that is already there as it is.
 
 ## CI
 
