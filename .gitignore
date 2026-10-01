@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+.next/
+.nitro/
+.output/
+.turbo/
+dist/
+*.tsbuildinfo
+
+# eve and Vercel local state
+.eve/
+.vercel/
+
+# Environment variables (`eve link` and `vercel env pull` write .env.local)
+.env*
+
+# Logs
+*.log
+
+# OS
+.DS_Store

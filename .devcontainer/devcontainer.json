@@ -1,0 +1,42 @@
+{
+  "name": "Publira Agents",
+  "image": "ghcr.io/publira/base-images/publira-dev:2026.09.30@sha256:4a2306a33a2cc1ecf4c5955a25fc2deea4900635d3a6b3c149393d9ae599f653",
+  "features": {
+    // eve runs sandboxes that execute real binaries in a local Docker
+    // daemon; without one it falls back to just-bash.
+    "ghcr.io/devcontainers/features/docker-in-docker:4.1.2": {
+      "moby": false,
+      "version": "29.3.1"
+    },
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0.5": {},
+    "ghcr.io/devcontainers/features/github-cli:1.1.3": {}
+  },
+  "mounts": [
+    "source=publira-agents-claude-${devcontainerId},target=/home/vscode/.claude,type=volume",
+    "source=publira-agents-codex-${devcontainerId},target=/home/vscode/.codex,type=volume",
+    // eve's model connection and Vercel CLI login, so rebuilds don't force
+    // `eve` and `vercel` to sign in again.
+    "source=publira-agents-eve-${devcontainerId},target=/home/vscode/.eve,type=volume",
+    "source=publira-agents-gemini-${devcontainerId},target=/home/vscode/.gemini,type=volume",
+    "source=publira-agents-gh-${devcontainerId},target=/home/vscode/.config/gh,type=volume",
+    "source=publira-agents-grok-${devcontainerId},target=/home/vscode/.grok,type=volume",
+    "source=publira-agents-vercel-${devcontainerId},target=/home/vscode/.local/share/com.vercel.cli,type=volume",
+    // The whole configuration of the inner Docker daemon: the docker-in-docker
+    // feature starts `dockerd` with flags only and never writes this file.
+    // Docker Hub pulls go to Google's cache first, so only an image missing
+    // from it counts against the anonymous rate limit.
+    "source=${localWorkspaceFolder}/.devcontainer/daemon.json,target=/etc/docker/daemon.json,type=bind,readonly"
+  ],
+  "containerEnv": {
+    // .claude.json (OAuth account, project trust) lives outside ~/.claude by
+    // default; point it at the persisted volume so rebuilds don't force
+    // re-auth. https://code.claude.com/docs/en/devcontainer
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["oxc.oxc-vscode", "TypeScriptTeam.native-preview"]
+    }
+  },
+  "postCreateCommand": ".devcontainer/post-create.sh"
+}
