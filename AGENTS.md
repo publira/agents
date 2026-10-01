@@ -8,10 +8,36 @@ This repository is a `pnpm` workspace for Publira's maintenance automation. Its 
 
 `pnpm-workspace.yaml` declares two package groups:
 
-- `apps/*`: deployable applications. `apps/maintenance-bot/` is planned.
-- `packages/*`: shared libraries the apps import from the workspace without publishing them. Planned are `github/` (GitHub API access), `maintenance-policies/` (the rules that decide what a job does), `npm-registry/` (npm registry lookups), and `pnpm-workspace/` (reading and editing pnpm workspace files).
+- `apps/*`: deployable applications.
+  - `maintenance-bot/`: the eve app deployed to Vercel. `agent/` is the eve agent (model, instructions, channels, tools); `src/jobs/` holds the deterministic jobs, and `src/cli/` runs each of them from a terminal.
+- `packages/*`: shared libraries the apps import from the workspace without publishing them.
+  - `github/`: GitHub API access through Octokit.
+  - `maintenance-policies/`: the rules that decide what a job does. Pure functions with no I/O.
+  - `npm-registry/`: npm registry lookups.
+  - `pnpm-workspace/`: reading pnpm workspace files.
+  - `tsconfig/`: the TypeScript configuration every package extends.
 
-Neither directory exists yet; #2 sets them up. Add a package only when a concrete responsibility needs one, and keep GitHub, registry, and policy logic in `packages/*` so it stays testable outside the deployed app.
+Add a package only when a concrete responsibility needs one, and keep GitHub, registry, and policy logic in `packages/*` so it stays testable outside the deployed app.
+
+### Deterministic jobs and the agent
+
+A job is a plain async function in `apps/maintenance-bot/src/jobs/`. It takes its clients (an Octokit, registry options, the current time) as arguments, so tests pass fakes and nothing in it starts an eve session or calls a model. Three things can call it:
+
+- a CLI entry in `src/cli/`, exposed as a script in the app's `package.json`;
+- an eve tool in `agent/tools/`, when the model should decide when to run it;
+- an eve schedule handler (`defineSchedule` with `run`), which can call the job directly instead of sending a prompt to the agent.
+
+Keep the decision logic in the job and the packages, not in the tool or the prompt.
+
+### Workspace packages
+
+Each package builds `src/index.ts` into `dist/` with [tsdown](https://tsdown.dev/) and exports only that build, which is how the other Publira repositories ship their packages too. A consumer therefore needs the packages built: the Turborepo tasks run `build` in the dependencies first (`dependsOn: ["^build"]`), and a command run outside Turborepo needs `pnpm turbo run build --filter='./packages/*'` once, and again after a package changes. A package's own tests import its sources and need no build.
+
+tsdown emits the declarations with TypeScript 7, whose API is still experimental, so every build warns about it. The warning is expected.
+
+The app's CLI runs its TypeScript sources directly with Node.js type stripping, so the code stays within erasable syntax (`erasableSyntaxOnly`) and relative imports name the `.ts` file. The packages keep to the same rules.
+
+Each package has its own `tsconfig.json`, extending `@publira/tsconfig/base.json`, its own `tsdown.config.ts`, and its own `vitest.config.ts`. Versions that several packages share, such as `typescript`, `tsdown`, `vitest`, `zod`, and `@types/node`, live in the `catalog` of `pnpm-workspace.yaml`, and `catalogMode: strict` keeps the packages on them.
 
 ## Toolchain
 
@@ -22,11 +48,48 @@ The root `package.json` pins the toolchain:
 
 Change these versions in `package.json` only; do not add `.nvmrc`, `.node-version`, or `engines` copies of them.
 
+TypeScript is version 7, the native compiler. [Turborepo](https://turborepo.com/) runs the per-package tasks, and [Ultracite](https://www.ultracite.ai/) configures oxlint and oxfmt.
+
+pnpm holds back versions published less than a day ago (`minimumReleaseAge`). `pnpm add` of such a version writes an exemption for it to `minimumReleaseAgeExclude`. Prefer the previous release unless the new one is needed, such as for a security fix, and drop the exemption once the version is a day old.
+
 ## Development commands
 
 - `pnpm install`: install the workspace dependencies. The Dev Container runs it on creation. Commit `pnpm-lock.yaml` with any dependency change; `pnpm install --frozen-lockfile` must succeed.
+- `pnpm typecheck`: type check every package.
+- `pnpm test`: run every package's Vitest tests.
+- `pnpm check`: run the Ultracite lint and format checks.
+- `pnpm fix`: apply the Ultracite fixes.
+- `pnpm build`: build the packages with tsdown and the maintenance bot with `eve build`.
+- `pnpm --filter @publira/maintenance-bot dev`: start the bot locally with `eve dev`, once the packages are built, which opens eve's terminal UI. It needs a model connection, which eve asks for on first start; `--no-ui` starts the server alone.
+- `pnpm --filter @publira/maintenance-bot check-release-age-exclusions <owner/repo>`: run that job from the terminal without eve, once the packages are built. Requests are anonymous; set `GH_TOKEN` to a token of your own to raise the GitHub API rate limit.
 
-Type checking, tests, lint and format, and running the app locally arrive with #2; document each command here once it exists.
+Run `pnpm check`, `pnpm typecheck`, and `pnpm test` before committing. The lefthook pre-commit hook formats staged files but does not lint or test them.
+
+## eve
+
+eve is in preview and changes quickly. Read the docs bundled with the installed version in `apps/maintenance-bot/node_modules/eve/docs/` (start with `README.md`) before authoring tools, channels, schedules, or deployment settings, rather than relying on memory. `pnpm exec eve info` in `apps/maintenance-bot/` shows what eve discovered.
+
+The agent's model is an AI Gateway model ID in `agent/agent.ts`. On Vercel the deployment reaches the gateway through the project's OIDC token; locally, `eve dev` asks for a connection.
+
+The `eve` channel accepts Vercel OIDC and, under `eve dev`, localhost. Add an authenticator before exposing a route to anyone else.
+
+## Deployment
+
+The Vercel project's Root Directory is `apps/maintenance-bot`.
+
+A Vercel build provisions eve's sandbox template and needs the project's OIDC token, so `eve build` with `VERCEL=1` fails outside Vercel unless the directory is linked (`eve link`) and its environment pulled.
+
+## GitHub authentication
+
+The bot will authenticate as a GitHub App, with installation tokens, once #3 lands. Until then the agent's tools call the GitHub API anonymously, so they read public repositories only, within the anonymous rate limit of 60 requests an hour.
+
+Do not give the deployed bot a personal access token or a `GITHUB_TOKEN` variable to work around that: it would act as a person, with that person's access, instead of as the App. `GH_TOKEN` in the CLI is for local runs only.
+
+## CI
+
+`.github/workflows/ci.yml` runs lint, type check, test, and build as separate jobs, on pull requests, on the merge groups the merge queue on `main` builds, and on pushes to `main`. The build job runs `eve build` for a plain Node.js host, which needs no Vercel credentials; the Vercel build happens on Vercel.
+
+Every job sets `timeout-minutes`, so a hung job fails within minutes instead of holding a runner until the 6-hour default. Give a new job one as well. Actions are pinned to a commit SHA, with the version in a trailing comment, so Renovate can keep updating them.
 
 ## Dev Container
 

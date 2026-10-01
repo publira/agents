@@ -1,0 +1,13 @@
+# Catches at commit time what CI would otherwise reject a round trip later. CI
+# stays the source of truth: the hook is bypassable by design.
+
+pre-commit:
+  jobs:
+    - name: format
+      glob:
+        - "*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}"
+        - "*.{json,json5,jsonc}"
+        - "*.{md,mdx}"
+        - "*.{yaml,yml}"
+      run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
+      stage_fixed: true

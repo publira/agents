@@ -1,0 +1,7 @@
+{
+  "extends": "@publira/tsconfig/base.json",
+  "compilerOptions": {
+    "types": ["node", "eve/workflow-modules"]
+  },
+  "include": ["agent", "src"]
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@publira/pnpm-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Read pnpm workspace manifests (pnpm-workspace.yaml).",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "yaml": "2.9.1",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@publira/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

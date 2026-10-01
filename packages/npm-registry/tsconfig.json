@@ -1,0 +1,4 @@
+{
+  "extends": "@publira/tsconfig/base.json",
+  "include": ["src"]
+}

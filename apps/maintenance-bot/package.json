@@ -1,0 +1,31 @@
+{
+  "name": "@publira/maintenance-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Publira's maintenance jobs, deployed to Vercel with eve.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "eve build",
+    "check-release-age-exclusions": "node src/cli/check-release-age-exclusions.ts",
+    "dev": "eve dev",
+    "start": "eve start",
+    "test": "vitest run",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@publira/github": "workspace:*",
+    "@publira/maintenance-policies": "workspace:*",
+    "@publira/npm-registry": "workspace:*",
+    "@publira/pnpm-workspace": "workspace:*",
+    "ai": "7.0.123",
+    "eve": "0.68.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@publira/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
