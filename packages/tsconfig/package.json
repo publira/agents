@@ -1,0 +1,11 @@
+{
+  "name": "@publira/tsconfig",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The TypeScript configuration shared across the workspace.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./base.json": "./base.json"
+  }
+}

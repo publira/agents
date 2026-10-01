@@ -1,9 +1,25 @@
 {
   "name": "@publira/agents-monorepo",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "check": "ultracite check",
+    "fix": "ultracite fix"
+  },
+  "devDependencies": {
+    "lefthook": "2.1.15",
+    "oxfmt": "0.71.0",
+    "oxlint": "1.86.0",
+    "turbo": "2.11.5",
+    "typescript": "catalog:",
+    "ultracite": "7.12.2"
+  },
   "devEngines": {
     "runtime": {
       "name": "node",
