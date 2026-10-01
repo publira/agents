@@ -2,13 +2,15 @@
 //
 //   pnpm --filter @publira/maintenance-bot check-release-age-exclusions publira/publira
 //
-// Requests are anonymous unless GH_TOKEN holds a token of your own, which
-// raises the GitHub API rate limit. It is for local runs only: the deployed bot
-// will authenticate as the GitHub App (#3).
+// With the GITHUB_APP_* variables of a development GitHub App in .env.local,
+// it reads the repository as that App. Otherwise requests are anonymous unless
+// GH_TOKEN holds a token of your own, which raises the GitHub API rate limit;
+// that token is for local runs only, and the deployed bot never has one.
 import { parseArgs } from "node:util";
 
 import { createGitHubClient, parseRepositoryName } from "@publira/github";
 
+import { getGitHubApp } from "../github-app.ts";
 import { checkReleaseAgeExclusions } from "../jobs/check-release-age-exclusions.ts";
 import type { ReleaseAgeExclusionReport } from "../jobs/check-release-age-exclusions.ts";
 
@@ -38,9 +40,14 @@ const formatDetails = ({ verdict }: ReleaseAgeExclusionReport): string => {
   }
 };
 
+const repository = parseRepositoryName(positionals[0] ?? "");
+const app = getGitHubApp();
 const reports = await checkReleaseAgeExclusions({
-  ...parseRepositoryName(positionals[0] ?? ""),
-  octokit: createGitHubClient({ auth: process.env.GH_TOKEN }),
+  ...repository,
+  octokit:
+    app === undefined
+      ? createGitHubClient({ auth: process.env.GH_TOKEN })
+      : await app.getRepositoryOctokit(repository),
   ref: values.ref,
 });
 

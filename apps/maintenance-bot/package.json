@@ -7,8 +7,9 @@
   "type": "module",
   "scripts": {
     "build": "eve build",
-    "check-release-age-exclusions": "node src/cli/check-release-age-exclusions.ts",
+    "check-release-age-exclusions": "node --env-file-if-exists=.env.local src/cli/check-release-age-exclusions.ts",
     "dev": "eve dev",
+    "list-app-repositories": "node --env-file-if-exists=.env.local src/cli/list-app-repositories.ts",
     "start": "eve start",
     "test": "vitest run",
     "typecheck": "tsc"
