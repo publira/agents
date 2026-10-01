@@ -2,7 +2,12 @@ import type { Octokit } from "@octokit/rest";
 
 export interface CheckRunState {
   name: string;
-  /** The App that reports the check, such as `github-actions`. */
+  /**
+   * The App that reports the check, which a required check's
+   * `integrationId` names.
+   */
+  appId: number | undefined;
+  /** The App's slug, such as `github-actions`. */
   appSlug: string | undefined;
   status: string;
   /** `null` until the run completes. */
@@ -59,6 +64,7 @@ export const getCommitChecks = async (
 
   return {
     checkRuns: checkRuns.map((run) => ({
+      appId: run.app?.id,
       appSlug: run.app?.slug,
       conclusion: run.conclusion,
       name: run.name,

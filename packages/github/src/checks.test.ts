@@ -12,13 +12,13 @@ describe(getCommitChecks, () => {
       [`GET ${repository}/commits/head/check-runs`]: {
         check_runs: [
           {
-            app: { slug: "github-actions" },
+            app: { id: 15_368, slug: "github-actions" },
             conclusion: "success",
             name: "Test",
             status: "completed",
           },
           {
-            app: { slug: "github-actions" },
+            app: { id: 15_368, slug: "github-actions" },
             conclusion: null,
             name: "Build",
             status: "in_progress",
@@ -42,12 +42,14 @@ describe(getCommitChecks, () => {
     ).resolves.toStrictEqual({
       checkRuns: [
         {
+          appId: 15_368,
           appSlug: "github-actions",
           conclusion: "success",
           name: "Test",
           status: "completed",
         },
         {
+          appId: 15_368,
           appSlug: "github-actions",
           conclusion: null,
           name: "Build",
