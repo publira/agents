@@ -35,7 +35,7 @@ Start the bot locally with `pnpm --filter @publira/maintenance-bot dev`. eve ask
 
 The bot acts on repositories as a GitHub App, installed on the repositories it maintains. Register the App with:
 
-- **Webhook URL**: `https://maintenance-bot.publira.dev/github/webhooks`, the production domain, with a random **webhook secret**. Use the custom domain, not a `*.vercel.app` one, which someone else could claim once the project gives it up. Attach the domain to the Vercel project before registering the App, and install the App only once the production deployment has the credentials below; until then the route answers `503`. GitHub does not retry a failed delivery, and a delivery can be redelivered by hand only within three days.
+- **Webhook URL**: `https://maintenance-bot.publira.dev/github/webhooks`, the production domain, with a random **webhook secret**. Use the custom domain, not a `*.vercel.app` one, which someone else could claim once the project gives it up. Install the App only once the production deployment has the credentials below; until then the route answers `503`. GitHub does not retry a failed delivery, and a delivery can be redelivered by hand only within three days.
 - **Repository permissions**:
   - Metadata: read. Required by every App.
   - Contents: read and write. Reads files, and creates the branches and commits of maintenance pull requests.
