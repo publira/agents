@@ -6,7 +6,7 @@
       // eve build checks that the Vercel Sandbox snapshot it records still
       // exists, recreating it if not, and caches it by content itself. A
       // replayed output would skip that check.
-      "cache": false
-    }
-  }
+      "cache": false,
+    },
+  },
 }
