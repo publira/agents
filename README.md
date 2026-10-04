@@ -54,17 +54,44 @@ The bot reads the App's credentials from three environment variables:
 | `GITHUB_APP_PRIVATE_KEY` | A private key of the App, in PEM; line breaks may be written as `\n` |
 | `GITHUB_WEBHOOK_SECRET` | The webhook secret |
 
+Set the production App's values in the Vercel project's Production environment only, as sensitive variables. For local development, register a separate development App on a test repository, put its values in `apps/maintenance-bot/.env.local`, which Git ignores and `eve dev` and the command-line entries load, and forward its webhooks to the local server through a tunnel. `pnpm --filter @publira/maintenance-bot list-app-repositories` checks the credentials. The tests use generated keys and never reach GitHub.
+
+## Operation
+
+### Settings
+
+Environment variables of the Vercel project turn the bot's writes on and off. Each is `true` or `false`; without it, or with it empty, the default applies. Any other value is logged as an error and read as the safe side: a dry run, or the feature off. Vercel applies a changed value to the next deployment, so redeploy after changing one.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `DRY_RUN` | `false` | Every job still evaluates and logs what it would do, but writes nothing to GitHub: no review, auto-merge, branch, or pull request. The switches below still choose which jobs run. |
+| `RENOVATE_APPROVAL` | `true` | Approves the Renovate pull requests that a maintainer approved and merged elsewhere. |
+| `RENOVATE_AUTO_MERGE` | `false` | Has GitHub merge the Renovate pull requests the bot approved; see below. |
+| `RELEASE_AGE_EXCLUSION_CLEANUP` | `true` | Opens the daily pull requests that remove expired `minimumReleaseAgeExclude` entries. |
+
+The bot acts only on the repositories the App is installed on. To start on a new feature or more repositories, install the App on a few of them, run with `DRY_RUN=true`, read the logs, and then turn `DRY_RUN` off and widen the installation.
+
+Every write is idempotent. A job checks what is already in place before it writes, so a webhook delivered twice, a redelivery, or the next scheduled run changes nothing that is already done. The requests to GitHub and the npm registry time out, and the reads among them are tried again after a server error, a rate limit, or a failed connection; writes are not, since a failed write may still have been applied. A job that still cannot tell the state of a repository, its CI, or a pull request does nothing, and its next run tries again.
+
+The model is asked only to remove expired `minimumReleaseAgeExclude` entries whose comments the fixed rules cannot sort out. It sees only that block of `pnpm-workspace.yaml`, and it is not asked when no entry has expired. No model takes part in approving or merging. The bot uses no sandbox: the agent has no shell or file tools, and `agent/sandbox.ts` keeps eve from creating a Vercel Sandbox.
+
+### Logs
+
+The bot writes one JSON object per line to the Vercel project's runtime logs, without tokens, keys, the webhook secret, or file contents. Each line names the `job` (or the `schedule`), the `installation`, the `owner` and `repo`, the `pullRequest`, `dryRun`, and the webhook `delivery` it comes from, where they apply. Beyond those:
+
+- `approve-equivalent-renovate-update`: the `status`; for a skipped pull request, the failed `condition` and its `detail`; for an approval, the `precedent` pull request, the maintainer whose approval of it counts (`precedentApprovedBy`), and the `review` with `reviewCreated`. `modelInvoked` is always `false`.
+- `auto-merge-renovate-update`: the decision (`autoMerge`), its reason (`autoMergeReason`), the `mergeMethod`, and what it took back (`autoMergeWithdrew`).
+- `remove-expired-release-age-exclusions`: the `status`, the `expired` entries, whether the rules or a model chose the lines (`editedBy`), whether a model was asked in this run (`modelInvoked`, with the `model`), and the `pullRequest` with `pullRequestCreated`.
+
 ### Renovate auto-merge
 
-The bot can also have GitHub merge the Renovate pull requests it approved. This is off unless `RENOVATE_AUTO_MERGE` is `true`. An empty value or `false` leaves it off, and any other value is logged as an error and treated as off. Turning it off leaves approval as it is, and the bot takes back any auto-merge it enabled at its next evaluation, within the hour.
+The bot can also have GitHub merge the Renovate pull requests it approved. This is off unless `RENOVATE_AUTO_MERGE` is `true`. Turning it off leaves approval as it is, and the bot takes back any auto-merge it enabled at its next evaluation, within the hour.
 
 When it is on, the bot enables GitHub's auto-merge for the head it approved, and GitHub then merges the pull request or adds it to the merge queue. If the pull request can already be merged, the bot adds it to the merge queue or merges it at that head. It does this only where:
 
 - the base branch's rulesets require an approving review and dismiss approvals on a push. Classic branch protection is not read, because that needs the Administration permission;
 - the repository allows auto-merge; and
 - the pull request leaves `.github/workflows/` unchanged, since merging such a change needs the Workflows permission, which the App does not have.
-
-Set the production App's values in the Vercel project's Production environment only, as sensitive variables. For local development, register a separate development App on a test repository, put its values in `apps/maintenance-bot/.env.local`, which Git ignores and `eve dev` and the command-line entries load, and forward its webhooks to the local server through a tunnel. `pnpm --filter @publira/maintenance-bot list-app-repositories` checks the credentials. The tests use generated keys and never reach GitHub.
 
 ## License
 

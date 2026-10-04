@@ -104,7 +104,7 @@ describe(readOptionalRepositoryFile, () => {
 
   it("passes on other failures", async () => {
     const fetchImpl = respondWith(
-      Response.json({ message: "Server Error" }, { status: 500 })
+      Response.json({ message: "Forbidden" }, { status: 403 })
     );
 
     await expect(
@@ -112,6 +112,6 @@ describe(readOptionalRepositoryFile, () => {
         createGitHubClient({ fetch: fetchImpl }),
         location
       )
-    ).rejects.toMatchObject({ status: 500 });
+    ).rejects.toMatchObject({ status: 403 });
   });
 });

@@ -5,7 +5,7 @@ import {
 import type { GitHubApp, WebhookDelivery } from "@publira/github";
 import { z } from "zod";
 
-import { log as defaultLog, loggableFailure } from "../log.ts";
+import { log as defaultLog, loggableFailure, withFields } from "../log.ts";
 import type { Log, LogFields } from "../log.ts";
 
 /**
@@ -103,7 +103,11 @@ export const receiveWebhook = async (
   log("info", "Webhook accepted", fields);
   const handle = async () => {
     try {
-      await handler(delivery, { app, log });
+      // The handler's lines name the delivery they come from.
+      await handler(delivery, {
+        app,
+        log: withFields(log, { delivery: delivery.id, event: delivery.name }),
+      });
       log("info", "Webhook handled", fields);
     } catch (error) {
       log("error", "Webhook handler failed", {

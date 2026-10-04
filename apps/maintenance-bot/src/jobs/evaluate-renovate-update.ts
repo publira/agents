@@ -2,8 +2,9 @@ import { listAppRepositories } from "@publira/github";
 import type { GitHubApp, Octokit } from "@publira/github";
 import { isRenovate } from "@publira/maintenance-policies";
 
-import { loggableFailure } from "../log.ts";
+import { loggableFailure, withFields } from "../log.ts";
 import type { Log } from "../log.ts";
+import type { Settings } from "../settings.ts";
 import {
   approveEquivalentRenovateUpdate,
   createPrecedentScanCache,
@@ -20,6 +21,12 @@ export interface RenovateUpdateJobs {
   autoMerge: typeof autoMergeRenovateUpdate;
 }
 
+/** The settings that decide what the evaluation may do; see `readSettings`. */
+export type RenovateUpdateSettings = Pick<
+  Settings,
+  "dryRun" | "renovateApproval" | "renovateAutoMerge"
+>;
+
 export interface EvaluateRenovateUpdateOptions {
   octokit: Octokit;
   owner: string;
@@ -27,8 +34,7 @@ export interface EvaluateRenovateUpdateOptions {
   pullNumber: number;
   /** The App's bot login, which approves and merges. */
   reviewer: string;
-  /** Whether auto-merge is on; see `readRenovateAutoMerge`. */
-  autoMerge: boolean;
+  settings: RenovateUpdateSettings;
   log: Log;
   precedentScanCache?: PrecedentScanCache;
   /** Replaced in tests. */
@@ -37,10 +43,11 @@ export interface EvaluateRenovateUpdateOptions {
 
 /**
  * Evaluates one Renovate pull request: approves it when it is the same update
- * a maintainer approved elsewhere, then has it auto-merged when that is on and
- * allowed. The auto-merge runs even when the approval did not, to take back a
- * decision a new head made stale. Both log their outcome and failure, and
- * neither throws.
+ * a maintainer approved elsewhere and approval is on, then has it
+ * auto-merged when that is on and allowed. The auto-merge runs even when the
+ * approval did not, or auto-merge is off, to take back a decision a new head
+ * made stale. In a dry run, both only log what they would do. Both log their
+ * outcome and failure, and neither throws.
  */
 export const evaluateRenovateUpdate = async ({
   octokit,
@@ -48,7 +55,7 @@ export const evaluateRenovateUpdate = async ({
   repo,
   pullNumber,
   reviewer,
-  autoMerge: enabled,
+  settings: { dryRun, renovateApproval, renovateAutoMerge },
   log,
   precedentScanCache,
   jobs: {
@@ -56,45 +63,67 @@ export const evaluateRenovateUpdate = async ({
     autoMerge = autoMergeRenovateUpdate,
   } = {},
 }: EvaluateRenovateUpdateOptions): Promise<void> => {
-  const fields = { owner, pullRequest: pullNumber, repo };
-  const location = { octokit, owner, precedentScanCache, pullNumber, repo };
+  const fields = { dryRun, owner, pullRequest: pullNumber, repo };
+  const location = {
+    dryRun,
+    octokit,
+    owner,
+    precedentScanCache,
+    pullNumber,
+    repo,
+  };
 
-  try {
-    const result = await approve({ ...location, reviewer });
-    log("info", "Renovate update evaluated", {
+  if (renovateApproval) {
+    const approvalLog = withFields(log, {
       ...fields,
-      ...summarizeApprovalResult(result),
+      job: "approve-equivalent-renovate-update",
     });
-  } catch (error) {
-    log("error", "Renovate update approval failed", {
-      ...fields,
-      ...loggableFailure.safeParse(error).data,
-    });
-  }
-
-  try {
-    const result = await autoMerge({ ...location, enabled, reviewer });
-    // With auto-merge off and nothing to take back, there is nothing to tell.
-    if (result.status !== "disabled") {
-      log(
-        result.status === "refused" ? "warn" : "info",
-        "Renovate update auto-merge evaluated",
-        { ...fields, ...summarizeAutoMergeResult(result) }
+    try {
+      const result = await approve({ ...location, reviewer });
+      approvalLog(
+        "info",
+        "Renovate update evaluated",
+        summarizeApprovalResult(result)
+      );
+    } catch (error) {
+      approvalLog(
+        "error",
+        "Renovate update approval failed",
+        loggableFailure.safeParse(error).data
       );
     }
-  } catch (error) {
-    log("error", "Renovate update auto-merge failed", {
-      ...fields,
-      ...loggableFailure.safeParse(error).data,
+  }
+
+  const autoMergeLog = withFields(log, {
+    ...fields,
+    job: "auto-merge-renovate-update",
+  });
+  try {
+    const result = await autoMerge({
+      ...location,
+      enabled: renovateAutoMerge,
+      reviewer,
     });
+    // Every outcome, `disabled` included, so the logs tell why a pull
+    // request was not merged.
+    autoMergeLog(
+      result.status === "refused" ? "warn" : "info",
+      "Renovate update auto-merge evaluated",
+      summarizeAutoMergeResult(result)
+    );
+  } catch (error) {
+    autoMergeLog(
+      "error",
+      "Renovate update auto-merge failed",
+      loggableFailure.safeParse(error).data
+    );
   }
 };
 
 export interface EvaluateRenovateUpdatesEverywhereOptions {
   app: GitHubApp;
   log: Log;
-  /** Whether auto-merge is on; see `readRenovateAutoMerge`. */
-  autoMerge: boolean;
+  settings: RenovateUpdateSettings;
   /** Only the pull requests from this branch, such as after a precedent merged. */
   headRef?: string;
   /** Replaced in tests. */
@@ -109,7 +138,7 @@ export interface EvaluateRenovateUpdatesEverywhereOptions {
 export const evaluateRenovateUpdatesEverywhere = async ({
   app,
   log,
-  autoMerge,
+  settings,
   headRef,
   evaluate = evaluateRenovateUpdate,
 }: EvaluateRenovateUpdatesEverywhereOptions): Promise<void> => {
@@ -123,6 +152,9 @@ export const evaluateRenovateUpdatesEverywhere = async ({
     repositories
       .filter(({ archived }) => !archived)
       .map(async ({ installationId, owner, repo }) => {
+        const repositoryLog = withFields(log, {
+          installation: installationId,
+        });
         try {
           const octokit = await app.getInstallationOctokit(installationId);
           const pulls = await octokit.paginate(octokit.rest.pulls.list, {
@@ -137,18 +169,18 @@ export const evaluateRenovateUpdatesEverywhere = async ({
           for (const pull of pulls.filter(({ user }) => isRenovate(user))) {
             // oxlint-disable-next-line no-await-in-loop -- see above
             await evaluate({
-              autoMerge,
-              log,
+              log: repositoryLog,
               octokit,
               owner,
               precedentScanCache,
               pullNumber: pull.number,
               repo,
               reviewer,
+              settings,
             });
           }
         } catch (error) {
-          log("error", "Renovate update evaluation failed", {
+          repositoryLog("error", "Renovate update evaluation failed", {
             owner,
             repo,
             ...loggableFailure.safeParse(error).data,

@@ -316,6 +316,7 @@ describe(removeExpiredReleaseAgeExclusions, () => {
           selector: "next@16.3.8",
         },
       ],
+      model: undefined,
       pullRequest: {
         created: true,
         number: 121,
@@ -765,13 +766,20 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
       { base: "main", owner: "publira", repo: "website" },
       { base: "trunk", owner: "publira", repo: "publira" },
     ]);
+    const logged = {
+      dryRun: false,
+      installation: 42,
+      job: "remove-expired-release-age-exclusions",
+      owner: "publira",
+    };
     expect(log.mock.calls.toSorted()).toStrictEqual([
       [
         "error",
         "Release age exclusion cleanup failed",
         {
+          ...logged,
           error: "The registry is down",
-          owner: "publira",
+          modelInvoked: false,
           repo: "website",
           status: undefined,
         },
@@ -780,16 +788,175 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
         "info",
         "Release age exclusions checked",
         {
+          ...logged,
           committed: undefined,
           editedBy: undefined,
-          expired: 0,
-          owner: "publira",
+          expired: [],
+          model: undefined,
+          modelInvoked: false,
           pullRequest: undefined,
+          pullRequestCreated: undefined,
           repo: "publira",
           status: "nothing-expired",
         },
       ],
     ]);
+  });
+
+  it("plans each cleanup in a dry run", async () => {
+    const log = vi.fn<Log>();
+    const job = vi.fn<typeof removeExpiredReleaseAgeExclusions>(() =>
+      Promise.resolve({ reports: [], status: "nothing-expired" })
+    );
+
+    await removeExpiredReleaseAgeExclusionsEverywhere({
+      app,
+      dryRun: true,
+      job,
+      log,
+    });
+
+    expect(job.mock.calls.map(([{ dryRun }]) => dryRun)).toStrictEqual([
+      true,
+      true,
+    ]);
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Release age exclusions checked",
+      expect.objectContaining({ dryRun: true })
+    );
+  });
+
+  it("logs the entries, the model it asked, and the pull request it opened", async () => {
+    const log = vi.fn<Log>();
+    const editor = vi.fn<ExclusionEditor>(() =>
+      Promise.resolve({
+        lineNumbers: [2],
+        model: "anthropic/claude-sonnet-5.5",
+      })
+    );
+    const job = vi.fn<typeof removeExpiredReleaseAgeExclusions>(
+      async ({ editor: given, repo }) => {
+        // Only the website's cleanup needs the model this time.
+        if (repo === "website") {
+          await given?.({ lines: [], reason: "test", selectors: [] });
+        }
+        return repo === "website"
+          ? {
+              committed: true,
+              editedBy: "model",
+              expired: [
+                {
+                  availableAt: new Date("2026-10-01T08:00:00.000Z"),
+                  selector: "next@16.3.8",
+                },
+                {
+                  availableAt: new Date("2026-10-01T09:00:00.000Z"),
+                  selector: "react@19.3.0",
+                },
+              ],
+              model: "anthropic/claude-sonnet-5.5",
+              pullRequest: {
+                created: true,
+                number: 120,
+                url: "https://github.com/publira/website/pull/120",
+              },
+              status: "pull-request",
+            }
+          : {
+              committed: false,
+              editedBy: "model",
+              expired: [
+                {
+                  availableAt: new Date("2026-10-01T08:00:00.000Z"),
+                  selector: "next@16.3.8",
+                },
+              ],
+              model: "anthropic/claude-sonnet-5.5",
+              pullRequest: {
+                created: false,
+                number: 8,
+                url: "https://github.com/publira/publira/pull/8",
+              },
+              status: "pull-request",
+            };
+      }
+    );
+
+    await removeExpiredReleaseAgeExclusionsEverywhere({
+      app,
+      editor,
+      job,
+      log,
+    });
+
+    expect(editor).toHaveBeenCalledOnce();
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Release age exclusions checked",
+      expect.objectContaining({
+        committed: true,
+        expired: ["next@16.3.8", "react@19.3.0"],
+        model: "anthropic/claude-sonnet-5.5",
+        modelInvoked: true,
+        pullRequest: 120,
+        pullRequestCreated: true,
+        repo: "website",
+      })
+    );
+    // The open pull request already held the model's edit.
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Release age exclusions checked",
+      expect.objectContaining({
+        committed: false,
+        modelInvoked: false,
+        pullRequest: 8,
+        pullRequestCreated: false,
+        repo: "publira",
+      })
+    );
+  });
+
+  it("tells whether the model was asked when the cleanup fails", async () => {
+    const log = vi.fn<Log>();
+    const editor = vi.fn<ExclusionEditor>(() =>
+      Promise.reject(new Error("The operation was aborted due to timeout"))
+    );
+    const job = vi.fn<typeof removeExpiredReleaseAgeExclusions>(
+      async ({ editor: given, repo }) => {
+        if (repo === "website") {
+          await given?.({ lines: [], reason: "test", selectors: [] });
+        }
+        throw new Error("The registry is down");
+      }
+    );
+
+    await removeExpiredReleaseAgeExclusionsEverywhere({
+      app,
+      editor,
+      job,
+      log,
+    });
+
+    expect(log).toHaveBeenCalledWith(
+      "error",
+      "Release age exclusion cleanup failed",
+      expect.objectContaining({
+        error: "The operation was aborted due to timeout",
+        modelInvoked: true,
+        repo: "website",
+      })
+    );
+    expect(log).toHaveBeenCalledWith(
+      "error",
+      "Release age exclusion cleanup failed",
+      expect.objectContaining({
+        error: "The registry is down",
+        modelInvoked: false,
+        repo: "publira",
+      })
+    );
   });
 
   it("logs a declined cleanup with its pull request", async () => {
@@ -816,14 +983,16 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
 
     await removeExpiredReleaseAgeExclusionsEverywhere({ app, job, log });
 
-    expect(log).toHaveBeenCalledWith("info", "Release age exclusions checked", {
-      committed: undefined,
-      editedBy: undefined,
-      expired: 1,
-      owner: "publira",
-      pullRequest: 119,
-      repo: "website",
-      status: "declined",
-    });
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Release age exclusions checked",
+      expect.objectContaining({
+        expired: ["next@16.3.8"],
+        modelInvoked: false,
+        pullRequest: 119,
+        repo: "website",
+        status: "declined",
+      })
+    );
   });
 });

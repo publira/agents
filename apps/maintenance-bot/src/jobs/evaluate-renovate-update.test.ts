@@ -9,6 +9,7 @@ import {
   evaluateRenovateUpdate,
   evaluateRenovateUpdatesEverywhere,
 } from "./evaluate-renovate-update.ts";
+import type { RenovateUpdateSettings } from "./evaluate-renovate-update.ts";
 
 const BOT = "publira-maintenance[bot]";
 const HEAD = "4658aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -36,9 +37,8 @@ const setup = ({
     approve,
     autoMerge,
     log,
-    run: (autoMergeEnabled = true) =>
+    run: (settings: Partial<RenovateUpdateSettings> = {}) =>
       evaluateRenovateUpdate({
-        autoMerge: autoMergeEnabled,
         jobs: { approve, autoMerge },
         log,
         octokit: createGitHubClient(),
@@ -46,6 +46,12 @@ const setup = ({
         pullNumber: 31,
         repo: "agents",
         reviewer: BOT,
+        settings: {
+          dryRun: false,
+          renovateApproval: true,
+          renovateAutoMerge: true,
+          ...settings,
+        },
       }),
   };
 };
@@ -61,18 +67,95 @@ describe(evaluateRenovateUpdate, () => {
         }),
     });
 
-    await run(true);
+    await run();
 
     expect(approve).toHaveBeenCalledWith(
-      expect.objectContaining({ pullNumber: 31, reviewer: BOT })
+      expect.objectContaining({ dryRun: false, pullNumber: 31, reviewer: BOT })
     );
     expect(autoMerge).toHaveBeenCalledWith(
-      expect.objectContaining({ enabled: true, pullNumber: 31, reviewer: BOT })
+      expect.objectContaining({
+        dryRun: false,
+        enabled: true,
+        pullNumber: 31,
+        reviewer: BOT,
+      })
+    );
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Renovate update evaluated",
+      expect.objectContaining({
+        job: "approve-equivalent-renovate-update",
+        modelInvoked: false,
+        pullRequest: 31,
+        status: "skipped",
+      })
     );
     expect(log).toHaveBeenLastCalledWith(
       "info",
       "Renovate update auto-merge evaluated",
-      expect.objectContaining({ autoMerge: "enabled", mergeMethod: "SQUASH" })
+      expect.objectContaining({
+        autoMerge: "enabled",
+        job: "auto-merge-renovate-update",
+        mergeMethod: "SQUASH",
+      })
+    );
+  });
+
+  it("logs the precedent, its approver, and the review of an approval", async () => {
+    const { log, run } = setup({
+      approval: () =>
+        Promise.resolve({
+          conditions: [],
+          headSha: HEAD,
+          precedent: {
+            approvedBy: "ykzts",
+            mergedAt: new Date("2026-10-01T00:00:00Z"),
+            number: 12,
+            owner: "publira",
+            repo: "publira",
+            url: "https://github.com/publira/publira/pull/12",
+          },
+          review: { created: true, id: 80 },
+          status: "approved" as const,
+        }),
+    });
+
+    await run();
+
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Renovate update evaluated",
+      expect.objectContaining({
+        precedent: "publira/publira#12",
+        precedentApprovedBy: "ykzts",
+        review: 80,
+        reviewCreated: true,
+        status: "approved",
+      })
+    );
+  });
+
+  it("passes a dry run to both jobs", async () => {
+    const { approve, autoMerge, run } = setup();
+
+    await run({ dryRun: true });
+
+    expect(approve).toHaveBeenCalledWith(
+      expect.objectContaining({ dryRun: true })
+    );
+    expect(autoMerge).toHaveBeenCalledWith(
+      expect.objectContaining({ dryRun: true })
+    );
+  });
+
+  it("does not approve while approval is off, but still decides on auto-merge", async () => {
+    const { approve, autoMerge, run } = setup();
+
+    await run({ renovateApproval: false });
+
+    expect(approve).not.toHaveBeenCalled();
+    expect(autoMerge).toHaveBeenCalledWith(
+      expect.objectContaining({ enabled: true })
     );
   });
 
@@ -104,7 +187,7 @@ describe(evaluateRenovateUpdate, () => {
       approval: () => Promise.reject(new Error("Bad credentials")),
     });
 
-    await run(false);
+    await run({ renovateAutoMerge: false });
 
     expect(log).toHaveBeenCalledWith(
       "error",
@@ -116,15 +199,18 @@ describe(evaluateRenovateUpdate, () => {
     );
   });
 
-  it("logs nothing about auto-merge while it is off and left nothing", async () => {
+  it("logs that auto-merge is off when it left nothing to take back", async () => {
     const { log, run } = setup();
 
-    await run(false);
+    await run({ renovateAutoMerge: false });
 
-    expect(log).toHaveBeenCalledExactlyOnceWith(
+    expect(log).toHaveBeenLastCalledWith(
       "info",
-      "Renovate update evaluated",
-      expect.any(Object)
+      "Renovate update auto-merge evaluated",
+      expect.objectContaining({
+        autoMerge: "disabled",
+        job: "auto-merge-renovate-update",
+      })
     );
   });
 
@@ -193,22 +279,32 @@ describe(evaluateRenovateUpdatesEverywhere, () => {
       Promise.resolve()
     );
 
+    const settings = {
+      dryRun: false,
+      renovateApproval: true,
+      renovateAutoMerge: true,
+    };
+    const log = vi.fn<Log>();
+
     await evaluateRenovateUpdatesEverywhere({
       app,
-      autoMerge: true,
       evaluate,
       headRef: "renovate/turbo-monorepo",
-      log: vi.fn<Log>(),
+      log,
+      settings,
     });
 
     expect(evaluate).toHaveBeenCalledOnce();
-    expect(evaluate.mock.calls[0]?.[0]).toMatchObject({
-      autoMerge: true,
+    const [options] = evaluate.mock.calls[0] ?? [];
+    options?.log("info", "line");
+    expect(log).toHaveBeenCalledWith("info", "line", { installation: 1 });
+    expect(options).toMatchObject({
       owner: "publira",
       precedentScanCache: expect.any(Object),
       pullNumber: 31,
       repo: "agents",
       reviewer: BOT,
+      settings,
     });
     expect(requests).toContain(
       "/repos/publira/agents/pulls?head=publira%3Arenovate%2Fturbo-monorepo&per_page=100&state=open"

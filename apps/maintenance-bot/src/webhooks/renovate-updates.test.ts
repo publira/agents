@@ -58,9 +58,14 @@ const setup = ({ autoMerge = false } = {}) => {
     /** The pull requests evaluated one by one. */
     evaluated: () => evaluate.mock.calls.map(([options]) => options.pullNumber),
     handlers: createRenovateUpdateHandlers({
-      autoMergeEnabled: () => autoMerge,
       evaluate,
       evaluateEverywhere,
+      readSettings: () => ({
+        dryRun: false,
+        releaseAgeExclusionCleanup: true,
+        renovateApproval: true,
+        renovateAutoMerge: autoMerge,
+      }),
     }),
   };
 };
@@ -116,11 +121,16 @@ describe("pull_request", () => {
     );
 
     expect(evaluated()).toStrictEqual([31]);
-    expect(evaluate.mock.calls[0]?.[0]).toMatchObject({
-      autoMerge: true,
+    const [options] = evaluate.mock.calls[0] ?? [];
+    expect(options).toMatchObject({
       owner: "publira",
       repo: "agents",
       reviewer: BOT,
+      settings: { renovateAutoMerge: true },
+    });
+    options?.log("info", "line");
+    expect(context.log).toHaveBeenCalledWith("info", "line", {
+      installation: 42,
     });
   });
 
@@ -137,8 +147,8 @@ describe("pull_request", () => {
 
     expect(evaluateEverywhere).toHaveBeenCalledWith(
       expect.objectContaining({
-        autoMerge: false,
         headRef: "renovate/turbo-monorepo",
+        settings: expect.objectContaining({ renovateAutoMerge: false }),
       })
     );
     expect(evaluated()).toStrictEqual([]);

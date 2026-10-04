@@ -14,7 +14,8 @@ import { parseRepositoryName } from "@publira/github";
 
 import { getGitHubApp } from "../github-app.ts";
 import { autoMergeRenovateUpdate } from "../jobs/auto-merge-renovate-update.ts";
-import { readRenovateAutoMerge } from "../renovate-auto-merge.ts";
+import { log } from "../log.ts";
+import { readSettings } from "../settings.ts";
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -39,7 +40,7 @@ if (app === undefined) {
   process.exit(2);
 }
 
-const enabled = readRenovateAutoMerge();
+const { renovateAutoMerge: enabled } = readSettings(log);
 const result = await autoMergeRenovateUpdate({
   ...repository,
   dryRun: values["dry-run"] ?? false,
