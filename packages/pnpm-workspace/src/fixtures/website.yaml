@@ -1,0 +1,24 @@
+allowBuilds:
+  "@parcel/watcher": false
+  "@swc/core": false
+  lefthook: true
+  unrs-resolver: true
+minimumReleaseAgeExclude:
+  - "@publira/*"
+  # Next.js 16.3.8, the September 30, 2026 security release (one high, five
+  # medium, one low). Published today, so it is still inside the default
+  # 1440-minute minimumReleaseAge. Exempt this version, the direct
+  # @next/mdx dependency, and the @next/* packages the release installs.
+  # Drop the pins once the release is a day old.
+  # https://nextjs.org/blog/september-2026-security-release
+  - "@next/env@16.3.8"
+  - "@next/mdx@16.3.8"
+  - "@next/swc-darwin-arm64@16.3.8"
+  - "@next/swc-darwin-x64@16.3.8"
+  - "@next/swc-linux-arm64-gnu@16.3.8"
+  - "@next/swc-linux-arm64-musl@16.3.8"
+  - "@next/swc-linux-x64-gnu@16.3.8"
+  - "@next/swc-linux-x64-musl@16.3.8"
+  - "@next/swc-win32-arm64-msvc@16.3.8"
+  - "@next/swc-win32-x64-msvc@16.3.8"
+  - next@16.3.8

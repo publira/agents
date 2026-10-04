@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createGitHubClient } from "./client.ts";
-import { readRepositoryFile } from "./repository-file.ts";
+import {
+  readOptionalRepositoryFile,
+  readRepositoryFile,
+} from "./repository-file.ts";
 
 const location = {
   owner: "publira",
@@ -71,5 +74,44 @@ describe(readRepositoryFile, () => {
     await expect(
       readRepositoryFile(createGitHubClient({ fetch: fetchImpl }), location)
     ).rejects.toThrow("too large");
+  });
+});
+
+describe(readOptionalRepositoryFile, () => {
+  it("decodes the file contents", async () => {
+    const fetchImpl = respondWith(fileResponse("packages: []\n"));
+
+    await expect(
+      readOptionalRepositoryFile(
+        createGitHubClient({ fetch: fetchImpl }),
+        location
+      )
+    ).resolves.toBe("packages: []\n");
+  });
+
+  it("returns undefined for a missing file", async () => {
+    const fetchImpl = respondWith(
+      Response.json({ message: "Not Found" }, { status: 404 })
+    );
+
+    await expect(
+      readOptionalRepositoryFile(
+        createGitHubClient({ fetch: fetchImpl }),
+        location
+      )
+    ).resolves.toBeUndefined();
+  });
+
+  it("passes on other failures", async () => {
+    const fetchImpl = respondWith(
+      Response.json({ message: "Server Error" }, { status: 500 })
+    );
+
+    await expect(
+      readOptionalRepositoryFile(
+        createGitHubClient({ fetch: fetchImpl }),
+        location
+      )
+    ).rejects.toMatchObject({ status: 500 });
   });
 });

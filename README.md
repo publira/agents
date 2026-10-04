@@ -12,7 +12,7 @@ The first application is the maintenance bot, an [eve](https://eve.dev/) app dep
 | `packages/github/` | GitHub API access |
 | `packages/maintenance-policies/` | The rules that decide what a job does |
 | `packages/npm-registry/` | npm registry lookups |
-| `packages/pnpm-workspace/` | Reading `pnpm-workspace.yaml` |
+| `packages/pnpm-workspace/` | Reading and editing `pnpm-workspace.yaml`, and the registries `.npmrc` sets |
 | `packages/tsconfig/` | The TypeScript configuration every package extends |
 
 ## Development

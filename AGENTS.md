@@ -62,6 +62,7 @@ pnpm holds back versions published less than a day ago (`minimumReleaseAge`). `p
 - `pnpm build`: build the packages with tsdown and the maintenance bot with `eve build`.
 - `pnpm --filter @publira/maintenance-bot dev`: start the bot locally with `eve dev`, once the packages are built, which opens eve's terminal UI. It needs a model connection, which eve asks for on first start; `--no-ui` starts the server alone.
 - `pnpm --filter @publira/maintenance-bot check-release-age-exclusions <owner/repo>`: run that job from the terminal without eve, once the packages are built. It reads the repository as the GitHub App when `apps/maintenance-bot/.env.local` holds a development App's credentials; otherwise requests are anonymous, and `GH_TOKEN` set to a token of your own raises the GitHub API rate limit.
+- `pnpm --filter @publira/maintenance-bot remove-expired-release-age-exclusions <owner/repo> --dry-run`: print the `pnpm-workspace.yaml` the cleanup job would propose, reading as `check-release-age-exclusions` does. Without `--dry-run` it pushes the branch and opens the pull request, which needs the App's credentials.
 - `pnpm --filter @publira/maintenance-bot list-app-repositories`: list the repositories the App in `.env.local` is installed on, which checks its credentials.
 
 Run `pnpm check`, `pnpm typecheck`, and `pnpm test` before committing. The lefthook pre-commit hook formats staged files but does not lint or test them.
@@ -70,7 +71,7 @@ Run `pnpm check`, `pnpm typecheck`, and `pnpm test` before committing. The lefth
 
 eve is in preview and changes quickly. Read the docs bundled with the installed version in `apps/maintenance-bot/node_modules/eve/docs/` (start with `README.md`) before authoring tools, channels, schedules, or deployment settings, rather than relying on memory. `pnpm exec eve info` in `apps/maintenance-bot/` shows what eve discovered.
 
-The agent's model is an AI Gateway model ID in `agent/agent.ts`. On Vercel the deployment reaches the gateway through the project's OIDC token; locally, `eve dev` asks for a connection.
+The agent's model is an AI Gateway model ID in `agent/agent.ts`. On Vercel the deployment reaches the gateway through the project's OIDC token; locally, `eve dev` asks for a connection. A job that needs a model for one narrow step calls it with the AI SDK outside an agent session, as `src/exclusion-editor.ts` does; keep its model ID in step with the agent's. A command-line run that reaches that step needs `AI_GATEWAY_API_KEY` in `.env.local`.
 
 The `eve` channel accepts Vercel OIDC and, under `eve dev`, localhost. Add an authenticator before exposing a route to anyone else.
 

@@ -7,7 +7,7 @@ import { checkReleaseAgeExclusions } from "../../src/jobs/check-release-age-excl
 
 export default defineTool({
   description:
-    "Check which minimumReleaseAgeExclude entries in a repository's pnpm-workspace.yaml are still needed. An entry is expired once every version it pins is older than the workspace's minimumReleaseAge, waiting while one is not, and kept when it pins no version.",
+    "Check which minimumReleaseAgeExclude entries in a repository's pnpm-workspace.yaml are still needed. An entry is expired once every version it pins is older than the workspace's minimumReleaseAge, and waiting while one is not. It is kept when it pins no exact version (unpinned) or its package installs from a registry other than the public npm registry (other-registry). A daily schedule opens a pull request that removes expired entries.",
   async execute({ ref, repository }) {
     const name = parseRepositoryName(repository);
     const app = getGitHubApp();
