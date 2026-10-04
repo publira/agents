@@ -22,6 +22,7 @@ import type {
   RenovateCommitsVerdict,
   RenovateUpdate,
 } from "@publira/maintenance-policies";
+import { z } from "zod";
 
 import { loggableFailure } from "../log.ts";
 import type { Log, LogFields } from "../log.ts";
@@ -109,9 +110,14 @@ export interface ApproveEquivalentRenovateUpdateOptions {
   reviewer?: string;
   /** Evaluates the pull request without submitting a review. */
   dryRun?: boolean;
+  /** Shares the scan for precedents with the other evaluations of a run. */
+  precedentScanCache?: PrecedentScanCache;
 }
 
 const shortSha = (sha: string) => sha.slice(0, 7);
+
+// The part of a failed Octokit request that tells what went wrong.
+const requestFailure = z.object({ status: z.number() });
 
 const describeCommits = (verdict: RenovateCommitsVerdict): string => {
   switch (verdict.result) {
@@ -178,34 +184,19 @@ const toReview = (review: {
   user: review.user,
 });
 
-interface FindPrecedentOptions {
+interface ScanOptions {
   octokit: Octokit;
   owner: string;
   ownerType: string;
   /** The branch Renovate raises the update from. */
   headRef: string;
-  fingerprint: string;
-  /** The pull request being evaluated, which cannot be its own precedent. */
-  current: { repo: string; number: number };
 }
 
-/**
- * Looks for a precedent among the merged pull requests from the same branch
- * in every repository of the owner the token can read. The organization's
- * Renovate preset names a branch after its dependency or group, so the same
- * update comes from the same branch everywhere; one from a branch of another
- * name is not found, and the update is not approved.
- */
-const findPrecedent = async ({
+const listOwnerRepositories = async ({
   octokit,
   owner,
   ownerType,
-  headRef,
-  fingerprint,
-  current,
-}: FindPrecedentOptions): Promise<
-  { precedent: Precedent } | { reasons: string[] }
-> => {
+}: ScanOptions) => {
   const repositories =
     ownerType === "Organization"
       ? await octokit.paginate(octokit.rest.repos.listForOrg, {
@@ -218,20 +209,113 @@ const findPrecedent = async ({
           type: "owner",
           username: owner,
         });
+  return repositories.map(({ name }) => name);
+};
+
+/** Lists the closed pull requests from a branch in every given repository. */
+const listClosedFromBranch = async (
+  { octokit, owner, headRef }: ScanOptions,
+  repositories: readonly string[]
+) => {
   const closed = await Promise.all(
-    repositories.map(async ({ name }) => {
+    repositories.map(async (repo) => {
       const pulls = await octokit.paginate(octokit.rest.pulls.list, {
         head: `${owner}:${headRef}`,
         owner,
         per_page: 100,
-        repo: name,
+        repo,
         state: "closed",
       });
-      return pulls.map((pull) => ({ ...pull, repo: name }));
+      return pulls.map((pull) => ({ ...pull, repo }));
     })
   );
+  return closed.flat();
+};
+
+type ClosedPullRequest = Awaited<
+  ReturnType<typeof listClosedFromBranch>
+>[number];
+
+/**
+ * Shares the scan for precedents between the evaluations of one run, such as
+ * the hourly sweep: the owner's repositories are listed once, and each
+ * branch's closed pull requests are listed once across them. Create one per
+ * run, so that a later run sees pull requests merged since.
+ */
+export interface PrecedentScanCache {
+  repositories: Map<string, Promise<string[]>>;
+  closedPullRequests: Map<string, Promise<ClosedPullRequest[]>>;
+}
+
+export const createPrecedentScanCache = (): PrecedentScanCache => ({
+  closedPullRequests: new Map(),
+  repositories: new Map(),
+});
+
+// A failed scan is forgotten, so the next evaluation tries it again.
+const memoize = <T>(
+  cache: Map<string, Promise<T>>,
+  key: string,
+  load: () => Promise<T>
+): Promise<T> => {
+  const cached = cache.get(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const loaded = (async () => {
+    try {
+      return await load();
+    } catch (error) {
+      // `load` returns a promise, so this runs after the `set` below.
+      cache.delete(key);
+      throw error;
+    }
+  })();
+  cache.set(key, loaded);
+  return loaded;
+};
+
+const scanClosedFromBranch = (
+  options: ScanOptions,
+  cache: PrecedentScanCache = createPrecedentScanCache()
+) =>
+  memoize(
+    cache.closedPullRequests,
+    `${options.owner}\0${options.headRef}`,
+    async () =>
+      listClosedFromBranch(
+        options,
+        await memoize(cache.repositories, options.owner, () =>
+          listOwnerRepositories(options)
+        )
+      )
+  );
+
+interface FindPrecedentOptions extends ScanOptions {
+  fingerprint: string;
+  /** The pull request being evaluated, which cannot be its own precedent. */
+  current: { repo: string; number: number };
+  cache: PrecedentScanCache | undefined;
+}
+
+/**
+ * Looks for a precedent among the merged pull requests from the same branch
+ * in every repository of the owner the token can read. The organization's
+ * Renovate preset names a branch after its dependency or group, so the same
+ * update comes from the same branch everywhere; one from a branch of another
+ * name is not found, and the update is not approved.
+ */
+const findPrecedent = async ({
+  fingerprint,
+  current,
+  cache,
+  ...scan
+}: FindPrecedentOptions): Promise<
+  { precedent: Precedent } | { reasons: string[] }
+> => {
+  const { octokit, owner, headRef } = scan;
+  const closed = await scanClosedFromBranch(scan, cache);
   const candidates = closed
-    .flat()
     .flatMap((pull) => {
       if (
         pull.merged_at === null ||
@@ -347,6 +431,7 @@ interface PullRequestContext {
   repo: string;
   pullNumber: number;
   pullRequest: PullRequestData;
+  precedentScanCache: PrecedentScanCache | undefined;
 }
 
 const checkAuthor = ({ user }: PullRequestData): Verdict =>
@@ -523,6 +608,7 @@ const evaluateConditions = async (
   }
 
   const found = await findPrecedent({
+    cache: context.precedentScanCache,
     current: { number: context.pullNumber, repo: context.repo },
     fingerprint: fingerprintRenovateUpdates(parsed.updates),
     headRef: pullRequest.head.ref,
@@ -566,6 +652,7 @@ export const approveEquivalentRenovateUpdate = async ({
   pullNumber,
   reviewer,
   dryRun = false,
+  precedentScanCache,
 }: ApproveEquivalentRenovateUpdateOptions): Promise<ApproveEquivalentRenovateUpdateResult> => {
   const location = { owner, pull_number: pullNumber, repo };
   const readPullRequest = async () => {
@@ -595,6 +682,7 @@ export const approveEquivalentRenovateUpdate = async ({
   const { conditions, precedent, updates } = await evaluateConditions({
     octokit,
     owner,
+    precedentScanCache,
     pullNumber,
     pullRequest,
     repo,
@@ -631,16 +719,25 @@ export const approveEquivalentRenovateUpdate = async ({
     repo,
     reviewer,
   });
-  const after = review.created ? await readPullRequest() : latest;
-
   // A push between the check above and the submission leaves an approval of
-  // a commit that is no longer the head, which could still count.
+  // a commit that is no longer the head, which could still count. Read the
+  // head again even when a concurrent run submitted the review: that run may
+  // fail before it checks.
+  const after = await readPullRequest();
+
   if (after.head.sha !== headSha) {
-    await octokit.rest.pulls.dismissReview({
-      ...location,
-      message: `The head moved to ${after.head.sha} while this approval of ${headSha} was submitted. The maintenance bot evaluates the new head on its own.`,
-      review_id: review.id,
-    });
+    try {
+      await octokit.rest.pulls.dismissReview({
+        ...location,
+        message: `The head moved to ${after.head.sha} while this approval of ${headSha} was submitted. The maintenance bot evaluates the new head on its own.`,
+        review_id: review.id,
+      });
+    } catch (error) {
+      // Someone, or a concurrent run, dismissed it first.
+      if (requestFailure.safeParse(error).data?.status !== 422) {
+        throw error;
+      }
+    }
     return {
       conditions,
       headSha,
@@ -703,6 +800,7 @@ export const approveEquivalentRenovateUpdatesEverywhere = async ({
     listAppRepositories(app),
     app.getBotLogin(),
   ]);
+  const precedentScanCache = createPrecedentScanCache();
 
   await Promise.all(
     repositories
@@ -726,6 +824,7 @@ export const approveEquivalentRenovateUpdatesEverywhere = async ({
               const result = await job({
                 octokit,
                 owner,
+                precedentScanCache,
                 pullNumber: pull.number,
                 repo,
                 reviewer,

@@ -6,6 +6,7 @@ import type { Log } from "../log.ts";
 import {
   approveEquivalentRenovateUpdate,
   approveEquivalentRenovateUpdatesEverywhere,
+  createPrecedentScanCache,
 } from "./approve-equivalent-renovate-update.ts";
 
 const BOT = "publira-maintenance[bot]";
@@ -69,6 +70,10 @@ interface Scenario {
   heads?: readonly string[];
   /** The bot's own reviews of the pull request. */
   ownReviews?: readonly JsonObject[];
+  /** What the second and later reads of them return, as after a concurrent run. */
+  ownReviewsLater?: readonly JsonObject[];
+  /** Whether the review was dismissed already, so dismissing it fails. */
+  alreadyDismissed?: boolean;
   commits?: readonly JsonObject[];
   checkRuns?: readonly JsonObject[];
   statuses?: readonly JsonObject[];
@@ -95,6 +100,8 @@ const fakeGitHub = ({
   pullRequest = {},
   heads = [HEAD],
   ownReviews = [],
+  ownReviewsLater = ownReviews,
+  alreadyDismissed = false,
   commits = [renovateCommit(HEAD)],
   checkRuns = [
     {
@@ -112,6 +119,7 @@ const fakeGitHub = ({
   const writes: { route: string; body: unknown }[] = [];
   const routes: string[] = [];
   let reads = 0;
+  let reviewReads = 0;
 
   const fetchImpl = vi.fn<typeof fetch>((input, init) => {
     const url = new URL(String(input));
@@ -125,7 +133,7 @@ const fakeGitHub = ({
       writes.push({ body, route });
     }
 
-    const respond = (): Json | undefined => {
+    const respond = (): Json | Response | undefined => {
       switch (route) {
         case "GET /repos/publira/agents/pulls/31": {
           const head = heads[Math.min(reads, heads.length - 1)];
@@ -154,7 +162,8 @@ const fakeGitHub = ({
           };
         }
         case "GET /repos/publira/agents/pulls/31/reviews": {
-          return ownReviews;
+          reviewReads += 1;
+          return reviewReads === 1 ? ownReviews : ownReviewsLater;
         }
         case "GET /repos/publira/agents/pulls/31/commits": {
           return commits;
@@ -214,7 +223,12 @@ const fakeGitHub = ({
           return { id: 99, state: "APPROVED" };
         }
         case "PUT /repos/publira/agents/pulls/31/reviews/99/dismissals": {
-          return { id: 99, state: "DISMISSED" };
+          return alreadyDismissed
+            ? Response.json(
+                { message: "Can not dismiss a dismissed review" },
+                { status: 422 }
+              )
+            : { id: 99, state: "DISMISSED" };
         }
         default: {
           return undefined;
@@ -222,11 +236,10 @@ const fakeGitHub = ({
       }
     };
 
-    const result = respond();
+    const result =
+      respond() ?? Response.json({ message: "Not Found" }, { status: 404 });
     const response =
-      result === undefined
-        ? Response.json({ message: "Not Found" }, { status: 404 })
-        : Response.json(result);
+      result instanceof Response ? result : Response.json(result);
     // The pagination plugin reads the URL of the response.
     Object.defineProperty(response, "url", { value: url.href });
     return Promise.resolve(response);
@@ -241,7 +254,7 @@ const fakeGitHub = ({
 
 const run = (
   github: ReturnType<typeof fakeGitHub>,
-  options: { dryRun?: boolean } = {}
+  options: Partial<Parameters<typeof approveEquivalentRenovateUpdate>[0]> = {}
 ) =>
   approveEquivalentRenovateUpdate({
     octokit: github.octokit,
@@ -388,6 +401,52 @@ describe(approveEquivalentRenovateUpdate, () => {
     expect(github.writes.at(-1)?.route).toBe(
       "PUT /repos/publira/agents/pulls/31/reviews/99/dismissals"
     );
+  });
+
+  it("dismisses the approval a concurrent run submitted when the head moves", async () => {
+    const github = fakeGitHub({
+      heads: [HEAD, HEAD, "c0ffee0000"],
+      ownReviewsLater: [
+        { commit_id: HEAD, id: 99, state: "APPROVED", user: { login: BOT } },
+      ],
+    });
+
+    const result = await run(github);
+
+    expect(result).toMatchObject({ review: { id: 99 }, status: "withdrawn" });
+    expect(github.writes.map(({ route }) => route)).toStrictEqual([
+      "PUT /repos/publira/agents/pulls/31/reviews/99/dismissals",
+    ]);
+  });
+
+  it("accepts an approval someone dismissed first", async () => {
+    const github = fakeGitHub({
+      alreadyDismissed: true,
+      heads: [HEAD, HEAD, "c0ffee0000"],
+    });
+
+    const result = await run(github);
+
+    expect(result.status).toBe("withdrawn");
+  });
+
+  it("scans for precedents once per branch in a run", async () => {
+    const github = fakeGitHub();
+    const precedentScanCache = createPrecedentScanCache();
+
+    await run(github, { dryRun: true, precedentScanCache });
+    await run(github, { dryRun: true, precedentScanCache });
+
+    expect(
+      github.routes.filter(
+        (route) =>
+          route === "GET /orgs/publira/repos" ||
+          route === "GET /repos/publira/website/pulls"
+      )
+    ).toStrictEqual([
+      "GET /orgs/publira/repos",
+      "GET /repos/publira/website/pulls",
+    ]);
   });
 
   it("explains a dry run without writing", async () => {
@@ -579,6 +638,7 @@ describe(approveEquivalentRenovateUpdatesEverywhere, () => {
     expect(job).toHaveBeenCalledOnce();
     expect(job.mock.calls[0]?.[0]).toMatchObject({
       owner: "publira",
+      precedentScanCache: expect.any(Object),
       pullNumber: 31,
       repo: "agents",
       reviewer: BOT,
