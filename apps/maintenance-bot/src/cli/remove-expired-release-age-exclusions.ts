@@ -79,6 +79,12 @@ switch (result.status) {
     }
     break;
   }
+  case "declined": {
+    console.log(
+      `Declined: ${result.pullRequest.url} held the same cleanup and was closed without merging.`
+    );
+    break;
+  }
   default: {
     break;
   }
