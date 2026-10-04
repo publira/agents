@@ -38,7 +38,10 @@ export type AutoMergeOutcome =
       reason: string;
     }
   | {
-      /** The bot's auto-merge or queue entry for this head stands. */
+      /**
+       * The bot's auto-merge or queue entry for this head stands, and the
+       * decision, made again, still holds.
+       */
       status: "pending";
     }
   | { status: "declined"; reason: string }
@@ -239,15 +242,18 @@ const changesWorkflows = async ({
 
 /**
  * Settles an auto-merge or queue entry that is already there. Returns the
- * outcome when there is nothing more to decide, and otherwise why the bot
- * took back its earlier decision, if it did.
+ * outcome when there is nothing more to decide, the bot's own request when it
+ * was made for this head, and otherwise why the bot took back its earlier
+ * decision, if it did.
  */
 const reconsider = async (
   options: AutoMergeRenovateUpdateOptions,
   state: PullRequestMergeState,
   approvedAt: Date | undefined
 ): Promise<
-  { outcome: AutoMergeOutcome } | { withdrew: string | undefined }
+  | { outcome: AutoMergeOutcome }
+  | { standing: OwnRequest }
+  | { withdrew: string | undefined }
 > => {
   const { enabled, dryRun = false, reviewer } = options;
   const request = findOwnRequest(state, reviewer);
@@ -277,7 +283,7 @@ const reconsider = async (
     : "auto-merge is disabled";
 
   if (withdrew === undefined) {
-    return { outcome: { status: "pending" } };
+    return { standing: request };
   }
   if (!dryRun) {
     await withdraw(options, state, request);
@@ -393,9 +399,10 @@ const merge = async (
  * nothing is left to wait for, the bot queues it, or merges it at that head,
  * through the same rules.
  *
- * A decision lasts for one head. When the head moves, or the bot's approval
- * of it is dismissed, the bot takes back the auto-merge or the queue entry it
- * made, and decides again. With auto-merge off, it only takes back its own.
+ * A decision lasts for one head, and only while it holds: every evaluation
+ * makes it again. When the head moves, the bot's approval of it is dismissed,
+ * or the decision no longer holds, the bot takes back the auto-merge or the
+ * queue entry it made. With auto-merge off, it only takes back its own.
  * Someone else's auto-merge or queue entry is left as it is.
  */
 export const autoMergeRenovateUpdate = async (
@@ -419,8 +426,27 @@ export const autoMergeRenovateUpdate = async (
     return { headSha, ...settled.outcome };
   }
 
-  const decided = { headSha, withdrew: settled.withdrew };
   const { mergeQueue, verdict } = await decide(options, state, approvedAt);
+
+  // The bot's request for this head stands only while the decision does:
+  // GitHub does not enforce the approval policy, such as who edited the
+  // description or a check no ruleset requires.
+  if ("standing" in settled) {
+    if (verdict.result === "merge") {
+      return { headSha, status: "pending" };
+    }
+    if (!dryRun) {
+      await withdraw(options, state, settled.standing);
+    }
+    return {
+      headSha,
+      reason: verdict.reason,
+      status: "declined",
+      withdrew: `the decision no longer holds: ${verdict.reason}`,
+    };
+  }
+
+  const decided = { headSha, withdrew: settled.withdrew };
 
   if (verdict.result === "declined") {
     return { ...decided, reason: verdict.reason, status: "declined" };

@@ -257,6 +257,55 @@ describe(autoMergeRenovateUpdate, () => {
     expect(github.mutations).toStrictEqual([]);
   });
 
+  it("takes back its auto-merge once the approval policy no longer holds", async () => {
+    const github = fakeGitHub({
+      pullRequest: ownAutoMerge("2026-10-04T06:00:01Z"),
+    });
+
+    const result = await run(github, {
+      approve: () =>
+        Promise.resolve({
+          conditions: [
+            {
+              condition: "description",
+              detail:
+                "someone edited the description last; Renovate rewrites it on its next run",
+              passed: false,
+            },
+          ],
+          headSha: HEAD,
+          status: "skipped",
+        }),
+    });
+
+    expect(result).toMatchObject({
+      reason: expect.stringContaining(
+        "the approval policy does not hold: description: someone edited"
+      ),
+      status: "declined",
+      withdrew: expect.stringMatching(/^the decision no longer holds: /u),
+    });
+    expect(github.mutations.map(({ name }) => name)).toStrictEqual([
+      "disablePullRequestAutoMerge",
+    ]);
+  });
+
+  it("only tells a dry run that it would take back its auto-merge", async () => {
+    const github = fakeGitHub({
+      pullRequest: {
+        ...ownAutoMerge("2026-10-04T06:00:01Z"),
+        mergeStateStatus: "DIRTY",
+      },
+    });
+
+    await expect(run(github, { dryRun: true })).resolves.toMatchObject({
+      reason: "it has conflicts",
+      status: "declined",
+      withdrew: "the decision no longer holds: it has conflicts",
+    });
+    expect(github.mutations).toStrictEqual([]);
+  });
+
   it("takes back its auto-merge when the head moved and is not approved", async () => {
     const github = fakeGitHub({
       pullRequest: ownAutoMerge("2026-10-04T06:00:01Z"),
