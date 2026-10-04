@@ -1,16 +1,26 @@
 {
-  "name": "Publira Agents",
-  "image": "ghcr.io/publira/base-images/publira-dev:2026.10.04@sha256:3aeffdcfe550a53ad9c57c0c86e7ded25a4c504434fa9218f06924fb766fe12a",
+  "containerEnv": {
+    // .claude.json (OAuth account, project trust) lives outside ~/.claude by
+    // default; point it at the persisted volume so rebuilds don't force
+    // re-auth. https://code.claude.com/docs/en/devcontainer
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["oxc.oxc-vscode", "TypeScriptTeam.native-preview"]
+    }
+  },
   "features": {
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0.5": {},
     // eve runs sandboxes that execute real binaries in a local Docker
     // daemon; without one it falls back to just-bash.
     "ghcr.io/devcontainers/features/docker-in-docker:4.1.2": {
       "moby": false,
       "version": "29.3.1"
     },
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0.5": {},
     "ghcr.io/devcontainers/features/github-cli:1.1.3": {}
   },
+  "image": "ghcr.io/publira/base-images/publira-dev:2026.10.04@sha256:3aeffdcfe550a53ad9c57c0c86e7ded25a4c504434fa9218f06924fb766fe12a",
   "mounts": [
     "source=publira-agents-claude-${devcontainerId},target=/home/vscode/.claude,type=volume",
     "source=publira-agents-codex-${devcontainerId},target=/home/vscode/.codex,type=volume",
@@ -27,16 +37,6 @@
     // from it counts against the anonymous rate limit.
     "source=${localWorkspaceFolder}/.devcontainer/daemon.json,target=/etc/docker/daemon.json,type=bind,readonly"
   ],
-  "containerEnv": {
-    // .claude.json (OAuth account, project trust) lives outside ~/.claude by
-    // default; point it at the persisted volume so rebuilds don't force
-    // re-auth. https://code.claude.com/docs/en/devcontainer
-    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
-  },
-  "customizations": {
-    "vscode": {
-      "extensions": ["oxc.oxc-vscode", "TypeScriptTeam.native-preview"]
-    }
-  },
+  "name": "Publira Agents",
   "postCreateCommand": ".devcontainer/post-create.sh"
 }
