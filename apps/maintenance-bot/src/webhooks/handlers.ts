@@ -1,3 +1,4 @@
+import { createRenovateApprovalHandlers } from "./approve-equivalent-renovate-updates.ts";
 import type { WebhookHandlers } from "./receive-webhook.ts";
 
 /**
@@ -5,4 +6,6 @@ import type { WebhookHandlers } from "./receive-webhook.ts";
  * event only once it has a handler here; the others are acknowledged and
  * dropped.
  */
-export const webhookHandlers: WebhookHandlers = {};
+export const webhookHandlers: WebhookHandlers = {
+  ...createRenovateApprovalHandlers(),
+};

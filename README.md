@@ -42,7 +42,8 @@ The bot acts on repositories as a GitHub App, installed on the repositories it m
   - Pull requests: read and write. Opens pull requests and submits reviews.
   - Checks: read, and Commit statuses: read. Tell whether a pull request's CI passed.
 - **Organization and account permissions**: none.
-- **Events**: only those the bot handles; see `apps/maintenance-bot/src/webhooks/handlers.ts`. GitHub sends installation events regardless.
+- **Events**: only those the bot handles; see `apps/maintenance-bot/src/webhooks/handlers.ts`. GitHub sends installation events regardless. They are now:
+  - Check suite, Pull request, and Status: approve a Renovate pull request when a maintainer approved and merged the same update in another Publira repository.
 - **Where can this App be installed**: only on this account. Install it on selected repositories, not all of them.
 
 The bot reads the App's credentials from three environment variables:
