@@ -67,6 +67,9 @@ interface FakeOptions {
   closedPullRequest?: string;
   /** Whether it was merged. */
   closedMerged?: boolean;
+  /** How many commits it is ahead of the base, and what they change. */
+  closedAheadBy?: number;
+  closedChangedFiles?: string[];
 }
 
 // Answers the GitHub API and the npm registry, and records the writes.
@@ -79,6 +82,8 @@ const fake = ({
   headMessage = "chore(deps): remove expired minimumReleaseAgeExclude entries",
   closedPullRequest,
   closedMerged = false,
+  closedAheadBy = 1,
+  closedChangedFiles = ["pnpm-workspace.yaml"],
 }: FakeOptions = {}) => {
   const writes: { route: string; body: unknown }[] = [];
   const fetchImpl = vi.fn<typeof fetch>((input, init) => {
@@ -159,6 +164,22 @@ const fake = ({
             ahead_by: aheadBy,
             commits: [{ commit: { message: headMessage } }],
             files: changedFiles.map((filename) => ({ filename })),
+          }),
+      ],
+      [
+        `GET ${repository}/compare/base...closed-head`,
+        () =>
+          Response.json({
+            ahead_by: closedAheadBy,
+            commits: [
+              {
+                commit: {
+                  message:
+                    "chore(deps): remove expired minimumReleaseAgeExclude entries",
+                },
+              },
+            ],
+            files: closedChangedFiles.map((filename) => ({ filename })),
           }),
       ],
       [
@@ -501,6 +522,13 @@ describe(removeExpiredReleaseAgeExclusions, () => {
       },
       // Merged, and the entries added again since.
       { closedMerged: true, closedPullRequest: cleanedManifest },
+      // Closed while it held a change to another file as well.
+      {
+        closedChangedFiles: ["pnpm-workspace.yaml", "package.json"],
+        closedPullRequest: cleanedManifest,
+      },
+      // Or a commit below the cleanup commit.
+      { closedAheadBy: 2, closedPullRequest: cleanedManifest },
     ])("proposes a different cleanup: %j", async (options) => {
       const github = fake(options);
 

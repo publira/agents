@@ -184,46 +184,43 @@ const findCleanupPullRequest = async (
   return pullRequest;
 };
 
-interface CurrentCleanupOptions {
+interface CleanupProposalOptions {
   octokit: Octokit;
   owner: string;
   repo: string;
   baseSha: string;
-  pullRequest: { head: { sha: string } };
-  /**
-   * Whether a version of the file is the cleanup, given the model its commit
-   * names in its Assisted-by trailer.
-   */
-  isCleanup: (proposed: string, model: string | undefined) => boolean;
+  /** The head commit of a cleanup pull request. */
+  head: string;
 }
 
 /**
- * Finds the open cleanup pull request when it already holds the cleanup: a
- * single commit ahead of the base that changes only the file, with a file
- * that is the cleanup. Anything else on the branch, such as a commit someone
- * pushed, means the branch has to be replaced. The base may have moved on
- * since, which leaves the pull request mergeable as it is.
+ * Reads a cleanup pull request's version of the file, and the model its
+ * commit names in its Assisted-by trailer, when the pull request holds only
+ * a cleanup: a single commit ahead of the base that changes only the file.
+ * Anything else on the branch, such as a commit someone pushed, means it is
+ * not the bot's cleanup. The base may have moved on since, which leaves the
+ * pull request mergeable as it is.
  */
-const findCurrentCleanup = async ({
+const readCleanupProposal = async ({
   octokit,
   owner,
   repo,
   baseSha,
-  pullRequest,
-  isCleanup,
-}: CurrentCleanupOptions) => {
+  head,
+}: CleanupProposalOptions) => {
   // The comparison runs from where the branch left the base, so it holds
-  // every commit and change the pull request would merge.
+  // every commit and change the pull request would merge. GitHub keeps the
+  // head of a closed pull request even once its branch is deleted.
   const [{ data: comparison }, proposed] = await Promise.all([
     octokit.rest.repos.compareCommitsWithBasehead({
-      basehead: `${baseSha}...${pullRequest.head.sha}`,
+      basehead: `${baseSha}...${head}`,
       owner,
       repo,
     }),
     readOptionalRepositoryFile(octokit, {
       owner,
       path: MANIFEST_PATH,
-      ref: pullRequest.head.sha,
+      ref: head,
       repo,
     }),
   ]);
@@ -233,54 +230,30 @@ const findCurrentCleanup = async ({
   return comparison.ahead_by === 1 &&
     comparison.files?.length === 1 &&
     comparison.files[0]?.filename === MANIFEST_PATH &&
-    proposed !== undefined &&
-    isCleanup(proposed, model)
-    ? { model }
-    : undefined;
-};
-
-/**
- * Finds the last cleanup pull request when a maintainer closed it without
- * merging it and its file is the cleanup the job would propose now. A
- * cleanup that differs, such as one with more expired entries, was not
- * declined. Nor was any once a cleanup was merged since.
- */
-const findDeclinedCleanup = async (
-  options: CleanupPullRequestOptions,
-  isCleanup: (proposed: string) => boolean
-) => {
-  const pullRequest = await findCleanupPullRequest(options, "closed");
-
-  if (pullRequest === undefined || pullRequest.merged_at !== null) {
-    return;
-  }
-
-  const { octokit, owner, repo } = options;
-  // GitHub keeps the head of a closed pull request even once its branch is
-  // deleted.
-  const proposed = await readOptionalRepositoryFile(octokit, {
-    owner,
-    path: MANIFEST_PATH,
-    ref: pullRequest.head.sha,
-    repo,
-  });
-
-  return proposed !== undefined && isCleanup(proposed)
-    ? pullRequest
+    proposed !== undefined
+    ? { model, proposed }
     : undefined;
 };
 
 interface ExistingCleanupOptions extends CleanupPullRequestOptions {
   baseSha: string;
-  isCleanup: CurrentCleanupOptions["isCleanup"];
+  /**
+   * Whether an open pull request's version of the file is the cleanup, given
+   * the model its commit names in its Assisted-by trailer.
+   */
+  isCleanup: (proposed: string, model: string | undefined) => boolean;
   /** Whether a closed pull request's version of the file is the cleanup. */
   isDeclined: (proposed: string) => boolean;
 }
 
 /**
  * Finds what the cleanup branch already says about the cleanup: an open pull
- * request that holds it, or else the last closed one, which declined it. A
- * closed pull request does not count while a later one is open.
+ * request that holds it, or else the last closed one, which declined it when
+ * a maintainer closed it without merging it. A cleanup that differs, such as
+ * one with more expired entries, was not declined, and neither was a pull
+ * request that held more than a cleanup, which may have been closed for
+ * that. Nor was any once a cleanup was merged since, and a closed pull
+ * request does not count while a later one is open.
  */
 const findExistingCleanup = async ({
   baseSha,
@@ -291,23 +264,35 @@ const findExistingCleanup = async ({
   const open = await findCleanupPullRequest(options, "open");
 
   if (open !== undefined) {
-    const current = await findCurrentCleanup({
+    const proposal = await readCleanupProposal({
       ...options,
       baseSha,
-      isCleanup,
-      pullRequest: open,
+      head: open.head.sha,
     });
-    return current && { model: current.model, status: "open" as const };
+    return proposal !== undefined &&
+      isCleanup(proposal.proposed, proposal.model)
+      ? { model: proposal.model, status: "open" as const }
+      : undefined;
   }
 
-  const declined = await findDeclinedCleanup(options, isDeclined);
+  const closed = await findCleanupPullRequest(options, "closed");
 
-  return (
-    declined && {
-      pullRequest: { number: declined.number, url: declined.html_url },
-      status: "declined" as const,
-    }
-  );
+  if (closed === undefined || closed.merged_at !== null) {
+    return;
+  }
+
+  const proposal = await readCleanupProposal({
+    ...options,
+    baseSha,
+    head: closed.head.sha,
+  });
+
+  return proposal !== undefined && isDeclined(proposal.proposed)
+    ? {
+        pullRequest: { number: closed.number, url: closed.html_url },
+        status: "declined" as const,
+      }
+    : undefined;
 };
 
 /**
