@@ -72,7 +72,7 @@ describe(receiveWebhook, () => {
     await settle();
     expect(handler).toHaveBeenCalledWith(
       { id: "delivery-1", name: "pull_request", payload },
-      { app, log }
+      { app, log: expect.any(Function) }
     );
     expect(log).toHaveBeenLastCalledWith("info", "Webhook handled", {
       action: "opened",
@@ -80,6 +80,13 @@ describe(receiveWebhook, () => {
       event: "pull_request",
       installation: 42,
       repository: "publira/agents",
+    });
+    // The handler's lines name the delivery.
+    handler.mock.calls[0]?.[1].log("info", "line", { pullRequest: 31 });
+    expect(log).toHaveBeenCalledWith("info", "line", {
+      delivery: "delivery-1",
+      event: "pull_request",
+      pullRequest: 31,
     });
   });
 

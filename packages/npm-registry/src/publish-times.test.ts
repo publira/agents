@@ -1,3 +1,5 @@
+import { once } from "node:events";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { fetchPublishTimes } from "./publish-times.ts";
@@ -71,12 +73,58 @@ describe(fetchPublishTimes, () => {
   });
 
   it("fails when the registry does not answer", async () => {
-    const fetchImpl = respondWith(
-      new Response("Service Unavailable", { status: 503 })
+    const fetchImpl = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response("Service Unavailable", { status: 503 }))
     );
 
     await expect(
-      fetchPublishTimes("next", { fetch: fetchImpl })
+      fetchPublishTimes("next", { fetch: fetchImpl, retryDelay: 0 })
     ).rejects.toThrow('The npm registry answered 503 for "next"');
+    // The first attempt and two retries.
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("tries again after a server error or a failed request", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("Bad Gateway", { status: 502 }))
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(Response.json(packument));
+
+    await expect(
+      fetchPublishTimes("@next/env", { fetch: fetchImpl, retryDelay: 0 })
+    ).resolves.toHaveProperty("size", 2);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not try a client error again", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response("Forbidden", { status: 403 }))
+    );
+
+    await expect(
+      fetchPublishTimes("next", { fetch: fetchImpl, retryDelay: 0 })
+    ).rejects.toThrow('The npm registry answered 403 for "next"');
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("times out an attempt that takes too long", async () => {
+    // Answers only once the request is aborted.
+    const fetchImpl = vi.fn<typeof fetch>(async (_input, init) => {
+      if (init?.signal) {
+        await once(init.signal, "abort");
+      }
+      throw init?.signal?.reason;
+    });
+
+    await expect(
+      fetchPublishTimes("next", {
+        fetch: fetchImpl,
+        retries: 1,
+        retryDelay: 0,
+        timeout: 10,
+      })
+    ).rejects.toThrow('The npm registry did not answer for "next"');
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });

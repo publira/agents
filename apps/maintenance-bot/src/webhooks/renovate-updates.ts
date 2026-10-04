@@ -5,7 +5,8 @@ import {
   evaluateRenovateUpdate,
   evaluateRenovateUpdatesEverywhere,
 } from "../jobs/evaluate-renovate-update.ts";
-import { renovateAutoMergeEnabled } from "../renovate-auto-merge.ts";
+import { withFields } from "../log.ts";
+import { readSettings } from "../settings.ts";
 import type { WebhookHandler } from "./receive-webhook.ts";
 
 // Renovate's default branch prefix, which the organization's preset keeps.
@@ -63,13 +64,13 @@ type Payload = z.infer<typeof repositoryEvent>;
 export interface RenovateUpdateHandlerOptions {
   evaluate: typeof evaluateRenovateUpdate;
   evaluateEverywhere: typeof evaluateRenovateUpdatesEverywhere;
-  /** Reads, for each delivery, whether auto-merge is on. */
-  autoMergeEnabled: typeof renovateAutoMergeEnabled;
+  /** Reads the settings for each delivery. */
+  readSettings: typeof readSettings;
 }
 
 /**
- * The handlers that approve equivalent Renovate updates, and auto-merge them
- * when that is on, by event name:
+ * The handlers that approve equivalent Renovate updates, and auto-merge them,
+ * as the settings allow, by event name:
  *
  * - `pull_request` evaluates a Renovate pull request when it opens or
  *   changes. When one merges, it may be the precedent that the open pull
@@ -87,7 +88,7 @@ export interface RenovateUpdateHandlerOptions {
 export const createRenovateUpdateHandlers = ({
   evaluate: evaluateOne = evaluateRenovateUpdate,
   evaluateEverywhere = evaluateRenovateUpdatesEverywhere,
-  autoMergeEnabled = renovateAutoMergeEnabled,
+  readSettings: read = readSettings,
 }: Partial<RenovateUpdateHandlerOptions> = {}): Record<
   "check_suite" | "pull_request" | "status",
   WebhookHandler
@@ -103,18 +104,21 @@ export const createRenovateUpdateHandlers = ({
       app.getInstallationOctokit(payload.installation.id),
       app.getBotLogin(),
     ]);
-    const autoMerge = autoMergeEnabled(log);
+    const settings = read(log);
+    const installationLog = withFields(log, {
+      installation: payload.installation.id,
+    });
 
     for (const pullNumber of new Set(pullNumbers)) {
       // oxlint-disable-next-line no-await-in-loop -- one pull request at a time
       await evaluateOne({
-        autoMerge,
-        log,
+        log: installationLog,
         octokit,
         owner,
         pullNumber,
         repo,
         reviewer,
+        settings,
       });
     }
   };
@@ -150,8 +154,8 @@ export const createRenovateUpdateHandlers = ({
       if (action === "closed" && pullRequest.merged === true) {
         await evaluateEverywhere({
           ...context,
-          autoMerge: autoMergeEnabled(context.log),
           headRef: pullRequest.head.ref,
+          settings: read(context.log),
         });
       } else if (EVALUATED_ACTIONS.has(action)) {
         await evaluate(payload, [pullRequest.number], context);

@@ -749,7 +749,11 @@ export const approveEquivalentRenovateUpdate = async ({
   return { conditions, headSha, precedent, review, status: "approved" };
 };
 
-/** The fields of a result to log, without the review body. */
+/**
+ * The fields of a result to log, without the review body: why it was
+ * skipped, or which precedent and whose approval of it led to the approval,
+ * and the review. No model takes part in the decision.
+ */
 export const summarizeApprovalResult = (
   result: ApproveEquivalentRenovateUpdateResult
 ): LogFields => {
@@ -761,15 +765,26 @@ export const summarizeApprovalResult = (
     result.status === "skipped" || result.status === "already-reviewed"
       ? undefined
       : result.precedent;
+  let review: { id: number; created?: boolean } | undefined;
+
+  if (result.status === "already-reviewed") {
+    review = { created: false, id: result.reviewId };
+  } else if (result.status === "approved" || result.status === "withdrawn") {
+    ({ review } = result);
+  }
 
   return {
     condition: failed?.condition,
     detail: failed?.detail,
     headSha: result.headSha,
+    modelInvoked: false,
     precedent:
       precedent === undefined
         ? undefined
         : `${precedent.owner}/${precedent.repo}#${precedent.number}`,
+    precedentApprovedBy: precedent?.approvedBy,
+    review: review?.id,
+    reviewCreated: review?.created,
     status: result.status,
   };
 };

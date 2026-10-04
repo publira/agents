@@ -51,6 +51,8 @@ export {
   readRepositoryFile,
 } from "./repository-file.ts";
 export type { RepositoryName } from "./repository-name.ts";
+export type { RequestPolicy } from "./request-policy.ts";
+export { DEFAULT_REQUEST_POLICY } from "./request-policy.ts";
 export { parseRepositoryName } from "./repository-name.ts";
 export type {
   EnsureReviewOptions,

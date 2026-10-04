@@ -29,6 +29,12 @@ A job is a plain async function in `apps/maintenance-bot/src/jobs/`. It takes it
 
 Keep the decision logic in the job and the packages, not in the tool or the prompt.
 
+### Settings and logs
+
+`src/settings.ts` reads the deployment's switches: `DRY_RUN`, which every writing job honors by evaluating without writing, and one switch per feature. A new job that writes takes a `dryRun` option and gets its own switch there, with the README's settings table updated. An invalid value reads as the safe side, so keep the defaults of a new switch on that side unless the feature already runs.
+
+Jobs log one JSON line per decision through `src/log.ts`. Name the `job` and bind the fields that identify the work with `withFields`, such as the installation and the webhook delivery, and log why a job skipped, what it wrote, and whether a model was asked (`modelInvoked`), so that a decision can be audited from the logs alone. The README lists the fields.
+
 ### Workspace packages
 
 Each package builds `src/index.ts` into `dist/` with [tsdown](https://tsdown.dev/) and exports only that build, which is how the other Publira repositories ship their packages too. A consumer therefore needs the packages built: the Turborepo tasks run `build` in the dependencies first (`dependsOn: ["^build"]`), and a command run outside Turborepo needs `pnpm turbo run build --filter='./packages/*'` once, and again after a package changes. A package's own tests import its sources and need no build.
@@ -77,17 +83,21 @@ The agent's model is an AI Gateway model ID in `agent/agent.ts`. On Vercel the d
 
 The `eve` channel accepts Vercel OIDC and, under `eve dev`, localhost. Add an authenticator before exposing a route to anyone else.
 
+The bot uses no sandbox. `agent/agent.ts` sets `defaultTools: false`, which leaves the agent only its own tools, and `agent/sandbox.ts` replaces eve's default sandbox, which is a Vercel Sandbox on Vercel, with a provider that prepares nothing and refuses to start. Add a sandbox only for a feature that needs one, and say why in the pull request.
+
 ## Deployment
 
 The Vercel project's Root Directory is `apps/maintenance-bot`.
 
-A Vercel build provisions eve's sandbox template and needs the project's OIDC token, so `eve build` with `VERCEL=1` fails outside Vercel unless the directory is linked (`eve link`) and its environment pulled.
+A Vercel build has eve prepare its sandbox templates, which needs the project's OIDC token even for the bot's empty one, so `eve build` with `VERCEL=1` fails outside Vercel unless the directory is linked (`eve link`) and its environment pulled.
 
 ## GitHub authentication
 
 The bot authenticates as the Publira GitHub App. `@publira/github` signs the App's JWT and requests installation tokens (`createGitHubApp`); `apps/maintenance-bot/src/github-app.ts` reads its credentials from `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET`. Without them the bot still starts, its tools read public repositories anonymously, and the webhook route answers 503. The README lists the App's permissions and how to configure each environment.
 
 Do not give the deployed bot a personal access token or a `GITHUB_TOKEN` variable: it would act as a person, with that person's access, instead of as the App. `GH_TOKEN` in the CLI is for local runs only. Do not log a token, a key, the webhook secret, or a whole payload; pass the log the fields it needs one by one.
+
+The clients of `@publira/github` time out every request and try a failed read again after a server error, a rate limit, or a failed connection (`request-policy.ts`), as `@publira/npm-registry` does for the registry. They never retry a write, which may have been applied before it failed; a job's next run takes it up instead. Do not add retries around them.
 
 Request a new App permission only for a concrete API call that needs it, and say which in the pull request. Jobs cannot change `.github/workflows/`, which would need the Workflows permission.
 

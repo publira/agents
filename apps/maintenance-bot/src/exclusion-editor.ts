@@ -12,6 +12,10 @@ import type {
 // AI_GATEWAY_API_KEY.
 const DEFAULT_MODEL = "anthropic/claude-sonnet-5.5";
 
+// How long the call may take, its retries included. A cleanup that runs out
+// of time fails, and the next day's run tries it again.
+const TIMEOUT_MS = 120_000;
+
 const instructions = `You edit the minimumReleaseAgeExclude list in a pnpm-workspace.yaml file. Some entries have expired and are being removed. Which ones has already been decided from the npm registry; do not judge it.
 
 Choose the lines of the block to delete:
@@ -51,6 +55,7 @@ export const createModelExclusionEditor =
   (model: LanguageModel = DEFAULT_MODEL): ExclusionEditor =>
   async (request) => {
     const { output, response } = await generateText({
+      abortSignal: AbortSignal.timeout(TIMEOUT_MS),
       instructions,
       model,
       output: Output.object({ name: "edit", schema: outputSchema }),

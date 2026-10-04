@@ -3,6 +3,8 @@ import type { StrategyOptions } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 
 import type { RepositoryName } from "./repository-name.ts";
+import { applyRequestPolicy } from "./request-policy.ts";
+import type { RequestPolicy } from "./request-policy.ts";
 
 const userAgent = "publira-maintenance-bot";
 
@@ -15,6 +17,11 @@ export interface GitHubAppCredentials {
 export interface GitHubAppOptions extends GitHubAppCredentials {
   /** Defaults to the global `fetch`; tests pass their own. */
   fetch?: typeof fetch;
+  /**
+   * Overrides the timeout and retries of `DEFAULT_REQUEST_POLICY`, for the
+   * App's client and its installations' alike.
+   */
+  requestPolicy?: Partial<RequestPolicy>;
 }
 
 export interface GitHubApp {
@@ -36,14 +43,18 @@ export const createGitHubApp = ({
   appId,
   privateKey,
   fetch: fetchImpl,
+  requestPolicy,
 }: GitHubAppOptions): GitHubApp => {
   const request = fetchImpl === undefined ? undefined : { fetch: fetchImpl };
-  const octokit = new Octokit({
-    auth: { appId, privateKey },
-    authStrategy: createAppAuth,
-    request,
-    userAgent,
-  });
+  const octokit = applyRequestPolicy(
+    new Octokit({
+      auth: { appId, privateKey },
+      authStrategy: createAppAuth,
+      request,
+      userAgent,
+    }),
+    requestPolicy
+  );
   let botLogin: Promise<string> | undefined;
 
   const getInstallationOctokit = (installationId: number) =>
@@ -51,7 +62,15 @@ export const createGitHubApp = ({
     octokit.auth({
       // The factory hands the new client this App's token cache.
       factory: (auth: StrategyOptions) =>
-        new Octokit({ auth, authStrategy: createAppAuth, request, userAgent }),
+        applyRequestPolicy(
+          new Octokit({
+            auth,
+            authStrategy: createAppAuth,
+            request,
+            userAgent,
+          }),
+          requestPolicy
+        ),
       installationId,
       type: "installation",
     }) as Promise<Octokit>;

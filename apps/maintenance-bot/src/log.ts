@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export type LogFields = Record<
   string,
-  boolean | number | string | null | undefined
+  boolean | number | readonly string[] | string | null | undefined
 >;
 
 export type Log = (
@@ -19,6 +19,15 @@ export type Log = (
 export const log: Log = (level, message, fields = {}) => {
   console[level](JSON.stringify({ level, message, ...fields }));
 };
+
+/**
+ * A log that adds `fields` to every line, such as the job and the
+ * installation it runs for. A line's own fields take precedence.
+ */
+export const withFields =
+  (base: Log, fields: LogFields): Log =>
+  (level, message, lineFields) =>
+    base(level, message, { ...fields, ...lineFields });
 
 /**
  * The part of a thrown error that is safe to log: its message and, for a

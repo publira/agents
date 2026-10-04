@@ -13,8 +13,8 @@ import {
   verifyReleaseAgeExclusionRemoval,
 } from "@publira/pnpm-workspace";
 
-import { loggableFailure } from "../log.ts";
-import type { Log } from "../log.ts";
+import { loggableFailure, withFields } from "../log.ts";
+import type { Log, LogFields } from "../log.ts";
 import { judgeReleaseAgeExclusions } from "./check-release-age-exclusions.ts";
 import type { ReleaseAgeExclusionReport } from "./check-release-age-exclusions.ts";
 
@@ -82,12 +82,19 @@ export type RemoveExpiredReleaseAgeExclusionsResult =
       status: "planned";
       expired: ExpiredExclusion[];
       editedBy: "model" | "rules";
+      /** The model that chose the lines, when the rules could not. */
+      model?: string;
       source: string;
     }
   | {
       status: "pull-request";
       expired: ExpiredExclusion[];
       editedBy: "model" | "rules";
+      /**
+       * The model that chose the lines, when the rules could not. It was
+       * asked in this run only when `committed` is `true`.
+       */
+      model?: string;
       /** `false` when the open pull request already held the cleanup. */
       committed: boolean;
       pullRequest: { number: number; url: string; created: boolean };
@@ -406,6 +413,7 @@ export const removeExpiredReleaseAgeExclusions = async ({
       committed: false,
       editedBy: existing.model === undefined ? "rules" : "model",
       expired,
+      model: existing.model,
       pullRequest: await ensureCleanupPullRequest(existing.model),
       status: "pull-request",
     };
@@ -441,7 +449,7 @@ export const removeExpiredReleaseAgeExclusions = async ({
   }
 
   if (dryRun) {
-    return { editedBy, expired, source: edited, status: "planned" };
+    return { editedBy, expired, model, source: edited, status: "planned" };
   }
 
   await commitToBranch(octokit, {
@@ -457,8 +465,41 @@ export const removeExpiredReleaseAgeExclusions = async ({
     committed: true,
     editedBy,
     expired,
+    model,
     pullRequest: await ensureCleanupPullRequest(model),
     status: "pull-request",
+  };
+};
+
+/**
+ * The fields of a result to log, without the file: which entries expired,
+ * whether a model was asked in this run, and the pull request.
+ */
+export const summarizeCleanupResult = (
+  result: RemoveExpiredReleaseAgeExclusionsResult
+): LogFields => {
+  const model =
+    result.status === "planned" || result.status === "pull-request"
+      ? result.model
+      : undefined;
+  // An open pull request that already held the cleanup took no edit.
+  const edited =
+    result.status === "planned" ||
+    (result.status === "pull-request" && result.committed);
+  return {
+    committed: result.status === "pull-request" ? result.committed : undefined,
+    editedBy: "editedBy" in result ? result.editedBy : undefined,
+    expired:
+      result.status === "nothing-expired"
+        ? []
+        : result.expired.map(({ selector }) => selector),
+    model,
+    modelInvoked: edited && model !== undefined,
+    pullRequest:
+      "pullRequest" in result ? result.pullRequest.number : undefined,
+    pullRequestCreated:
+      result.status === "pull-request" ? result.pullRequest.created : undefined,
+    status: result.status,
   };
 };
 
@@ -466,6 +507,8 @@ export interface RemoveExpiredReleaseAgeExclusionsEverywhereOptions {
   app: GitHubApp;
   editor?: ExclusionEditor;
   log: Log;
+  /** Plans each cleanup without pushing a branch or opening a pull request. */
+  dryRun?: boolean;
   registry?: RegistryOptions;
   now?: Date;
   /** Replaced in tests. */
@@ -481,6 +524,7 @@ export const removeExpiredReleaseAgeExclusionsEverywhere = async ({
   app,
   editor,
   log,
+  dryRun = false,
   registry,
   now = new Date(),
   job = removeExpiredReleaseAgeExclusions,
@@ -491,9 +535,17 @@ export const removeExpiredReleaseAgeExclusionsEverywhere = async ({
     repositories
       .filter(({ archived }) => !archived)
       .map(async ({ defaultBranch, installationId, owner, repo }) => {
+        const repositoryLog = withFields(log, {
+          dryRun,
+          installation: installationId,
+          job: "remove-expired-release-age-exclusions",
+          owner,
+          repo,
+        });
         try {
           const result = await job({
             base: defaultBranch,
+            dryRun,
             editor,
             now,
             octokit: await app.getInstallationOctokit(installationId),
@@ -501,25 +553,17 @@ export const removeExpiredReleaseAgeExclusionsEverywhere = async ({
             registry,
             repo,
           });
-          log("info", "Release age exclusions checked", {
-            committed:
-              result.status === "pull-request" ? result.committed : undefined,
-            editedBy:
-              result.status === "pull-request" ? result.editedBy : undefined,
-            expired:
-              result.status === "nothing-expired" ? 0 : result.expired.length,
-            owner,
-            pullRequest:
-              "pullRequest" in result ? result.pullRequest.number : undefined,
-            repo,
-            status: result.status,
-          });
+          repositoryLog(
+            "info",
+            "Release age exclusions checked",
+            summarizeCleanupResult(result)
+          );
         } catch (error) {
-          log("error", "Release age exclusion cleanup failed", {
-            owner,
-            repo,
-            ...loggableFailure.safeParse(error).data,
-          });
+          repositoryLog(
+            "error",
+            "Release age exclusion cleanup failed",
+            loggableFailure.safeParse(error).data
+          );
         }
       })
   );

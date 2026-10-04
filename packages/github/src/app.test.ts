@@ -72,6 +72,34 @@ describe(createGitHubApp, () => {
     );
   });
 
+  it("tries an installation's failed reads again", async () => {
+    let attempts = 0;
+    const github = fakeGitHub({
+      "GET /repos/publira/agents": dynamic(() => {
+        attempts += 1;
+        return attempts === 1
+          ? Response.json({ message: "Bad Gateway" }, { status: 502 })
+          : { full_name: "publira/agents" };
+      }),
+      "POST /app/installations/42/access_tokens": tokenResponse("ghs_one"),
+    });
+    const app = createGitHubApp({
+      appId: 123,
+      fetch: github.fetch,
+      privateKey,
+      requestPolicy: { retryDelay: 0 },
+    });
+
+    const octokit = await app.getInstallationOctokit(42);
+    await octokit.rest.repos.get({ owner: "publira", repo: "agents" });
+
+    expect(github.routes).toStrictEqual([
+      "POST /app/installations/42/access_tokens",
+      "GET /repos/publira/agents",
+      "GET /repos/publira/agents",
+    ]);
+  });
+
   it("shares installation tokens across clients", async () => {
     const github = fakeGitHub({
       "GET /repos/publira/agents": { full_name: "publira/agents" },
@@ -135,7 +163,7 @@ describe(createGitHubApp, () => {
       "GET /app": dynamic(() => {
         attempts += 1;
         return attempts === 1
-          ? Response.json({ message: "Server Error" }, { status: 500 })
+          ? Response.json({ message: "Forbidden" }, { status: 403 })
           : { slug: "publira-maintenance" };
       }),
     });
@@ -145,7 +173,7 @@ describe(createGitHubApp, () => {
       privateKey,
     });
 
-    await expect(app.getBotLogin()).rejects.toThrow("Server Error");
+    await expect(app.getBotLogin()).rejects.toThrow("Forbidden");
     await expect(app.getBotLogin()).resolves.toBe("publira-maintenance[bot]");
   });
 });
