@@ -19,6 +19,7 @@ describe(createModelExclusionEditor, () => {
       doGenerate: {
         content: [{ text: '{"deleteLines":[2,3]}', type: "text" }],
         finishReason: { raw: "stop", unified: "stop" },
+        response: { modelId: "anthropic/claude-sonnet-5.5" },
         usage,
         warnings: [],
       },
@@ -36,7 +37,10 @@ describe(createModelExclusionEditor, () => {
         reason: "a comment describes entries of which only some are removed",
         selectors: ["next@16.3.8"],
       })
-    ).resolves.toStrictEqual([2, 3]);
+    ).resolves.toStrictEqual({
+      lineNumbers: [2, 3],
+      model: "anthropic/claude-sonnet-5.5",
+    });
 
     const sent = JSON.stringify(model.doGenerateCalls[0]?.prompt);
     expect(sent).toContain("- next@16.3.8");

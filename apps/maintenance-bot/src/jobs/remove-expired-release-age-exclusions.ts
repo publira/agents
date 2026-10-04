@@ -26,6 +26,10 @@ export const CLEANUP_BRANCH =
 
 const TITLE = "chore(deps): remove expired minimumReleaseAgeExclude entries";
 
+// The name the bot discloses model help under, as the Assisted-by trailers
+// of Publira repositories do.
+const AGENT_NAME = "publira-maintenance-bot";
+
 export interface ExclusionEditRequest {
   /** The `minimumReleaseAgeExclude` block; line 1 is the first. */
   lines: readonly string[];
@@ -33,6 +37,13 @@ export interface ExclusionEditRequest {
   selectors: readonly string[];
   /** Why the rules could not make the edit. */
   reason: string;
+}
+
+export interface ExclusionEdit {
+  /** The lines of the block to delete; line 1 is the first. */
+  lineNumbers: number[];
+  /** The model that chose them, such as `anthropic/claude-sonnet-5.5`. */
+  model: string;
 }
 
 /**
@@ -43,7 +54,7 @@ export interface ExclusionEditRequest {
  */
 export type ExclusionEditor = (
   request: ExclusionEditRequest
-) => Promise<number[]>;
+) => Promise<ExclusionEdit>;
 
 export interface RemoveExpiredReleaseAgeExclusionsOptions {
   octokit: Octokit;
@@ -81,19 +92,28 @@ export type RemoveExpiredReleaseAgeExclusionsResult =
       pullRequest: { number: number; url: string; created: boolean };
     };
 
-const commitMessage = (expired: readonly ExpiredExclusion[]) =>
+// A change a model helped with discloses it, as every Publira commit and
+// pull request does.
+const assistedBy = (model: string | undefined) =>
+  model === undefined ? [] : ["", `Assisted-by: ${AGENT_NAME}:${model}`];
+
+const commitMessage = (
+  expired: readonly ExpiredExclusion[],
+  model: string | undefined
+) =>
   [
     TITLE,
     "",
     "Every version these entries pin is older than minimumReleaseAge now:",
     "",
     ...expired.map(({ selector }) => `- ${selector}`),
+    ...assistedBy(model),
   ].join("\n");
 
 const pullRequestBody = (
   expired: readonly ExpiredExclusion[],
   minimumReleaseAge: number,
-  editedBy: "model" | "rules"
+  model: string | undefined
 ) =>
   [
     "## Summary",
@@ -112,13 +132,68 @@ const pullRequestBody = (
     "## Verification",
     "",
     "- The publish times come from the npm registry.",
-    editedBy === "model"
-      ? "- The rules could not tell which comments belong to these entries, so a model chose the lines to delete. It can only delete lines, and it did not decide which entries expired."
-      : "- The edit follows fixed rules; no model was involved.",
+    model === undefined
+      ? "- The edit follows fixed rules; no model was involved."
+      : "- The rules could not tell which comments belong to these entries, so a model chose the lines to delete. It can only delete lines, and it did not decide which entries expired.",
     "- The edited file parses, these entries are gone, and every other entry and setting, `minimumReleaseAge` included, keeps its value.",
     "",
     "The maintenance bot opened this pull request. It updates the branch when the cleanup changes.",
+    ...assistedBy(model),
   ].join("\n");
+
+interface CurrentPullRequestOptions {
+  octokit: Octokit;
+  owner: string;
+  repo: string;
+  base: string;
+  /** Whether a version of the file removes exactly the expired entries. */
+  isCleanup: (proposed: string) => boolean;
+}
+
+/**
+ * Finds the open cleanup pull request when it already holds the cleanup: one
+ * commit that changes only the file, and a file that removes exactly the
+ * expired entries from the current one. Anything else on the branch, such as
+ * a commit someone pushed, means the branch has to be replaced.
+ */
+const findCurrentPullRequest = async ({
+  octokit,
+  owner,
+  repo,
+  base,
+  isCleanup,
+}: CurrentPullRequestOptions) => {
+  const { data: open } = await octokit.rest.pulls.list({
+    base,
+    head: `${owner}:${CLEANUP_BRANCH}`,
+    owner,
+    repo,
+    state: "open",
+  });
+  const [pullRequest] = open;
+
+  if (pullRequest === undefined) {
+    return;
+  }
+
+  const [{ data: head }, proposed] = await Promise.all([
+    octokit.rest.repos.getCommit({ owner, ref: pullRequest.head.sha, repo }),
+    readOptionalRepositoryFile(octokit, {
+      owner,
+      path: MANIFEST_PATH,
+      ref: pullRequest.head.sha,
+      repo,
+    }),
+  ]);
+  const changesOnlyTheFile =
+    head.parents.length === 1 &&
+    head.files?.length === 1 &&
+    head.files[0]?.filename === MANIFEST_PATH;
+
+  return changesOnlyTheFile && proposed !== undefined && isCleanup(proposed)
+    ? pullRequest
+    : undefined;
+};
 
 /**
  * Removes the `minimumReleaseAgeExclude` entries of a repository's
@@ -190,67 +265,53 @@ export const removeExpiredReleaseAgeExclusions = async ({
   const verify = (edited: string) =>
     verifyReleaseAgeExclusionRemoval(source, edited, selectors);
 
-  if (!dryRun) {
-    // An open pull request whose file removes exactly these entries from the
-    // current one already does the job, so no edit or model call is needed.
-    const { data: open } = await octokit.rest.pulls.list({
-      base: baseBranch,
-      head: `${owner}:${CLEANUP_BRANCH}`,
-      owner,
-      repo,
-      state: "open",
-    });
-    const [pullRequest] = open;
-    const proposed =
-      pullRequest === undefined
-        ? undefined
-        : await readOptionalRepositoryFile(octokit, {
-            owner,
-            path: MANIFEST_PATH,
-            ref: pullRequest.head.sha,
-            repo,
-          });
+  // An open pull request that already holds the cleanup does the job, so no
+  // edit or model call is needed.
+  const current = dryRun
+    ? undefined
+    : await findCurrentPullRequest({
+        base: baseBranch,
+        isCleanup: (proposed) => verify(proposed).length === 0,
+        octokit,
+        owner,
+        repo,
+      });
 
-    if (
-      pullRequest !== undefined &&
-      proposed !== undefined &&
-      verify(proposed).length === 0
-    ) {
-      return {
-        editedBy: undefined,
-        expired,
-        pullRequest: {
-          created: false,
-          number: pullRequest.number,
-          url: pullRequest.html_url,
-        },
-        status: "pull-request",
-      };
-    }
+  if (current !== undefined) {
+    return {
+      editedBy: undefined,
+      expired,
+      pullRequest: {
+        created: false,
+        number: current.number,
+        url: current.html_url,
+      },
+      status: "pull-request",
+    };
   }
 
   const removal = removeReleaseAgeExclusions(source, selectors);
   let edited: string;
-  let editedBy: "model" | "rules";
+  let model: string | undefined;
 
   if (removal.result === "edited") {
     edited = removal.source;
-    editedBy = "rules";
   } else {
     if (editor === undefined) {
       throw new Error(
         `${owner}/${repo}: the rules cannot remove the expired entries (${removal.reason}), and no editor was given`
       );
     }
-    const lineNumbers = await editor({
+    const edit = await editor({
       lines: removal.block.lines,
       reason: removal.reason,
       selectors,
     });
-    edited = deleteBlockLines(source, removal.block, lineNumbers);
-    editedBy = "model";
+    edited = deleteBlockLines(source, removal.block, edit.lineNumbers);
+    ({ model } = edit);
   }
 
+  const editedBy = model === undefined ? "rules" : "model";
   const problems = verify(edited);
 
   if (problems.length > 0) {
@@ -267,13 +328,13 @@ export const removeExpiredReleaseAgeExclusions = async ({
     baseSha,
     branch: CLEANUP_BRANCH,
     files: { [MANIFEST_PATH]: edited },
-    message: commitMessage(expired),
+    message: commitMessage(expired, model),
     owner,
     repo,
   });
   const pullRequest = await ensurePullRequest(octokit, {
     base: baseBranch,
-    body: pullRequestBody(expired, manifest.minimumReleaseAge, editedBy),
+    body: pullRequestBody(expired, manifest.minimumReleaseAge, model),
     head: CLEANUP_BRANCH,
     owner,
     repo,

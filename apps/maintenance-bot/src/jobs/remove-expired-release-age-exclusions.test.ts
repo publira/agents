@@ -56,12 +56,15 @@ interface FakeOptions {
   manifest?: string | null;
   /** The open cleanup pull request and its version of the file. */
   openPullRequest?: string;
+  /** The files the head commit of that pull request changes. */
+  headFiles?: string[];
 }
 
 // Answers the GitHub API and the npm registry, and records the writes.
 const fake = ({
   manifest = workspaceManifest,
   openPullRequest,
+  headFiles = ["pnpm-workspace.yaml"],
 }: FakeOptions = {}) => {
   const writes: { route: string; body: unknown }[] = [];
   const fetchImpl = vi.fn<typeof fetch>((input, init) => {
@@ -114,6 +117,14 @@ const fake = ({
                   },
                 ]
           ),
+      ],
+      [
+        `GET ${repository}/commits/pull-head`,
+        () =>
+          Response.json({
+            files: headFiles.map((filename) => ({ filename })),
+            parents: [{ sha: "older-base" }],
+          }),
       ],
       [
         `GET ${repository}/git/commits/base`,
@@ -169,6 +180,9 @@ const fake = ({
 };
 
 const pullRequestSchema = z.looseObject({ body: z.string() });
+const commitSchema = z.looseObject({ message: z.string() });
+
+const MODEL = "anthropic/claude-sonnet-5.5";
 
 const neverCalled: ExclusionEditor = () =>
   Promise.reject(new Error("The editor must not be called"));
@@ -285,6 +299,7 @@ describe(removeExpiredReleaseAgeExclusions, () => {
     );
     expect(pullRequest.body).toContain("(1440 minutes)");
     expect(pullRequest.body).toContain("no model was involved");
+    expect(pullRequest.body).not.toContain("Assisted-by");
   });
 
   it("leaves an open pull request that already holds the cleanup", async () => {
@@ -302,6 +317,26 @@ describe(removeExpiredReleaseAgeExclusions, () => {
       status: "pull-request",
     });
     expect(github.writes).toStrictEqual([]);
+  });
+
+  it("replaces an open pull request with another change on it", async () => {
+    // Someone pushed a change to another file onto the cleanup branch.
+    const github = fake({
+      headFiles: ["pnpm-workspace.yaml", "package.json"],
+      openPullRequest: cleanedManifest,
+    });
+
+    await removeExpiredReleaseAgeExclusions({
+      ...github.options,
+      now: AFTER_EXPIRY,
+    });
+
+    expect(github.writes.map(({ route }) => route)).toStrictEqual([
+      `POST ${repository}/git/trees`,
+      `POST ${repository}/git/commits`,
+      `POST ${repository}/git/refs`,
+      `PATCH ${repository}/pulls/120`,
+    ]);
   });
 
   it("updates an open pull request that holds another cleanup", async () => {
@@ -336,7 +371,9 @@ describe(removeExpiredReleaseAgeExclusions, () => {
 
     it("lets the editor choose the lines, then checks them", async () => {
       const github = fake({ manifest });
-      const editor = vi.fn<ExclusionEditor>(() => Promise.resolve([3]));
+      const editor = vi.fn<ExclusionEditor>(() =>
+        Promise.resolve({ lineNumbers: [3], model: MODEL })
+      );
 
       await expect(
         removeExpiredReleaseAgeExclusions({
@@ -368,13 +405,31 @@ describe(removeExpiredReleaseAgeExclusions, () => {
       await expect(
         removeExpiredReleaseAgeExclusions({
           ...github.options,
-          editor: () => Promise.resolve([3, 4]),
+          editor: () => Promise.resolve({ lineNumbers: [3, 4], model: MODEL }),
           now: AFTER_EXPIRY,
         })
       ).rejects.toThrow(
         "the model's edit of pnpm-workspace.yaml is wrong: minimumReleaseAgeExclude should list"
       );
       expect(github.writes).toStrictEqual([]);
+    });
+
+    it("discloses the model in the commit and the pull request", async () => {
+      const github = fake({ manifest });
+
+      await removeExpiredReleaseAgeExclusions({
+        ...github.options,
+        editor: () => Promise.resolve({ lineNumbers: [3], model: MODEL }),
+        now: AFTER_EXPIRY,
+      });
+
+      // The trailer ends both, after a blank line.
+      const trailer = ["", `Assisted-by: publira-maintenance-bot:${MODEL}`];
+      const commit = commitSchema.parse(github.writes[1]?.body);
+      const pullRequest = pullRequestSchema.parse(github.writes[3]?.body);
+      expect(commit.message.split("\n").slice(-2)).toStrictEqual(trailer);
+      expect(pullRequest.body.split("\n").slice(-2)).toStrictEqual(trailer);
+      expect(pullRequest.body).toContain("a model chose the lines to delete");
     });
 
     it("fails without an editor", async () => {

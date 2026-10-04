@@ -50,11 +50,12 @@ const outputSchema = z.object({
 export const createModelExclusionEditor =
   (model: LanguageModel = DEFAULT_MODEL): ExclusionEditor =>
   async (request) => {
-    const { output } = await generateText({
+    const { output, response } = await generateText({
       instructions,
       model,
       output: Output.object({ name: "edit", schema: outputSchema }),
       prompt: prompt(request),
     });
-    return output.deleteLines;
+    // The model that answered, for the Assisted-by trailer.
+    return { lineNumbers: output.deleteLines, model: response.modelId };
   };
