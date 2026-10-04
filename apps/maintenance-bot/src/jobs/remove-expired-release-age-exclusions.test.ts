@@ -54,17 +54,25 @@ const fileResponse = (content?: string) =>
 interface FakeOptions {
   /** `null` when the repository has no pnpm-workspace.yaml. */
   manifest?: string | null;
-  /** The open cleanup pull request and its version of the file. */
+  /** The open cleanup pull request's version of the file. */
   openPullRequest?: string;
-  /** The files the head commit of that pull request changes. */
-  headFiles?: string[];
+  /** Its title and body. */
+  openPullRequestText?: { title: string; body: string };
+  /** How many commits it is ahead of the base, and what they change. */
+  aheadBy?: number;
+  changedFiles?: string[];
+  /** The message of its head commit. */
+  headMessage?: string;
 }
 
 // Answers the GitHub API and the npm registry, and records the writes.
 const fake = ({
   manifest = workspaceManifest,
   openPullRequest,
-  headFiles = ["pnpm-workspace.yaml"],
+  openPullRequestText = { body: "", title: "" },
+  aheadBy = 1,
+  changedFiles = ["pnpm-workspace.yaml"],
+  headMessage = "chore(deps): remove expired minimumReleaseAgeExclude entries",
 }: FakeOptions = {}) => {
   const writes: { route: string; body: unknown }[] = [];
   const fetchImpl = vi.fn<typeof fetch>((input, init) => {
@@ -109,21 +117,21 @@ const fake = ({
               ? []
               : [
                   {
-                    body: "",
+                    ...openPullRequestText,
                     head: { sha: "pull-head" },
                     html_url: "https://github.com/publira/website/pull/120",
                     number: 120,
-                    title: "",
                   },
                 ]
           ),
       ],
       [
-        `GET ${repository}/commits/pull-head`,
+        `GET ${repository}/compare/base...pull-head`,
         () =>
           Response.json({
-            files: headFiles.map((filename) => ({ filename })),
-            parents: [{ sha: "older-base" }],
+            ahead_by: aheadBy,
+            commits: [{ commit: { message: headMessage } }],
+            files: changedFiles.map((filename) => ({ filename })),
           }),
       ],
       [
@@ -181,6 +189,7 @@ const fake = ({
 
 const pullRequestSchema = z.looseObject({ body: z.string() });
 const commitSchema = z.looseObject({ message: z.string() });
+const pullRequestTextSchema = z.object({ body: z.string(), title: z.string() });
 
 const MODEL = "anthropic/claude-sonnet-5.5";
 
@@ -247,6 +256,7 @@ describe(removeExpiredReleaseAgeExclusions, () => {
     });
 
     expect(result).toStrictEqual({
+      committed: true,
       editedBy: "rules",
       expired: [
         {
@@ -303,7 +313,16 @@ describe(removeExpiredReleaseAgeExclusions, () => {
   });
 
   it("leaves an open pull request that already holds the cleanup", async () => {
-    const github = fake({ openPullRequest: cleanedManifest });
+    // The pull request a first run opened.
+    const first = fake();
+    await removeExpiredReleaseAgeExclusions({
+      ...first.options,
+      now: AFTER_EXPIRY,
+    });
+    const github = fake({
+      openPullRequest: cleanedManifest,
+      openPullRequestText: pullRequestTextSchema.parse(first.writes[3]?.body),
+    });
 
     await expect(
       removeExpiredReleaseAgeExclusions({
@@ -312,19 +331,46 @@ describe(removeExpiredReleaseAgeExclusions, () => {
         now: AFTER_EXPIRY,
       })
     ).resolves.toMatchObject({
-      editedBy: undefined,
+      committed: false,
+      editedBy: "rules",
       pullRequest: { created: false, number: 120 },
       status: "pull-request",
     });
     expect(github.writes).toStrictEqual([]);
   });
 
-  it("replaces an open pull request with another change on it", async () => {
-    // Someone pushed a change to another file onto the cleanup branch.
+  it("restores the title and body of an open pull request", async () => {
     const github = fake({
-      headFiles: ["pnpm-workspace.yaml", "package.json"],
       openPullRequest: cleanedManifest,
+      openPullRequestText: { body: "Edited by hand.", title: "Cleanup" },
     });
+
+    await removeExpiredReleaseAgeExclusions({
+      ...github.options,
+      now: AFTER_EXPIRY,
+    });
+
+    expect(github.writes).toMatchObject([
+      {
+        body: {
+          body: expect.stringContaining("no model was involved"),
+          title: "chore(deps): remove expired minimumReleaseAgeExclude entries",
+        },
+        route: `PATCH ${repository}/pulls/120`,
+      },
+    ]);
+  });
+
+  it.each([
+    // Someone pushed a change to another file onto the cleanup branch.
+    { changedFiles: ["pnpm-workspace.yaml", "package.json"] },
+    // Or a commit below a cleanup commit.
+    { aheadBy: 2, changedFiles: ["pnpm-workspace.yaml", "package.json"] },
+    { aheadBy: 2 },
+    // Or a cleanup of their own that the rules would not have made.
+    { openPullRequest: `${cleanedManifest}# Edited by hand.\n` },
+  ])("replaces an open pull request that holds more: %j", async (options) => {
+    const github = fake({ openPullRequest: cleanedManifest, ...options });
 
     await removeExpiredReleaseAgeExclusions({
       ...github.options,
@@ -432,6 +478,52 @@ describe(removeExpiredReleaseAgeExclusions, () => {
       expect(pullRequest.body).toContain("a model chose the lines to delete");
     });
 
+    const modelEdited = `minimumReleaseAgeExclude:
+  # The Next.js 16.3.8 security release, and the webpack fix it needs.
+  - webpack@5.102.1
+`;
+
+    it("leaves an open pull request whose commit names the model", async () => {
+      const github = fake({
+        headMessage: `chore(deps): remove expired minimumReleaseAgeExclude entries\n\nAssisted-by: publira-maintenance-bot:${MODEL}`,
+        manifest,
+        openPullRequest: modelEdited,
+      });
+
+      await expect(
+        removeExpiredReleaseAgeExclusions({
+          ...github.options,
+          editor: neverCalled,
+          now: AFTER_EXPIRY,
+        })
+      ).resolves.toMatchObject({ committed: false, editedBy: "model" });
+
+      // The description it gets back names the model too.
+      const [update] = github.writes;
+      expect(update?.route).toBe(`PATCH ${repository}/pulls/120`);
+      expect(
+        pullRequestSchema.parse(update?.body).body.split("\n").at(-1)
+      ).toBe(`Assisted-by: publira-maintenance-bot:${MODEL}`);
+    });
+
+    it("replaces an open pull request whose commit names no model", async () => {
+      const github = fake({ manifest, openPullRequest: modelEdited });
+      const editor = vi.fn<ExclusionEditor>(() =>
+        Promise.resolve({ lineNumbers: [3], model: MODEL })
+      );
+
+      await removeExpiredReleaseAgeExclusions({
+        ...github.options,
+        editor,
+        now: AFTER_EXPIRY,
+      });
+
+      expect(editor).toHaveBeenCalledOnce();
+      expect(github.writes.map(({ route }) => route)).toContain(
+        `POST ${repository}/git/commits`
+      );
+    });
+
     it("fails without an editor", async () => {
       const github = fake({ manifest });
 
@@ -505,6 +597,7 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
         "info",
         "Release age exclusions checked",
         {
+          committed: undefined,
           editedBy: undefined,
           expired: 0,
           owner: "publira",

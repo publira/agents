@@ -72,10 +72,10 @@ switch (result.status) {
     const { created, url } = result.pullRequest;
     if (created) {
       console.log(`Opened ${url}`);
-    } else if (result.editedBy === undefined) {
-      console.log(`Already open: ${url}`);
-    } else {
+    } else if (result.committed) {
       console.log(`Updated ${url}`);
+    } else {
+      console.log(`Already open: ${url}`);
     }
     break;
   }

@@ -87,8 +87,9 @@ export type RemoveExpiredReleaseAgeExclusionsResult =
   | {
       status: "pull-request";
       expired: ExpiredExclusion[];
-      /** `undefined` when an open pull request already held the cleanup. */
-      editedBy: "model" | "rules" | undefined;
+      editedBy: "model" | "rules";
+      /** `false` when the open pull request already held the cleanup. */
+      committed: boolean;
       pullRequest: { number: number; url: string; created: boolean };
     };
 
@@ -96,6 +97,11 @@ export type RemoveExpiredReleaseAgeExclusionsResult =
 // pull request does.
 const assistedBy = (model: string | undefined) =>
   model === undefined ? [] : ["", `Assisted-by: ${AGENT_NAME}:${model}`];
+
+const ASSISTED_BY = new RegExp(
+  `^Assisted-by: ${AGENT_NAME}:(?<model>\\S+)$`,
+  "mu"
+);
 
 const commitMessage = (
   expired: readonly ExpiredExclusion[],
@@ -141,28 +147,34 @@ const pullRequestBody = (
     ...assistedBy(model),
   ].join("\n");
 
-interface CurrentPullRequestOptions {
+interface CurrentCleanupOptions {
   octokit: Octokit;
   owner: string;
   repo: string;
   base: string;
-  /** Whether a version of the file removes exactly the expired entries. */
-  isCleanup: (proposed: string) => boolean;
+  baseSha: string;
+  /**
+   * Whether a version of the file is the cleanup, given the model its commit
+   * names in its Assisted-by trailer.
+   */
+  isCleanup: (proposed: string, model: string | undefined) => boolean;
 }
 
 /**
- * Finds the open cleanup pull request when it already holds the cleanup: one
- * commit that changes only the file, and a file that removes exactly the
- * expired entries from the current one. Anything else on the branch, such as
- * a commit someone pushed, means the branch has to be replaced.
+ * Finds the open cleanup pull request when it already holds the cleanup: a
+ * single commit ahead of the base that changes only the file, with a file
+ * that is the cleanup. Anything else on the branch, such as a commit someone
+ * pushed, means the branch has to be replaced. The base may have moved on
+ * since, which leaves the pull request mergeable as it is.
  */
-const findCurrentPullRequest = async ({
+const findCurrentCleanup = async ({
   octokit,
   owner,
   repo,
   base,
+  baseSha,
   isCleanup,
-}: CurrentPullRequestOptions) => {
+}: CurrentCleanupOptions) => {
   const { data: open } = await octokit.rest.pulls.list({
     base,
     head: `${owner}:${CLEANUP_BRANCH}`,
@@ -176,8 +188,14 @@ const findCurrentPullRequest = async ({
     return;
   }
 
-  const [{ data: head }, proposed] = await Promise.all([
-    octokit.rest.repos.getCommit({ owner, ref: pullRequest.head.sha, repo }),
+  // The comparison runs from where the branch left the base, so it holds
+  // every commit and change the pull request would merge.
+  const [{ data: comparison }, proposed] = await Promise.all([
+    octokit.rest.repos.compareCommitsWithBasehead({
+      basehead: `${baseSha}...${pullRequest.head.sha}`,
+      owner,
+      repo,
+    }),
     readOptionalRepositoryFile(octokit, {
       owner,
       path: MANIFEST_PATH,
@@ -185,13 +203,15 @@ const findCurrentPullRequest = async ({
       repo,
     }),
   ]);
-  const changesOnlyTheFile =
-    head.parents.length === 1 &&
-    head.files?.length === 1 &&
-    head.files[0]?.filename === MANIFEST_PATH;
+  const [commit] = comparison.commits;
+  const model = commit?.commit.message.match(ASSISTED_BY)?.groups?.model;
 
-  return changesOnlyTheFile && proposed !== undefined && isCleanup(proposed)
-    ? pullRequest
+  return comparison.ahead_by === 1 &&
+    comparison.files?.length === 1 &&
+    comparison.files[0]?.filename === MANIFEST_PATH &&
+    proposed !== undefined &&
+    isCleanup(proposed, model)
+    ? { model, pullRequest }
     : undefined;
 };
 
@@ -265,13 +285,31 @@ export const removeExpiredReleaseAgeExclusions = async ({
   const verify = (edited: string) =>
     verifyReleaseAgeExclusionRemoval(source, edited, selectors);
 
+  const removal = removeReleaseAgeExclusions(source, selectors);
+  const ruleEdit = removal.result === "edited" ? removal.source : undefined;
+  const ensureCleanupPullRequest = (model: string | undefined) =>
+    ensurePullRequest(octokit, {
+      base: baseBranch,
+      body: pullRequestBody(expired, manifest.minimumReleaseAge, model),
+      head: CLEANUP_BRANCH,
+      owner,
+      repo,
+      title: TITLE,
+    });
+
   // An open pull request that already holds the cleanup does the job, so no
-  // edit or model call is needed.
+  // edit or model call is needed; only its title and body are restored. When
+  // the rules can make the edit, its file must be exactly theirs; otherwise
+  // the model that chose its lines must be named.
   const current = dryRun
     ? undefined
-    : await findCurrentPullRequest({
+    : await findCurrentCleanup({
         base: baseBranch,
-        isCleanup: (proposed) => verify(proposed).length === 0,
+        baseSha,
+        isCleanup: (proposed, model) =>
+          ruleEdit === undefined
+            ? model !== undefined && verify(proposed).length === 0
+            : model === undefined && proposed === ruleEdit,
         octokit,
         owner,
         repo,
@@ -279,18 +317,14 @@ export const removeExpiredReleaseAgeExclusions = async ({
 
   if (current !== undefined) {
     return {
-      editedBy: undefined,
+      committed: false,
+      editedBy: current.model === undefined ? "rules" : "model",
       expired,
-      pullRequest: {
-        created: false,
-        number: current.number,
-        url: current.html_url,
-      },
+      pullRequest: await ensureCleanupPullRequest(current.model),
       status: "pull-request",
     };
   }
 
-  const removal = removeReleaseAgeExclusions(source, selectors);
   let edited: string;
   let model: string | undefined;
 
@@ -332,16 +366,14 @@ export const removeExpiredReleaseAgeExclusions = async ({
     owner,
     repo,
   });
-  const pullRequest = await ensurePullRequest(octokit, {
-    base: baseBranch,
-    body: pullRequestBody(expired, manifest.minimumReleaseAge, model),
-    head: CLEANUP_BRANCH,
-    owner,
-    repo,
-    title: TITLE,
-  });
 
-  return { editedBy, expired, pullRequest, status: "pull-request" };
+  return {
+    committed: true,
+    editedBy,
+    expired,
+    pullRequest: await ensureCleanupPullRequest(model),
+    status: "pull-request",
+  };
 };
 
 export interface RemoveExpiredReleaseAgeExclusionsEverywhereOptions {
@@ -384,6 +416,8 @@ export const removeExpiredReleaseAgeExclusionsEverywhere = async ({
             repo,
           });
           log("info", "Release age exclusions checked", {
+            committed:
+              result.status === "pull-request" ? result.committed : undefined,
             editedBy:
               result.status === "pull-request" ? result.editedBy : undefined,
             expired:
