@@ -24,6 +24,8 @@ catalog:
       minimumReleaseAge: 4320,
       minimumReleaseAgeExclude: ["@publira/*", "next@16.3.8"],
       packages: ["apps/*", "packages/*"],
+      registries: {},
+      registry: undefined,
     });
   });
 
@@ -33,6 +35,8 @@ catalog:
         minimumReleaseAge: DEFAULT_MINIMUM_RELEASE_AGE_MINUTES,
         minimumReleaseAgeExclude: [],
         packages: ["packages/*"],
+        registries: {},
+        registry: undefined,
       }
     );
   });
@@ -42,6 +46,21 @@ catalog:
       minimumReleaseAge: DEFAULT_MINIMUM_RELEASE_AGE_MINUTES,
       minimumReleaseAgeExclude: [],
       packages: [],
+      registries: {},
+      registry: undefined,
+    });
+  });
+
+  it("reads the registry settings", () => {
+    expect(
+      parseWorkspaceManifest(`
+registry: https://registry.example.com/
+registries:
+  "@buf": https://buf.build/gen/npm/v1
+`)
+    ).toMatchObject({
+      registries: { "@buf": "https://buf.build/gen/npm/v1" },
+      registry: "https://registry.example.com/",
     });
   });
 

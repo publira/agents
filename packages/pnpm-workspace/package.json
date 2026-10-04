@@ -2,7 +2,7 @@
   "name": "@publira/pnpm-workspace",
   "version": "1.0.0",
   "private": true,
-  "description": "Read pnpm workspace manifests (pnpm-workspace.yaml).",
+  "description": "Read and edit pnpm workspace settings (pnpm-workspace.yaml and .npmrc).",
   "license": "Apache-2.0",
   "type": "module",
   "exports": {

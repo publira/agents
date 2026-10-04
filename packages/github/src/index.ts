@@ -28,7 +28,10 @@ export type {
 } from "./pull-request.ts";
 export { ensurePullRequest } from "./pull-request.ts";
 export type { RepositoryFileLocation } from "./repository-file.ts";
-export { readRepositoryFile } from "./repository-file.ts";
+export {
+  readOptionalRepositoryFile,
+  readRepositoryFile,
+} from "./repository-file.ts";
 export type { RepositoryName } from "./repository-name.ts";
 export { parseRepositoryName } from "./repository-name.ts";
 export type {

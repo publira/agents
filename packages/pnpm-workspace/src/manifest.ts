@@ -11,6 +11,8 @@ const manifestSchema = z.looseObject({
   minimumReleaseAge: z.number().int().nonnegative().optional(),
   minimumReleaseAgeExclude: z.array(z.string()).optional(),
   packages: z.array(z.string()).optional(),
+  registries: z.record(z.string(), z.string()).optional(),
+  registry: z.string().optional(),
 });
 
 /** The fields of `pnpm-workspace.yaml` that the maintenance jobs read. */
@@ -21,6 +23,10 @@ export interface WorkspaceManifest {
   minimumReleaseAgeExclude: string[];
   /** Globs of the directories that hold workspace packages. */
   packages: string[];
+  /** The default registry, which `registries.default` also sets. */
+  registry: string | undefined;
+  /** Registries by scope, such as `@buf`, and `default`. */
+  registries: Record<string, string>;
 }
 
 /**
@@ -35,5 +41,7 @@ export const parseWorkspaceManifest = (source: string): WorkspaceManifest => {
       manifest.minimumReleaseAge ?? DEFAULT_MINIMUM_RELEASE_AGE_MINUTES,
     minimumReleaseAgeExclude: manifest.minimumReleaseAgeExclude ?? [],
     packages: manifest.packages ?? [],
+    registries: manifest.registries ?? {},
+    registry: manifest.registry,
   };
 };

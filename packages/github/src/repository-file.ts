@@ -1,5 +1,7 @@
 import type { Octokit } from "@octokit/rest";
 
+import { requestFailure } from "./request-error.ts";
+
 export interface RepositoryFileLocation {
   owner: string;
   repo: string;
@@ -33,4 +35,22 @@ export const readRepositoryFile = async (
   }
 
   return Buffer.from(data.content, "base64").toString("utf-8");
+};
+
+/**
+ * Reads a text file from a repository, or returns `undefined` when the
+ * repository has no file at that path.
+ */
+export const readOptionalRepositoryFile = async (
+  octokit: Octokit,
+  location: RepositoryFileLocation
+): Promise<string | undefined> => {
+  try {
+    return await readRepositoryFile(octokit, location);
+  } catch (error) {
+    if (requestFailure.safeParse(error).data?.status === 404) {
+      return undefined;
+    }
+    throw error;
+  }
 };

@@ -24,7 +24,7 @@ const packumentSchema = z.object({
 
 /**
  * Fetches when each published version of a package was published, keyed by
- * version.
+ * version. A package the registry does not have has no versions.
  */
 export const fetchPublishTimes = async (
   name: string,
@@ -41,6 +41,10 @@ export const fetchPublishTimes = async (
   const response = await fetchImpl(url, {
     headers: { accept: "application/json" },
   });
+
+  if (response.status === 404) {
+    return new Map();
+  }
 
   if (!response.ok) {
     throw new Error(

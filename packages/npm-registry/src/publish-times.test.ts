@@ -62,11 +62,21 @@ describe(fetchPublishTimes, () => {
     ).resolves.toStrictEqual(new Map());
   });
 
-  it("fails when the registry does not answer with the package", async () => {
+  it("returns no versions for a package the registry does not have", async () => {
     const fetchImpl = respondWith(new Response("Not Found", { status: 404 }));
 
     await expect(
       fetchPublishTimes("missing", { fetch: fetchImpl })
-    ).rejects.toThrow('The npm registry answered 404 for "missing"');
+    ).resolves.toStrictEqual(new Map());
+  });
+
+  it("fails when the registry does not answer", async () => {
+    const fetchImpl = respondWith(
+      new Response("Service Unavailable", { status: 503 })
+    );
+
+    await expect(
+      fetchPublishTimes("next", { fetch: fetchImpl })
+    ).rejects.toThrow('The npm registry answered 503 for "next"');
   });
 });

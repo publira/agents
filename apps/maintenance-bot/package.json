@@ -10,6 +10,7 @@
     "check-release-age-exclusions": "node --env-file-if-exists=.env.local src/cli/check-release-age-exclusions.ts",
     "dev": "eve dev",
     "list-app-repositories": "node --env-file-if-exists=.env.local src/cli/list-app-repositories.ts",
+    "remove-expired-release-age-exclusions": "node --env-file-if-exists=.env.local src/cli/remove-expired-release-age-exclusions.ts",
     "start": "eve start",
     "test": "vitest run",
     "typecheck": "tsc"

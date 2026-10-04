@@ -28,8 +28,14 @@ if (positionals.length !== 1) {
 
 const formatDetails = ({ verdict }: ReleaseAgeExclusionReport): string => {
   switch (verdict.action) {
+    case "keep": {
+      return ` (${verdict.reason})`;
+    }
     case "waiting": {
       return ` (until ${verdict.availableAt.toISOString()})`;
+    }
+    case "expired": {
+      return ` (since ${verdict.availableAt.toISOString()})`;
     }
     case "unknown": {
       return ` (not in the registry: ${verdict.missingVersions.join(", ")})`;
