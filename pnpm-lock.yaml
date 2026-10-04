@@ -224,8 +224,8 @@ importers:
         specifier: 7.0.126
         version: 7.0.126(zod@4.6.5)
       eve:
-        specifier: 0.68.0
-        version: 0.68.0(ai@7.0.126(zod@4.6.5))
+        specifier: 0.69.0
+        version: 0.69.0(ai@7.0.126(zod@4.6.5))
       zod:
         specifier: 'catalog:'
         version: 4.6.5
@@ -1310,8 +1310,8 @@ packages:
   estree-walker@3.0.3:
     resolution: {integrity: sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==}
 
-  eve@0.68.0:
-    resolution: {integrity: sha512-1cvxOdbfESdhZjAdhjUwFJSx0B6uWkbaEvwmau6vNhHNX9A+SZaathd79acDzQNYbOa+5WjsypOx4wa8KjKtgQ==}
+  eve@0.69.0:
+    resolution: {integrity: sha512-UxWzU4C1+MlTvHQsQ2wi75k+lrxX8sNN4Dz0xVtITmDj/+mR47RUyHHXl8ojAkFv7DCG/dmNSXLCKfTcqCj0cQ==}
     engines: {node: '>=24'}
     hasBin: true
     peerDependencies:
@@ -2055,8 +2055,8 @@ packages:
     resolution: {integrity: sha512-dkrQXeHSaoamnItlYbmzG0wFYrM0ZwDxCIg0A7aKjTyyhh9svRzCNFEzV+Vm05/yehjCzjDZ31KXfGEjYSztDQ==}
     engines: {node: '>=20.18.1'}
 
-  undici@8.9.0:
-    resolution: {integrity: sha512-aWZpUj7XoGonMClx4gdDRfgBjqeA+F473aDmROQQbM9n6PRfK/u1q/a0X4wMTgcHfT8H6fpbt98PFuDUwFg2YA==}
+  undici@8.10.2:
+    resolution: {integrity: sha512-/y4/bH9YNU5hi9NIrpOuvGXFcxrj3CMrV+/AYpowAYTpHn8gX/XPFjNy766FPoYY0miQhdW977JFWKGNhBdwyQ==}
     engines: {node: '>=22.19.0'}
 
   unenv@2.0.0-rc.24:
@@ -2812,11 +2812,11 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.9
 
-  eve@0.68.0(ai@7.0.126(zod@4.6.5)):
+  eve@0.69.0(ai@7.0.126(zod@4.6.5)):
     dependencies:
       ai: 7.0.126(zod@4.6.5)
       nitro: 3.0.260903-beta
-      undici: 8.9.0
+      undici: 8.10.2
 
   eventsource-parser@3.1.1: {}
 
@@ -3375,7 +3375,7 @@ snapshots:
 
   undici@7.30.0: {}
 
-  undici@8.9.0: {}
+  undici@8.10.2: {}
 
   unenv@2.0.0-rc.24:
     dependencies:
