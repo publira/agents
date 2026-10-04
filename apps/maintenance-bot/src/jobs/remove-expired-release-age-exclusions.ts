@@ -91,6 +91,12 @@ export type RemoveExpiredReleaseAgeExclusionsResult =
       /** `false` when the open pull request already held the cleanup. */
       committed: boolean;
       pullRequest: { number: number; url: string; created: boolean };
+    }
+  | {
+      /** A maintainer closed the same cleanup without merging it. */
+      status: "declined";
+      expired: ExpiredExclusion[];
+      pullRequest: { number: number; url: string };
     };
 
 // A change a model helped with discloses it, as every Publira commit and
@@ -147,59 +153,74 @@ const pullRequestBody = (
     ...assistedBy(model),
   ].join("\n");
 
-interface CurrentCleanupOptions {
+interface CleanupPullRequestOptions {
   octokit: Octokit;
   owner: string;
   repo: string;
   base: string;
-  baseSha: string;
-  /**
-   * Whether a version of the file is the cleanup, given the model its commit
-   * names in its Assisted-by trailer.
-   */
-  isCleanup: (proposed: string, model: string | undefined) => boolean;
 }
 
 /**
- * Finds the open cleanup pull request when it already holds the cleanup: a
- * single commit ahead of the base that changes only the file, with a file
- * that is the cleanup. Anything else on the branch, such as a commit someone
- * pushed, means the branch has to be replaced. The base may have moved on
- * since, which leaves the pull request mergeable as it is.
+ * Finds the most recently opened cleanup pull request in a state. Only one
+ * can be open at a time.
  */
-const findCurrentCleanup = async ({
+const findCleanupPullRequest = async (
+  { octokit, owner, repo, base }: CleanupPullRequestOptions,
+  state: "open" | "closed"
+) => {
+  const {
+    data: [pullRequest],
+  } = await octokit.rest.pulls.list({
+    base,
+    direction: "desc",
+    head: `${owner}:${CLEANUP_BRANCH}`,
+    owner,
+    per_page: 1,
+    repo,
+    sort: "created",
+    state,
+  });
+
+  return pullRequest;
+};
+
+interface CleanupProposalOptions {
+  octokit: Octokit;
+  owner: string;
+  repo: string;
+  baseSha: string;
+  /** The head commit of a cleanup pull request. */
+  head: string;
+}
+
+/**
+ * Reads a cleanup pull request's version of the file, and the model its
+ * commit names in its Assisted-by trailer, when the pull request holds only
+ * a cleanup: a single commit ahead of the base that changes only the file.
+ * Anything else on the branch, such as a commit someone pushed, means it is
+ * not the bot's cleanup. The base may have moved on since, which leaves the
+ * pull request mergeable as it is.
+ */
+const readCleanupProposal = async ({
   octokit,
   owner,
   repo,
-  base,
   baseSha,
-  isCleanup,
-}: CurrentCleanupOptions) => {
-  const { data: open } = await octokit.rest.pulls.list({
-    base,
-    head: `${owner}:${CLEANUP_BRANCH}`,
-    owner,
-    repo,
-    state: "open",
-  });
-  const [pullRequest] = open;
-
-  if (pullRequest === undefined) {
-    return;
-  }
-
+  head,
+}: CleanupProposalOptions) => {
   // The comparison runs from where the branch left the base, so it holds
-  // every commit and change the pull request would merge.
+  // every commit and change the pull request would merge. GitHub keeps the
+  // head of a closed pull request even once its branch is deleted.
   const [{ data: comparison }, proposed] = await Promise.all([
     octokit.rest.repos.compareCommitsWithBasehead({
-      basehead: `${baseSha}...${pullRequest.head.sha}`,
+      basehead: `${baseSha}...${head}`,
       owner,
       repo,
     }),
     readOptionalRepositoryFile(octokit, {
       owner,
       path: MANIFEST_PATH,
-      ref: pullRequest.head.sha,
+      ref: head,
       repo,
     }),
   ]);
@@ -209,9 +230,68 @@ const findCurrentCleanup = async ({
   return comparison.ahead_by === 1 &&
     comparison.files?.length === 1 &&
     comparison.files[0]?.filename === MANIFEST_PATH &&
-    proposed !== undefined &&
-    isCleanup(proposed, model)
-    ? { model, pullRequest }
+    proposed !== undefined
+    ? { model, proposed }
+    : undefined;
+};
+
+interface ExistingCleanupOptions extends CleanupPullRequestOptions {
+  baseSha: string;
+  /**
+   * Whether an open pull request's version of the file is the cleanup, given
+   * the model its commit names in its Assisted-by trailer.
+   */
+  isCleanup: (proposed: string, model: string | undefined) => boolean;
+  /** Whether a closed pull request's version of the file is the cleanup. */
+  isDeclined: (proposed: string) => boolean;
+}
+
+/**
+ * Finds what the cleanup branch already says about the cleanup: an open pull
+ * request that holds it, or else the last closed one, which declined it when
+ * a maintainer closed it without merging it. A cleanup that differs, such as
+ * one with more expired entries, was not declined, and neither was a pull
+ * request that held more than a cleanup, which may have been closed for
+ * that. Nor was any once a cleanup was merged since, and a closed pull
+ * request does not count while a later one is open.
+ */
+const findExistingCleanup = async ({
+  baseSha,
+  isCleanup,
+  isDeclined,
+  ...options
+}: ExistingCleanupOptions) => {
+  const open = await findCleanupPullRequest(options, "open");
+
+  if (open !== undefined) {
+    const proposal = await readCleanupProposal({
+      ...options,
+      baseSha,
+      head: open.head.sha,
+    });
+    return proposal !== undefined &&
+      isCleanup(proposal.proposed, proposal.model)
+      ? { model: proposal.model, status: "open" as const }
+      : undefined;
+  }
+
+  const closed = await findCleanupPullRequest(options, "closed");
+
+  if (closed === undefined || closed.merged_at !== null) {
+    return;
+  }
+
+  const proposal = await readCleanupProposal({
+    ...options,
+    baseSha,
+    head: closed.head.sha,
+  });
+
+  return proposal !== undefined && isDeclined(proposal.proposed)
+    ? {
+        pullRequest: { number: closed.number, url: closed.html_url },
+        status: "declined" as const,
+      }
     : undefined;
 };
 
@@ -227,7 +307,7 @@ const findCurrentCleanup = async ({
  * is checked before anything is pushed.
  *
  * Running it again changes nothing while the open pull request still holds
- * the same cleanup.
+ * the same cleanup, or while the last one, closed without merging, held it.
  */
 export const removeExpiredReleaseAgeExclusions = async ({
   octokit,
@@ -300,27 +380,33 @@ export const removeExpiredReleaseAgeExclusions = async ({
   // An open pull request that already holds the cleanup does the job, so no
   // edit or model call is needed; only its title and body are restored. When
   // the rules can make the edit, its file must be exactly theirs; otherwise
-  // the model that chose its lines must be named.
-  const current = dryRun
+  // the model that chose its lines must be named. A maintainer who closed the
+  // cleanup without merging it declined it, whoever edited its file.
+  const existing = dryRun
     ? undefined
-    : await findCurrentCleanup({
+    : await findExistingCleanup({
         base: baseBranch,
         baseSha,
         isCleanup: (proposed, model) =>
           ruleEdit === undefined
             ? model !== undefined && verify(proposed).length === 0
             : model === undefined && proposed === ruleEdit,
+        isDeclined: (proposed) => verify(proposed).length === 0,
         octokit,
         owner,
         repo,
       });
 
-  if (current !== undefined) {
+  if (existing?.status === "declined") {
+    return { expired, pullRequest: existing.pullRequest, status: "declined" };
+  }
+
+  if (existing?.status === "open") {
     return {
       committed: false,
-      editedBy: current.model === undefined ? "rules" : "model",
+      editedBy: existing.model === undefined ? "rules" : "model",
       expired,
-      pullRequest: await ensureCleanupPullRequest(current.model),
+      pullRequest: await ensureCleanupPullRequest(existing.model),
       status: "pull-request",
     };
   }
@@ -424,9 +510,7 @@ export const removeExpiredReleaseAgeExclusionsEverywhere = async ({
               result.status === "nothing-expired" ? 0 : result.expired.length,
             owner,
             pullRequest:
-              result.status === "pull-request"
-                ? result.pullRequest.number
-                : undefined,
+              "pullRequest" in result ? result.pullRequest.number : undefined,
             repo,
             status: result.status,
           });

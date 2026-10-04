@@ -63,6 +63,13 @@ interface FakeOptions {
   changedFiles?: string[];
   /** The message of its head commit. */
   headMessage?: string;
+  /** The last closed cleanup pull request's version of the file. */
+  closedPullRequest?: string;
+  /** Whether it was merged. */
+  closedMerged?: boolean;
+  /** How many commits it is ahead of the base, and what they change. */
+  closedAheadBy?: number;
+  closedChangedFiles?: string[];
 }
 
 // Answers the GitHub API and the npm registry, and records the writes.
@@ -73,6 +80,10 @@ const fake = ({
   aheadBy = 1,
   changedFiles = ["pnpm-workspace.yaml"],
   headMessage = "chore(deps): remove expired minimumReleaseAgeExclude entries",
+  closedPullRequest,
+  closedMerged = false,
+  closedAheadBy = 1,
+  closedChangedFiles = ["pnpm-workspace.yaml"],
 }: FakeOptions = {}) => {
   const writes: { route: string; body: unknown }[] = [];
   const fetchImpl = vi.fn<typeof fetch>((input, init) => {
@@ -101,18 +112,38 @@ const fake = ({
       ],
       [
         `GET ${repository}/contents/pnpm-workspace.yaml`,
-        () =>
-          fileResponse(
-            url.searchParams.get("ref") === "pull-head"
-              ? openPullRequest
-              : (manifest ?? undefined)
-          ),
+        () => {
+          const versions = new Map([
+            ["pull-head", openPullRequest],
+            ["closed-head", closedPullRequest],
+          ]);
+          const ref = url.searchParams.get("ref") ?? "";
+          return fileResponse(
+            versions.has(ref) ? versions.get(ref) : (manifest ?? undefined)
+          );
+        },
       ],
       [`GET ${repository}/contents/.npmrc`, () => fileResponse()],
       [
         `GET ${repository}/pulls`,
-        () =>
-          Response.json(
+        () => {
+          if (url.searchParams.get("state") === "closed") {
+            return Response.json(
+              closedPullRequest === undefined
+                ? []
+                : [
+                    {
+                      head: { sha: "closed-head" },
+                      html_url: "https://github.com/publira/website/pull/119",
+                      merged_at: closedMerged
+                        ? "2026-10-01T10:00:00.000Z"
+                        : null,
+                      number: 119,
+                    },
+                  ]
+            );
+          }
+          return Response.json(
             openPullRequest === undefined
               ? []
               : [
@@ -123,7 +154,8 @@ const fake = ({
                     number: 120,
                   },
                 ]
-          ),
+          );
+        },
       ],
       [
         `GET ${repository}/compare/base...pull-head`,
@@ -132,6 +164,22 @@ const fake = ({
             ahead_by: aheadBy,
             commits: [{ commit: { message: headMessage } }],
             files: changedFiles.map((filename) => ({ filename })),
+          }),
+      ],
+      [
+        `GET ${repository}/compare/base...closed-head`,
+        () =>
+          Response.json({
+            ahead_by: closedAheadBy,
+            commits: [
+              {
+                commit: {
+                  message:
+                    "chore(deps): remove expired minimumReleaseAgeExclude entries",
+                },
+              },
+            ],
+            files: closedChangedFiles.map((filename) => ({ filename })),
           }),
       ],
       [
@@ -407,6 +455,128 @@ describe(removeExpiredReleaseAgeExclusions, () => {
     ]);
   });
 
+  describe("when a maintainer closed a cleanup without merging it", () => {
+    it("does not propose the same cleanup again", async () => {
+      const github = fake({ closedPullRequest: cleanedManifest });
+
+      await expect(
+        removeExpiredReleaseAgeExclusions({
+          ...github.options,
+          editor: neverCalled,
+          now: AFTER_EXPIRY,
+        })
+      ).resolves.toStrictEqual({
+        expired: [
+          {
+            availableAt: new Date("2026-10-01T08:00:00.000Z"),
+            selector: "@next/env@16.3.8",
+          },
+          {
+            availableAt: new Date("2026-10-01T08:00:00.000Z"),
+            selector: "next@16.3.8",
+          },
+        ],
+        pullRequest: {
+          number: 119,
+          url: "https://github.com/publira/website/pull/119",
+        },
+        status: "declined",
+      });
+      expect(github.writes).toStrictEqual([]);
+    });
+
+    it("does not propose it with comments edited differently", async () => {
+      // The comment kept, which the rules would have removed.
+      const github = fake({
+        closedPullRequest: workspaceManifest.replace(
+          '  - "@next/env@16.3.8"\n  - next@16.3.8\n',
+          ""
+        ),
+      });
+
+      await expect(
+        removeExpiredReleaseAgeExclusions({
+          ...github.options,
+          editor: neverCalled,
+          now: AFTER_EXPIRY,
+        })
+      ).resolves.toMatchObject({ status: "declined" });
+      expect(github.writes).toStrictEqual([]);
+    });
+
+    it.each([
+      // Closed when only @next/env had expired.
+      {
+        closedPullRequest: workspaceManifest.replace(
+          '  - "@next/env@16.3.8"\n',
+          ""
+        ),
+      },
+      // Closed before another entry was added to the file.
+      {
+        closedPullRequest: cleanedManifest,
+        manifest: workspaceManifest.replace(
+          '  - "@publira/*"\n',
+          '  - "@publira/*"\n  - "@types/*"\n'
+        ),
+      },
+      // Merged, and the entries added again since.
+      { closedMerged: true, closedPullRequest: cleanedManifest },
+      // Closed while it held a change to another file as well.
+      {
+        closedChangedFiles: ["pnpm-workspace.yaml", "package.json"],
+        closedPullRequest: cleanedManifest,
+      },
+      // Or a commit below the cleanup commit.
+      { closedAheadBy: 2, closedPullRequest: cleanedManifest },
+    ])("proposes a different cleanup: %j", async (options) => {
+      const github = fake(options);
+
+      await expect(
+        removeExpiredReleaseAgeExclusions({
+          ...github.options,
+          now: AFTER_EXPIRY,
+        })
+      ).resolves.toMatchObject({
+        pullRequest: { created: true, number: 121 },
+        status: "pull-request",
+      });
+      expect(github.writes.map(({ route }) => route)).toContain(
+        `POST ${repository}/pulls`
+      );
+    });
+
+    it("leaves an open pull request opened after it", async () => {
+      const github = fake({
+        closedPullRequest: cleanedManifest,
+        openPullRequest: cleanedManifest,
+      });
+
+      await expect(
+        removeExpiredReleaseAgeExclusions({
+          ...github.options,
+          now: AFTER_EXPIRY,
+        })
+      ).resolves.toMatchObject({
+        committed: false,
+        pullRequest: { number: 120 },
+        status: "pull-request",
+      });
+    });
+
+    it("still plans the cleanup in a dry run", async () => {
+      const github = fake({ closedPullRequest: cleanedManifest });
+
+      await expect(
+        removeExpiredReleaseAgeExclusions({
+          ...github.options,
+          dryRun: true,
+          now: AFTER_EXPIRY,
+        })
+      ).resolves.toMatchObject({ source: cleanedManifest, status: "planned" });
+    });
+  });
+
   describe("when comments make the edit ambiguous", () => {
     // The comment covers an entry that stays.
     const manifest = `minimumReleaseAgeExclude:
@@ -524,6 +694,19 @@ describe(removeExpiredReleaseAgeExclusions, () => {
       );
     });
 
+    it("does not ask the editor again for a closed cleanup", async () => {
+      const github = fake({ closedPullRequest: modelEdited, manifest });
+
+      await expect(
+        removeExpiredReleaseAgeExclusions({
+          ...github.options,
+          editor: neverCalled,
+          now: AFTER_EXPIRY,
+        })
+      ).resolves.toMatchObject({ status: "declined" });
+      expect(github.writes).toStrictEqual([]);
+    });
+
     it("fails without an editor", async () => {
       const github = fake({ manifest });
 
@@ -607,5 +790,40 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
         },
       ],
     ]);
+  });
+
+  it("logs a declined cleanup with its pull request", async () => {
+    const log = vi.fn<Log>();
+    const job = vi.fn<typeof removeExpiredReleaseAgeExclusions>(({ repo }) =>
+      Promise.resolve(
+        repo === "website"
+          ? {
+              expired: [
+                {
+                  availableAt: new Date("2026-10-01T08:00:00.000Z"),
+                  selector: "next@16.3.8",
+                },
+              ],
+              pullRequest: {
+                number: 119,
+                url: "https://github.com/publira/website/pull/119",
+              },
+              status: "declined",
+            }
+          : { reports: [], status: "nothing-expired" }
+      )
+    );
+
+    await removeExpiredReleaseAgeExclusionsEverywhere({ app, job, log });
+
+    expect(log).toHaveBeenCalledWith("info", "Release age exclusions checked", {
+      committed: undefined,
+      editedBy: undefined,
+      expired: 1,
+      owner: "publira",
+      pullRequest: 119,
+      repo: "website",
+      status: "declined",
+    });
   });
 });
