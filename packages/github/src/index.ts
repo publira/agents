@@ -27,6 +27,8 @@ export type {
   EnsurePullRequestResult,
 } from "./pull-request.ts";
 export { ensurePullRequest } from "./pull-request.ts";
+export type { PullRequestLocation } from "./pull-request-editor.ts";
+export { getPullRequestBodyEditor } from "./pull-request-editor.ts";
 export type { RepositoryFileLocation } from "./repository-file.ts";
 export {
   readOptionalRepositoryFile,

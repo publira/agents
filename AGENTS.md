@@ -63,6 +63,7 @@ pnpm holds back versions published less than a day ago (`minimumReleaseAge`). `p
 - `pnpm --filter @publira/maintenance-bot dev`: start the bot locally with `eve dev`, once the packages are built, which opens eve's terminal UI. It needs a model connection, which eve asks for on first start; `--no-ui` starts the server alone.
 - `pnpm --filter @publira/maintenance-bot check-release-age-exclusions <owner/repo>`: run that job from the terminal without eve, once the packages are built. It reads the repository as the GitHub App when `apps/maintenance-bot/.env.local` holds a development App's credentials; otherwise requests are anonymous, and `GH_TOKEN` set to a token of your own raises the GitHub API rate limit.
 - `pnpm --filter @publira/maintenance-bot remove-expired-release-age-exclusions <owner/repo> --dry-run`: print the `pnpm-workspace.yaml` the cleanup job would propose, reading as `check-release-age-exclusions` does. Without `--dry-run` it pushes the branch and opens the pull request, which needs the App's credentials.
+- `pnpm --filter @publira/maintenance-bot approve-equivalent-renovate-update <owner/repo> <number> --dry-run`: print each condition the Renovate approval job checks on that pull request, and whether it would approve it. The dry run reads GitHub's GraphQL API, so it needs the App's credentials in `.env.local` or `GH_TOKEN`. Without `--dry-run` it submits the review, which needs the App's credentials.
 - `pnpm --filter @publira/maintenance-bot list-app-repositories`: list the repositories the App in `.env.local` is installed on, which checks its credentials.
 
 Run `pnpm check`, `pnpm typecheck`, and `pnpm test` before committing. The lefthook pre-commit hook formats staged files but does not lint or test them.
@@ -88,6 +89,10 @@ The bot authenticates as the Publira GitHub App. `@publira/github` signs the App
 Do not give the deployed bot a personal access token or a `GITHUB_TOKEN` variable: it would act as a person, with that person's access, instead of as the App. `GH_TOKEN` in the CLI is for local runs only. Do not log a token, a key, the webhook secret, or a whole payload; pass the log the fields it needs one by one.
 
 Request a new App permission only for a concrete API call that needs it, and say which in the pull request. Jobs cannot change `.github/workflows/`, which would need the Workflows permission.
+
+### Renovate update approval
+
+The approval job (`src/jobs/approve-equivalent-renovate-update.ts`) identifies an update by the comments the organization's Renovate preset writes at the top of each pull request body through `prHeader`, one `<!-- publira-renovate-update ... -->` per update, and never by the visible table or the title. None of Renovate's default output carries every field a match needs: the title has no from-version, the table never names the manager and varies its columns between pull requests, and the `renovate-debug` comment holds no update data. A repository whose Renovate configuration sets its own `prHeader` gets no such comments, and its pull requests are not approved. Change the comment's fields in the preset and in `@publira/maintenance-policies` together; the parser refuses a field it does not know.
 
 ### Webhooks
 

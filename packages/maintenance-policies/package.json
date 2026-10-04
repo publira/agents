@@ -16,6 +16,9 @@
     "test": "vitest run",
     "typecheck": "tsc"
   },
+  "dependencies": {
+    "zod": "catalog:"
+  },
   "devDependencies": {
     "@publira/tsconfig": "workspace:*",
     "@types/node": "catalog:",
