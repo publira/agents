@@ -92,7 +92,7 @@ Request a new App permission only for a concrete API call that needs it, and say
 
 ### Renovate update approval
 
-The approval job (`src/jobs/approve-equivalent-renovate-update.ts`) identifies an update by the comments the organization's Renovate preset writes at the top of each pull request body through `prHeader`, one `<!-- publira-renovate-update ... -->` per update, and never by the visible table or the title. A repository whose Renovate configuration sets its own `prHeader` gets no such comments, and its pull requests are not approved. Change the comment's fields in the preset and in `@publira/maintenance-policies` together; the parser refuses a field it does not know.
+The approval job (`src/jobs/approve-equivalent-renovate-update.ts`) identifies an update by the comments the organization's Renovate preset writes at the top of each pull request body through `prHeader`, one `<!-- publira-renovate-update ... -->` per update, and never by the visible table or the title. None of Renovate's default output carries every field a match needs: the title has no from-version, the table never names the manager and varies its columns between pull requests, and the `renovate-debug` comment holds no update data. A repository whose Renovate configuration sets its own `prHeader` gets no such comments, and its pull requests are not approved. Change the comment's fields in the preset and in `@publira/maintenance-policies` together; the parser refuses a field it does not know.
 
 ### Webhooks
 
