@@ -61,6 +61,71 @@ describe("the request policy", () => {
     ).resolves.toMatchObject({ data: { name: "agents" } });
   });
 
+  it("tries a read again after a 403 rate limit when GitHub says soon", async () => {
+    const github = fakeGitHub({
+      "GET /repos/publira/agents": flaky(1, () =>
+        Response.json(
+          { message: "You have exceeded a secondary rate limit" },
+          { headers: { "retry-after": "0" }, status: 403 }
+        )
+      ),
+    });
+    const octokit = createGitHubClient({ fetch: github.fetch, requestPolicy });
+
+    await expect(
+      octokit.rest.repos.get({ owner: "publira", repo: "agents" })
+    ).resolves.toMatchObject({ data: { name: "agents" } });
+  });
+
+  it("waits for the primary rate limit when it resets soon", async () => {
+    const github = fakeGitHub({
+      "GET /repos/publira/agents": flaky(1, () =>
+        Response.json(
+          { message: "API rate limit exceeded" },
+          {
+            headers: {
+              "x-ratelimit-remaining": "0",
+              // Already reset.
+              "x-ratelimit-reset": String(Math.floor(Date.now() / 1000) - 1),
+            },
+            status: 403,
+          }
+        )
+      ),
+    });
+    const octokit = createGitHubClient({ fetch: github.fetch, requestPolicy });
+
+    await expect(
+      octokit.rest.repos.get({ owner: "publira", repo: "agents" })
+    ).resolves.toMatchObject({ data: { name: "agents" } });
+    expect(github.routes).toHaveLength(2);
+  });
+
+  it.each([
+    ["a 403 without rate limit headers", 403, {}],
+    ["a 429 without a wait", 429, {}],
+    [
+      "a primary rate limit that resets later",
+      403,
+      {
+        "x-ratelimit-remaining": "0",
+        "x-ratelimit-reset": String(Math.floor(Date.now() / 1000) + 3600),
+      },
+    ],
+  ])("does not try %s again", async (_name, status, headers) => {
+    const github = fakeGitHub({
+      "GET /repos/publira/agents": flaky(1, () =>
+        Response.json({ message: "Forbidden" }, { headers, status })
+      ),
+    });
+    const octokit = createGitHubClient({ fetch: github.fetch, requestPolicy });
+
+    await expect(
+      octokit.rest.repos.get({ owner: "publira", repo: "agents" })
+    ).rejects.toMatchObject({ status });
+    expect(github.routes).toHaveLength(1);
+  });
+
   it("does not wait out a long rate limit", async () => {
     const github = fakeGitHub({
       "GET /repos/publira/agents": flaky(1, () =>

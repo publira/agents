@@ -104,14 +104,13 @@ export const evaluateRenovateUpdate = async ({
       enabled: renovateAutoMerge,
       reviewer,
     });
-    // With auto-merge off and nothing to take back, there is nothing to tell.
-    if (result.status !== "disabled") {
-      autoMergeLog(
-        result.status === "refused" ? "warn" : "info",
-        "Renovate update auto-merge evaluated",
-        summarizeAutoMergeResult(result)
-      );
-    }
+    // Every outcome, `disabled` included, so the logs tell why a pull
+    // request was not merged.
+    autoMergeLog(
+      result.status === "refused" ? "warn" : "info",
+      "Renovate update auto-merge evaluated",
+      summarizeAutoMergeResult(result)
+    );
   } catch (error) {
     autoMergeLog(
       "error",

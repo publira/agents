@@ -199,15 +199,18 @@ describe(evaluateRenovateUpdate, () => {
     );
   });
 
-  it("logs nothing about auto-merge while it is off and left nothing", async () => {
+  it("logs that auto-merge is off when it left nothing to take back", async () => {
     const { log, run } = setup();
 
     await run({ renovateAutoMerge: false });
 
-    expect(log).toHaveBeenCalledExactlyOnceWith(
+    expect(log).toHaveBeenLastCalledWith(
       "info",
-      "Renovate update evaluated",
-      expect.any(Object)
+      "Renovate update auto-merge evaluated",
+      expect.objectContaining({
+        autoMerge: "disabled",
+        job: "auto-merge-renovate-update",
+      })
     );
   });
 

@@ -779,6 +779,7 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
         {
           ...logged,
           error: "The registry is down",
+          modelInvoked: false,
           repo: "website",
           status: undefined,
         },
@@ -828,9 +829,19 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
 
   it("logs the entries, the model it asked, and the pull request it opened", async () => {
     const log = vi.fn<Log>();
-    const job = vi.fn<typeof removeExpiredReleaseAgeExclusions>(({ repo }) =>
-      Promise.resolve(
-        repo === "website"
+    const editor = vi.fn<ExclusionEditor>(() =>
+      Promise.resolve({
+        lineNumbers: [2],
+        model: "anthropic/claude-sonnet-5.5",
+      })
+    );
+    const job = vi.fn<typeof removeExpiredReleaseAgeExclusions>(
+      async ({ editor: given, repo }) => {
+        // Only the website's cleanup needs the model this time.
+        if (repo === "website") {
+          await given?.({ lines: [], reason: "test", selectors: [] });
+        }
+        return repo === "website"
           ? {
               committed: true,
               editedBy: "model",
@@ -868,12 +879,18 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
                 url: "https://github.com/publira/publira/pull/8",
               },
               status: "pull-request",
-            }
-      )
+            };
+      }
     );
 
-    await removeExpiredReleaseAgeExclusionsEverywhere({ app, job, log });
+    await removeExpiredReleaseAgeExclusionsEverywhere({
+      app,
+      editor,
+      job,
+      log,
+    });
 
+    expect(editor).toHaveBeenCalledOnce();
     expect(log).toHaveBeenCalledWith(
       "info",
       "Release age exclusions checked",
@@ -896,6 +913,47 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
         modelInvoked: false,
         pullRequest: 8,
         pullRequestCreated: false,
+        repo: "publira",
+      })
+    );
+  });
+
+  it("tells whether the model was asked when the cleanup fails", async () => {
+    const log = vi.fn<Log>();
+    const editor = vi.fn<ExclusionEditor>(() =>
+      Promise.reject(new Error("The operation was aborted due to timeout"))
+    );
+    const job = vi.fn<typeof removeExpiredReleaseAgeExclusions>(
+      async ({ editor: given, repo }) => {
+        if (repo === "website") {
+          await given?.({ lines: [], reason: "test", selectors: [] });
+        }
+        throw new Error("The registry is down");
+      }
+    );
+
+    await removeExpiredReleaseAgeExclusionsEverywhere({
+      app,
+      editor,
+      job,
+      log,
+    });
+
+    expect(log).toHaveBeenCalledWith(
+      "error",
+      "Release age exclusion cleanup failed",
+      expect.objectContaining({
+        error: "The operation was aborted due to timeout",
+        modelInvoked: true,
+        repo: "website",
+      })
+    );
+    expect(log).toHaveBeenCalledWith(
+      "error",
+      "Release age exclusion cleanup failed",
+      expect.objectContaining({
+        error: "The registry is down",
+        modelInvoked: false,
         repo: "publira",
       })
     );

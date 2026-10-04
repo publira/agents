@@ -24,39 +24,75 @@ export const DEFAULT_REQUEST_POLICY: Readonly<RequestPolicy> = {
 // queries are POST requests, so they are not either.
 const RETRIED_METHODS = new Set(["GET", "HEAD"]);
 
-// GitHub's rate limit and server errors. Octokit reports a request that
-// failed or timed out before an answer as 500.
-const RETRIED_STATUSES = new Set([429, 500, 502, 503, 504]);
+// GitHub's server errors. Octokit reports a request that failed or timed
+// out before an answer as 500.
+const SERVER_ERRORS = new Set([500, 502, 503, 504]);
 
-// A longer `retry-after` fails the request; the next run tries it again.
-const MAX_RETRY_AFTER_MS = 10_000;
+// GitHub answers a rate-limited request with either status. A 403 is
+// otherwise a missing permission, which waiting does not cure.
+const RATE_LIMITED = new Set([403, 429]);
+
+// A longer wait fails the request; the next run tries it again.
+const MAX_WAIT_MS = 10_000;
 
 const failure = z.object({
   response: z
     .object({
-      headers: z.looseObject({ "retry-after": z.coerce.number().optional() }),
+      headers: z.looseObject({
+        "retry-after": z.coerce.number().optional(),
+        "x-ratelimit-remaining": z.coerce.number().optional(),
+        "x-ratelimit-reset": z.coerce.number().optional(),
+      }),
     })
     .optional(),
   status: z.number(),
 });
 
+type Failure = z.infer<typeof failure>;
+
+/**
+ * How long GitHub asks a rate-limited request to wait: `retry-after`, or
+ * until the primary limit resets once it ran out. Without either, GitHub asks
+ * for at least a minute, and a 403 is not a rate limit at all.
+ */
+const rateLimitWait = (
+  headers: NonNullable<Failure["response"]>["headers"] | undefined,
+  now: number
+): number | undefined => {
+  if (headers?.["retry-after"] !== undefined) {
+    return headers["retry-after"] * 1000;
+  }
+  if (
+    headers?.["x-ratelimit-remaining"] === 0 &&
+    headers["x-ratelimit-reset"] !== undefined
+  ) {
+    return Math.max(0, headers["x-ratelimit-reset"] * 1000 - now);
+  }
+};
+
 /** How long to wait before trying again, or `undefined` not to. */
 const retryWait = (
-  failed: z.infer<typeof failure> | undefined,
-  delay: number
+  failed: Failure | undefined,
+  delay: number,
+  now: number
 ): number | undefined => {
-  if (failed === undefined || !RETRIED_STATUSES.has(failed.status)) {
+  if (failed === undefined) {
     return undefined;
   }
 
-  const retryAfter = failed.response?.headers["retry-after"];
+  const headers = failed.response?.headers;
+  let wait: number | undefined;
 
-  if (retryAfter === undefined) {
-    return delay;
+  if (SERVER_ERRORS.has(failed.status)) {
+    wait =
+      headers?.["retry-after"] === undefined
+        ? delay
+        : rateLimitWait(headers, now);
+  } else if (RATE_LIMITED.has(failed.status)) {
+    wait = rateLimitWait(headers, now);
   }
-  return retryAfter * 1000 <= MAX_RETRY_AFTER_MS
-    ? retryAfter * 1000
-    : undefined;
+
+  return wait !== undefined && wait <= MAX_WAIT_MS ? wait : undefined;
 };
 
 /**
@@ -94,7 +130,11 @@ export const applyRequestPolicy = (
       } catch (error) {
         const wait =
           retry < retries && RETRIED_METHODS.has(options.method)
-            ? retryWait(failure.safeParse(error).data, retryDelay * 2 ** retry)
+            ? retryWait(
+                failure.safeParse(error).data,
+                retryDelay * 2 ** retry,
+                Date.now()
+              )
             : undefined;
 
         if (wait === undefined) {

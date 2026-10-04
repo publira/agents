@@ -473,35 +473,27 @@ export const removeExpiredReleaseAgeExclusions = async ({
 
 /**
  * The fields of a result to log, without the file: which entries expired,
- * whether a model was asked in this run, and the pull request.
+ * the model that chose the lines, and the pull request. Whether a model was
+ * asked in this run is up to the caller, which sees its calls.
  */
 export const summarizeCleanupResult = (
   result: RemoveExpiredReleaseAgeExclusionsResult
-): LogFields => {
-  const model =
+): LogFields => ({
+  committed: result.status === "pull-request" ? result.committed : undefined,
+  editedBy: "editedBy" in result ? result.editedBy : undefined,
+  expired:
+    result.status === "nothing-expired"
+      ? []
+      : result.expired.map(({ selector }) => selector),
+  model:
     result.status === "planned" || result.status === "pull-request"
       ? result.model
-      : undefined;
-  // An open pull request that already held the cleanup took no edit.
-  const edited =
-    result.status === "planned" ||
-    (result.status === "pull-request" && result.committed);
-  return {
-    committed: result.status === "pull-request" ? result.committed : undefined,
-    editedBy: "editedBy" in result ? result.editedBy : undefined,
-    expired:
-      result.status === "nothing-expired"
-        ? []
-        : result.expired.map(({ selector }) => selector),
-    model,
-    modelInvoked: edited && model !== undefined,
-    pullRequest:
-      "pullRequest" in result ? result.pullRequest.number : undefined,
-    pullRequestCreated:
-      result.status === "pull-request" ? result.pullRequest.created : undefined,
-    status: result.status,
-  };
-};
+      : undefined,
+  pullRequest: "pullRequest" in result ? result.pullRequest.number : undefined,
+  pullRequestCreated:
+    result.status === "pull-request" ? result.pullRequest.created : undefined,
+  status: result.status,
+});
 
 export interface RemoveExpiredReleaseAgeExclusionsEverywhereOptions {
   app: GitHubApp;
@@ -542,28 +534,36 @@ export const removeExpiredReleaseAgeExclusionsEverywhere = async ({
           owner,
           repo,
         });
+        // Whether the model was asked, which a failure's line tells too: an
+        // edit it chose can still fail the checks, or the call can time out.
+        let modelInvoked = false;
+        const trackedEditor: ExclusionEditor | undefined =
+          editor === undefined
+            ? undefined
+            : (request) => {
+                modelInvoked = true;
+                return editor(request);
+              };
         try {
           const result = await job({
             base: defaultBranch,
             dryRun,
-            editor,
+            editor: trackedEditor,
             now,
             octokit: await app.getInstallationOctokit(installationId),
             owner,
             registry,
             repo,
           });
-          repositoryLog(
-            "info",
-            "Release age exclusions checked",
-            summarizeCleanupResult(result)
-          );
+          repositoryLog("info", "Release age exclusions checked", {
+            ...summarizeCleanupResult(result),
+            modelInvoked,
+          });
         } catch (error) {
-          repositoryLog(
-            "error",
-            "Release age exclusion cleanup failed",
-            loggableFailure.safeParse(error).data
-          );
+          repositoryLog("error", "Release age exclusion cleanup failed", {
+            ...loggableFailure.safeParse(error).data,
+            modelInvoked,
+          });
         }
       })
   );
