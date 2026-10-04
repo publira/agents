@@ -1,6 +1,6 @@
 {
   "name": "Publira Agents",
-  "image": "ghcr.io/publira/base-images/publira-dev:2026.10.04@sha256:301cd2728d02deacea010719e15cdf9e2537a2e1db21c64b56a52f4b51f5abac",
+  "image": "ghcr.io/publira/base-images/publira-dev:2026.10.04@sha256:3aeffdcfe550a53ad9c57c0c86e7ded25a4c504434fa9218f06924fb766fe12a",
   "features": {
     // eve runs sandboxes that execute real binaries in a local Docker
     // daemon; without one it falls back to just-bash.
