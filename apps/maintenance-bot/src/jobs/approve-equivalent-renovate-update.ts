@@ -3,9 +3,8 @@ import {
   getCommitChecks,
   getPullRequestBodyEditor,
   getRequiredStatusChecks,
-  listAppRepositories,
 } from "@publira/github";
-import type { GitHubApp, Octokit } from "@publira/github";
+import type { Octokit } from "@publira/github";
 import {
   evaluateCommitChecks,
   evaluateRenovateCommits,
@@ -24,8 +23,7 @@ import type {
 } from "@publira/maintenance-policies";
 import { z } from "zod";
 
-import { loggableFailure } from "../log.ts";
-import type { Log, LogFields } from "../log.ts";
+import type { LogFields } from "../log.ts";
 
 /**
  * What the job checks, in order:
@@ -774,79 +772,4 @@ export const summarizeApprovalResult = (
         : `${precedent.owner}/${precedent.repo}#${precedent.number}`,
     status: result.status,
   };
-};
-
-export interface ApproveEquivalentRenovateUpdatesEverywhereOptions {
-  app: GitHubApp;
-  log: Log;
-  /** Only the pull requests from this branch, such as after a precedent merged. */
-  headRef?: string;
-  /** Replaced in tests. */
-  job?: typeof approveEquivalentRenovateUpdate;
-}
-
-/**
- * Runs {@link approveEquivalentRenovateUpdate} on every open Renovate pull
- * request in the unarchived repositories the App is installed on. A pull
- * request that fails is logged, and the others still run.
- */
-export const approveEquivalentRenovateUpdatesEverywhere = async ({
-  app,
-  log,
-  headRef,
-  job = approveEquivalentRenovateUpdate,
-}: ApproveEquivalentRenovateUpdatesEverywhereOptions): Promise<void> => {
-  const [repositories, reviewer] = await Promise.all([
-    listAppRepositories(app),
-    app.getBotLogin(),
-  ]);
-  const precedentScanCache = createPrecedentScanCache();
-
-  await Promise.all(
-    repositories
-      .filter(({ archived }) => !archived)
-      .map(async ({ installationId, owner, repo }) => {
-        try {
-          const octokit = await app.getInstallationOctokit(installationId);
-          const pulls = await octokit.paginate(octokit.rest.pulls.list, {
-            head: headRef === undefined ? undefined : `${owner}:${headRef}`,
-            owner,
-            per_page: 100,
-            repo,
-            state: "open",
-          });
-
-          // One at a time, so a repository with many updates does not burst.
-          for (const pull of pulls.filter(({ user }) => isRenovate(user))) {
-            const fields = { owner, pullRequest: pull.number, repo };
-            try {
-              // oxlint-disable-next-line no-await-in-loop -- see above
-              const result = await job({
-                octokit,
-                owner,
-                precedentScanCache,
-                pullNumber: pull.number,
-                repo,
-                reviewer,
-              });
-              log("info", "Renovate update evaluated", {
-                ...fields,
-                ...summarizeApprovalResult(result),
-              });
-            } catch (error) {
-              log("error", "Renovate update approval failed", {
-                ...fields,
-                ...loggableFailure.safeParse(error).data,
-              });
-            }
-          }
-        } catch (error) {
-          log("error", "Renovate update approval failed", {
-            owner,
-            repo,
-            ...loggableFailure.safeParse(error).data,
-          });
-        }
-      })
-  );
 };

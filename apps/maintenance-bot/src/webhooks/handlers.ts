@@ -1,5 +1,5 @@
-import { createRenovateApprovalHandlers } from "./approve-equivalent-renovate-updates.ts";
 import type { WebhookHandlers } from "./receive-webhook.ts";
+import { createRenovateUpdateHandlers } from "./renovate-updates.ts";
 
 /**
  * The handlers the bot runs, by event name. Subscribe the GitHub App to an
@@ -7,5 +7,5 @@ import type { WebhookHandlers } from "./receive-webhook.ts";
  * dropped.
  */
 export const webhookHandlers: WebhookHandlers = {
-  ...createRenovateApprovalHandlers(),
+  ...createRenovateUpdateHandlers(),
 };

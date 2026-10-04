@@ -7,6 +7,7 @@
   "type": "module",
   "scripts": {
     "approve-equivalent-renovate-update": "node --env-file-if-exists=.env.local src/cli/approve-equivalent-renovate-update.ts",
+    "auto-merge-renovate-update": "node --env-file-if-exists=.env.local src/cli/auto-merge-renovate-update.ts",
     "build": "eve build",
     "check-release-age-exclusions": "node --env-file-if-exists=.env.local src/cli/check-release-age-exclusions.ts",
     "dev": "eve dev",
