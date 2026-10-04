@@ -5,6 +5,22 @@ export type {
 } from "./app.ts";
 export { createGitHubApp } from "./app.ts";
 export type {
+  BranchMergeRules,
+  EnablePullRequestAutoMergeOptions,
+  EnqueuePullRequestOptions,
+  MergeMethod,
+  PullRequestMergeState,
+} from "./auto-merge.ts";
+export {
+  dequeuePullRequest,
+  disablePullRequestAutoMerge,
+  enablePullRequestAutoMerge,
+  enqueuePullRequest,
+  getBranchMergeRules,
+  getPullRequestMergeState,
+  graphqlRequestFailure,
+} from "./auto-merge.ts";
+export type {
   BranchLocation,
   CheckRunState,
   CommitChecks,

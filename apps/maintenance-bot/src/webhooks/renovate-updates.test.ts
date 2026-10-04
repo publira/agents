@@ -3,11 +3,11 @@ import type { GitHubApp, WebhookDelivery } from "@publira/github";
 import { describe, expect, it, vi } from "vitest";
 
 import type {
-  approveEquivalentRenovateUpdate,
-  approveEquivalentRenovateUpdatesEverywhere,
-} from "../jobs/approve-equivalent-renovate-update.ts";
+  evaluateRenovateUpdate,
+  evaluateRenovateUpdatesEverywhere,
+} from "../jobs/evaluate-renovate-update.ts";
 import type { Log } from "../log.ts";
-import { createRenovateApprovalHandlers } from "./approve-equivalent-renovate-updates.ts";
+import { createRenovateUpdateHandlers } from "./renovate-updates.ts";
 
 const BOT = "publira-maintenance[bot]";
 
@@ -43,21 +43,25 @@ const app: GitHubApp = {
   octokit: createGitHubClient(),
 };
 
-const setup = () => {
-  const approve = vi.fn<typeof approveEquivalentRenovateUpdate>(() =>
-    Promise.resolve({ conditions: [], headSha: "head", status: "skipped" })
+const setup = ({ autoMerge = false } = {}) => {
+  const evaluate = vi.fn<typeof evaluateRenovateUpdate>(() =>
+    Promise.resolve()
   );
-  const approveEverywhere = vi.fn<
-    typeof approveEquivalentRenovateUpdatesEverywhere
-  >(() => Promise.resolve());
+  const evaluateEverywhere = vi.fn<typeof evaluateRenovateUpdatesEverywhere>(
+    () => Promise.resolve()
+  );
 
   return {
-    approve,
-    approveEverywhere,
     context: { app, log: vi.fn<Log>() },
+    evaluate,
+    evaluateEverywhere,
     /** The pull requests evaluated one by one. */
-    evaluated: () => approve.mock.calls.map(([options]) => options.pullNumber),
-    handlers: createRenovateApprovalHandlers({ approve, approveEverywhere }),
+    evaluated: () => evaluate.mock.calls.map(([options]) => options.pullNumber),
+    handlers: createRenovateUpdateHandlers({
+      autoMergeEnabled: () => autoMerge,
+      evaluate,
+      evaluateEverywhere,
+    }),
   };
 };
 
@@ -99,7 +103,9 @@ const status = (fields: Readonly<Record<string, Json>> = {}) =>
 
 describe("pull_request", () => {
   it("evaluates a Renovate pull request that changed", async () => {
-    const { approve, context, evaluated, handlers } = setup();
+    const { context, evaluate, evaluated, handlers } = setup({
+      autoMerge: true,
+    });
 
     await handlers.pull_request(
       delivery("pull_request", {
@@ -110,7 +116,8 @@ describe("pull_request", () => {
     );
 
     expect(evaluated()).toStrictEqual([31]);
-    expect(approve.mock.calls[0]?.[0]).toMatchObject({
+    expect(evaluate.mock.calls[0]?.[0]).toMatchObject({
+      autoMerge: true,
       owner: "publira",
       repo: "agents",
       reviewer: BOT,
@@ -118,7 +125,7 @@ describe("pull_request", () => {
   });
 
   it("evaluates the open pull requests from the branch of a merged one", async () => {
-    const { approveEverywhere, context, evaluated, handlers } = setup();
+    const { context, evaluateEverywhere, evaluated, handlers } = setup();
 
     await handlers.pull_request(
       delivery("pull_request", {
@@ -128,8 +135,11 @@ describe("pull_request", () => {
       context
     );
 
-    expect(approveEverywhere).toHaveBeenCalledWith(
-      expect.objectContaining({ headRef: "renovate/turbo-monorepo" })
+    expect(evaluateEverywhere).toHaveBeenCalledWith(
+      expect.objectContaining({
+        autoMerge: false,
+        headRef: "renovate/turbo-monorepo",
+      })
     );
     expect(evaluated()).toStrictEqual([]);
   });
@@ -149,7 +159,7 @@ describe("pull_request", () => {
   });
 
   it("ignores a pull request closed without merging", async () => {
-    const { approveEverywhere, context, evaluated, handlers } = setup();
+    const { context, evaluateEverywhere, evaluated, handlers } = setup();
 
     await handlers.pull_request(
       delivery("pull_request", {
@@ -160,7 +170,7 @@ describe("pull_request", () => {
     );
 
     expect(evaluated()).toStrictEqual([]);
-    expect(approveEverywhere).not.toHaveBeenCalled();
+    expect(evaluateEverywhere).not.toHaveBeenCalled();
   });
 });
 

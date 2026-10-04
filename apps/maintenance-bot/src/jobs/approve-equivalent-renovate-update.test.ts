@@ -1,11 +1,8 @@
 import { createGitHubClient } from "@publira/github";
-import type { GitHubApp } from "@publira/github";
 import { describe, expect, it, vi } from "vitest";
 
-import type { Log } from "../log.ts";
 import {
   approveEquivalentRenovateUpdate,
-  approveEquivalentRenovateUpdatesEverywhere,
   createPrecedentScanCache,
 } from "./approve-equivalent-renovate-update.ts";
 
@@ -569,87 +566,5 @@ describe(approveEquivalentRenovateUpdate, () => {
     const result = await run(github);
 
     expect(result.status).toBe("approved");
-  });
-});
-
-describe(approveEquivalentRenovateUpdatesEverywhere, () => {
-  it("evaluates the open Renovate pull requests from the branch", async () => {
-    const requests: string[] = [];
-    const octokit = createGitHubClient({
-      fetch: (input) => {
-        const url = new URL(String(input));
-        requests.push(`${url.pathname}${url.search}`);
-        const response = Response.json(
-          url.pathname === "/installation/repositories"
-            ? {
-                repositories: [
-                  {
-                    archived: false,
-                    default_branch: "main",
-                    name: "agents",
-                    owner: { login: "publira" },
-                  },
-                ],
-                total_count: 1,
-              }
-            : [
-                { number: 31, user: renovate },
-                { number: 32, user: maintainer },
-              ]
-        );
-        Object.defineProperty(response, "url", { value: url.href });
-        return Promise.resolve(response);
-      },
-    });
-    const app: GitHubApp = {
-      getBotLogin: () => Promise.resolve(BOT),
-      getInstallationOctokit: () => Promise.resolve(octokit),
-      getRepositoryOctokit: () => Promise.reject(new Error("unused")),
-      octokit: createGitHubClient({
-        fetch: (input) => {
-          const url = new URL(String(input));
-          const response = Response.json(
-            url.pathname === "/app/installations"
-              ? [{ id: 1, suspended_at: null }]
-              : { message: "Not Found" },
-            { status: url.pathname === "/app/installations" ? 200 : 404 }
-          );
-          Object.defineProperty(response, "url", { value: url.href });
-          return Promise.resolve(response);
-        },
-      }),
-    };
-    const job = vi.fn<typeof approveEquivalentRenovateUpdate>(() =>
-      Promise.resolve({
-        conditions: [],
-        headSha: HEAD,
-        status: "skipped" as const,
-      })
-    );
-    const log = vi.fn<Log>();
-
-    await approveEquivalentRenovateUpdatesEverywhere({
-      app,
-      headRef: "renovate/turbo-monorepo",
-      job,
-      log,
-    });
-
-    expect(job).toHaveBeenCalledOnce();
-    expect(job.mock.calls[0]?.[0]).toMatchObject({
-      owner: "publira",
-      precedentScanCache: expect.any(Object),
-      pullNumber: 31,
-      repo: "agents",
-      reviewer: BOT,
-    });
-    expect(requests).toContain(
-      "/repos/publira/agents/pulls?head=publira%3Arenovate%2Fturbo-monorepo&per_page=100&state=open"
-    );
-    expect(log).toHaveBeenCalledWith(
-      "info",
-      "Renovate update evaluated",
-      expect.objectContaining({ pullRequest: 31, status: "skipped" })
-    );
   });
 });

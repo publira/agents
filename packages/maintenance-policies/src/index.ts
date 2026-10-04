@@ -1,4 +1,11 @@
 export type {
+  ApprovalPolicyVerdict,
+  AutoMergeInput,
+  AutoMergeVerdict,
+  MergeMethod,
+} from "./auto-merge.ts";
+export { canAutoMerge } from "./auto-merge.ts";
+export type {
   AccountRef,
   CheckRunInput,
   CommitChecksInput,

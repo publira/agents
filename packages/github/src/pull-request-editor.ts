@@ -1,6 +1,8 @@
 import type { Octokit } from "@octokit/rest";
 import { z } from "zod";
 
+import { graphqlActor, restLogin } from "./actor.ts";
+
 export interface PullRequestLocation {
   owner: string;
   repo: string;
@@ -10,9 +12,7 @@ export interface PullRequestLocation {
 const editorResponse = z.object({
   repository: z.object({
     pullRequest: z.object({
-      editor: z
-        .object({ __typename: z.string(), login: z.string() })
-        .nullable(),
+      editor: graphqlActor.nullable(),
     }),
   }),
 });
@@ -38,9 +38,5 @@ export const getPullRequestBodyEditor = async (
   );
   const { editor } = editorResponse.parse(response).repository.pullRequest;
 
-  if (editor === null) {
-    return null;
-  }
-  // GraphQL leaves the `[bot]` suffix off a bot's login.
-  return editor.__typename === "Bot" ? `${editor.login}[bot]` : editor.login;
+  return editor === null ? null : restLogin(editor);
 };

@@ -2,10 +2,10 @@ import { RENOVATE_LOGIN } from "@publira/maintenance-policies";
 import { z } from "zod";
 
 import {
-  approveEquivalentRenovateUpdate,
-  approveEquivalentRenovateUpdatesEverywhere,
-  summarizeApprovalResult,
-} from "../jobs/approve-equivalent-renovate-update.ts";
+  evaluateRenovateUpdate,
+  evaluateRenovateUpdatesEverywhere,
+} from "../jobs/evaluate-renovate-update.ts";
+import { renovateAutoMergeEnabled } from "../renovate-auto-merge.ts";
 import type { WebhookHandler } from "./receive-webhook.ts";
 
 // Renovate's default branch prefix, which the organization's preset keeps.
@@ -60,13 +60,16 @@ const EVALUATED_ACTIONS = new Set([
 
 type Payload = z.infer<typeof repositoryEvent>;
 
-export interface RenovateApprovalJobs {
-  approve: typeof approveEquivalentRenovateUpdate;
-  approveEverywhere: typeof approveEquivalentRenovateUpdatesEverywhere;
+export interface RenovateUpdateHandlerOptions {
+  evaluate: typeof evaluateRenovateUpdate;
+  evaluateEverywhere: typeof evaluateRenovateUpdatesEverywhere;
+  /** Reads, for each delivery, whether auto-merge is on. */
+  autoMergeEnabled: typeof renovateAutoMergeEnabled;
 }
 
 /**
- * The handlers that approve equivalent Renovate updates, by event name:
+ * The handlers that approve equivalent Renovate updates, and auto-merge them
+ * when that is on, by event name:
  *
  * - `pull_request` evaluates a Renovate pull request when it opens or
  *   changes. When one merges, it may be the precedent that the open pull
@@ -76,12 +79,16 @@ export interface RenovateApprovalJobs {
  * - `status` evaluates the Renovate pull requests of a commit once one of its
  *   statuses, such as `renovate/stability-days`, succeeds.
  *
+ * A push to a pull request (`synchronize`) also lets the bot take back the
+ * auto-merge it enabled for the earlier head.
+ *
  * Tests replace the jobs.
  */
-export const createRenovateApprovalHandlers = ({
-  approve = approveEquivalentRenovateUpdate,
-  approveEverywhere = approveEquivalentRenovateUpdatesEverywhere,
-}: Partial<RenovateApprovalJobs> = {}): Record<
+export const createRenovateUpdateHandlers = ({
+  evaluate: evaluateOne = evaluateRenovateUpdate,
+  evaluateEverywhere = evaluateRenovateUpdatesEverywhere,
+  autoMergeEnabled = renovateAutoMergeEnabled,
+}: Partial<RenovateUpdateHandlerOptions> = {}): Record<
   "check_suite" | "pull_request" | "status",
   WebhookHandler
 > => {
@@ -96,21 +103,18 @@ export const createRenovateApprovalHandlers = ({
       app.getInstallationOctokit(payload.installation.id),
       app.getBotLogin(),
     ]);
+    const autoMerge = autoMergeEnabled(log);
 
     for (const pullNumber of new Set(pullNumbers)) {
       // oxlint-disable-next-line no-await-in-loop -- one pull request at a time
-      const result = await approve({
+      await evaluateOne({
+        autoMerge,
+        log,
         octokit,
         owner,
         pullNumber,
         repo,
         reviewer,
-      });
-      log("info", "Renovate update evaluated", {
-        owner,
-        pullRequest: pullNumber,
-        repo,
-        ...summarizeApprovalResult(result),
       });
     }
   };
@@ -144,7 +148,11 @@ export const createRenovateApprovalHandlers = ({
       }
 
       if (action === "closed" && pullRequest.merged === true) {
-        await approveEverywhere({ ...context, headRef: pullRequest.head.ref });
+        await evaluateEverywhere({
+          ...context,
+          autoMerge: autoMergeEnabled(context.log),
+          headRef: pullRequest.head.ref,
+        });
       } else if (EVALUATED_ACTIONS.has(action)) {
         await evaluate(payload, [pullRequest.number], context);
       }
