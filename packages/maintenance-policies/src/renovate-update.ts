@@ -47,7 +47,11 @@ export interface RenovateUpdate {
   /** The name the datasource looks the dependency up under. */
   packageName?: string;
   currentVersion: string;
-  newVersion: string;
+  /**
+   * The version the update moves to. Renovate leaves it out of a digest update
+   * of the current tag and of a digest pin, which the digests identify.
+   */
+  newVersion?: string;
   currentDigest?: string;
   newDigest?: string;
   updateType: UpdateType;
@@ -65,18 +69,44 @@ const optionalField = z
   .nullish()
   .transform((value) => value ?? undefined);
 
+// The update types the digests identify, and the digests each one requires:
+// a digest update moves from one digest to another, and a digest pin adds a
+// digest to a reference that had none.
+const DIGEST_FIELDS: Partial<
+  Record<UpdateType, readonly ("currentDigest" | "newDigest")[]>
+> = {
+  digest: ["currentDigest", "newDigest"],
+  pinDigest: ["newDigest"],
+};
+
 // Strict: a field this schema does not know could tell two updates apart.
-const renovateUpdateSchema = z.strictObject({
-  currentDigest: optionalField,
-  currentVersion: z.string().min(1),
-  datasource: z.string().min(1),
-  depName: z.string().min(1),
-  manager: z.string().min(1),
-  newDigest: optionalField,
-  newVersion: z.string().min(1),
-  packageName: optionalField,
-  updateType: z.enum(SUPPORTED_UPDATE_TYPES),
-});
+const renovateUpdateSchema = z
+  .strictObject({
+    currentDigest: optionalField,
+    currentVersion: z.string().min(1),
+    datasource: z.string().min(1),
+    depName: z.string().min(1),
+    manager: z.string().min(1),
+    newDigest: optionalField,
+    newVersion: optionalField,
+    packageName: optionalField,
+    updateType: z.enum(SUPPORTED_UPDATE_TYPES),
+  })
+  .superRefine((update, context) => {
+    const digestFields = DIGEST_FIELDS[update.updateType];
+    const required =
+      digestFields ?? (update.newVersion === undefined ? ["newVersion"] : []);
+
+    for (const field of required) {
+      if (update[field] === undefined) {
+        context.addIssue({
+          code: "custom",
+          message: `is required for a ${update.updateType} update`,
+          path: [field],
+        });
+      }
+    }
+  });
 
 // A marker's payload: Base64 of the update's JSON.
 const payloadSchema = z
@@ -104,7 +134,7 @@ const updateKey = (update: RenovateUpdate): string =>
     update.depName,
     update.packageName ?? null,
     update.currentVersion,
-    update.newVersion,
+    update.newVersion ?? null,
     update.currentDigest ?? null,
     update.newDigest ?? null,
     update.updateType,
@@ -182,7 +212,8 @@ const shortDigest = (digest: string) =>
 /**
  * Describes an update for people, such as
  * `npm:npm:next:16.3.6->16.3.8:patch`: manager, datasource, name, versions,
- * and update type. Digests follow the versions when the update has them.
+ * and update type. Digests follow the versions when the update has them, and
+ * a side the update leaves out stays empty.
  */
 export const formatRenovateUpdate = (update: RenovateUpdate): string => {
   const digests =
@@ -194,5 +225,5 @@ export const formatRenovateUpdate = (update: RenovateUpdate): string => {
       ? update.depName
       : `${update.depName}(${update.packageName})`;
 
-  return `${update.manager}:${update.datasource}:${name}:${update.currentVersion}->${update.newVersion}${digests}:${update.updateType}`;
+  return `${update.manager}:${update.datasource}:${name}:${update.currentVersion}->${update.newVersion ?? ""}${digests}:${update.updateType}`;
 };
