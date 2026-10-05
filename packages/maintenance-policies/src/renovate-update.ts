@@ -125,20 +125,28 @@ const payloadSchema = z
   })
   .pipe(renovateUpdateSchema);
 
-// Every field, in a fixed order; JSON keeps a separator in a value from
-// running two fields together.
+// The fields that identify what an update pulls in, in a fixed order. The
+// manager is not one of them: it names the kind of file the update rewrites,
+// while the datasource and the package name already tell where the dependency
+// comes from, and the versions and digests which release of it.
+const fingerprintFields = (update: RenovateUpdate) => [
+  update.datasource,
+  update.depName,
+  update.packageName ?? null,
+  update.currentVersion,
+  update.newVersion ?? null,
+  update.currentDigest ?? null,
+  update.newDigest ?? null,
+  update.updateType,
+];
+
+// JSON keeps a separator in a value from running two fields together.
+const fingerprintKey = (update: RenovateUpdate): string =>
+  JSON.stringify(fingerprintFields(update));
+
+// Every field, so that the same update in two kinds of file stays two.
 const updateKey = (update: RenovateUpdate): string =>
-  JSON.stringify([
-    update.manager,
-    update.datasource,
-    update.depName,
-    update.packageName ?? null,
-    update.currentVersion,
-    update.newVersion ?? null,
-    update.currentDigest ?? null,
-    update.newDigest ?? null,
-    update.updateType,
-  ]);
+  JSON.stringify([update.manager, ...fingerprintFields(update)]);
 
 /**
  * Reads the updates of a Renovate pull request from the comments at the top
@@ -199,12 +207,14 @@ export const parseRenovateUpdates = (
 
 /**
  * Identifies the updates of a pull request: two pull requests have the same
- * fingerprint only when they make the same set of updates, every field
- * included.
+ * fingerprint only when they make the same set of updates, every field but
+ * the manager included. The same image moved to the same digest in a Dev
+ * Container and in a Compose file is one update, and a pull request that
+ * makes it in both matches one that makes it in either.
  */
 export const fingerprintRenovateUpdates = (
   updates: readonly RenovateUpdate[]
-): string => [...new Set(updates.map(updateKey))].toSorted().join("\n");
+): string => [...new Set(updates.map(fingerprintKey))].toSorted().join("\n");
 
 const shortDigest = (digest: string) =>
   digest.replace(/^sha256:/u, "").slice(0, 7);

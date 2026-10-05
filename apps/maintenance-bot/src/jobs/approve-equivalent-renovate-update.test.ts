@@ -330,12 +330,31 @@ describe(approveEquivalentRenovateUpdate, () => {
         /publira\/website#120.*`npm:npm:turbo:2\.11\.5->2\.11\.6:patch`.*ykzts approved the head it was merged at/su
       ),
     });
+    expect(github.writes[1]?.body).not.toMatchObject({
+      body: expect.stringContaining("another manager"),
+    });
+  });
+
+  it("approves the same update made through another manager, and names both", async () => {
+    const github = fakeGitHub({
+      precedents: [
+        precedentPull({ body: renovateBody({ ...turbo, manager: "bun" }) }),
+      ],
+    });
+
+    const result = await run(github);
+
+    expect(result).toMatchObject({ status: "approved" });
+    expect(github.writes[1]?.body).toMatchObject({
+      body: expect.stringMatching(
+        /`npm:npm:turbo:2\.11\.5->2\.11\.6:patch`\n\npublira\/website#120 made it through another manager:\n\n- `bun:npm:turbo:2\.11\.5->2\.11\.6:patch`/u
+      ),
+    });
   });
 
   it.each([
     ["from-version", { currentVersion: "2.11.4" }],
     ["target version", { newVersion: "2.11.7" }],
-    ["manager", { manager: "bun" }],
     ["datasource", { datasource: "github-releases" }],
     ["update type", { updateType: "minor" }],
   ])("does not approve a near match with another %s", async (_, change) => {

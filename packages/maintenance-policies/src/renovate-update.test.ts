@@ -189,7 +189,6 @@ describe(fingerprintRenovateUpdates, () => {
   it.each([
     ["from-version", { currentVersion: "2.11.4" }],
     ["target version", { newVersion: "2.11.7" }],
-    ["manager", { manager: "bun" }],
     ["datasource", { datasource: "github-releases" }],
     ["update type", { updateType: "minor" }],
     ["package name", { packageName: "@vercel/turbo" }],
@@ -198,6 +197,21 @@ describe(fingerprintRenovateUpdates, () => {
     expect(fingerprintRenovateUpdates([{ ...turbo, ...change }])).not.toBe(
       fingerprintRenovateUpdates([turbo])
     );
+  });
+
+  it("matches the same update made through another manager", () => {
+    expect(
+      fingerprintRenovateUpdates([{ ...baseImage, manager: "docker-compose" }])
+    ).toBe(fingerprintRenovateUpdates([baseImage]));
+  });
+
+  it("matches an update made through two managers with one made through either", () => {
+    expect(
+      fingerprintRenovateUpdates([
+        baseImage,
+        { ...baseImage, manager: "docker-compose" },
+      ])
+    ).toBe(fingerprintRenovateUpdates([baseImage]));
   });
 
   it("tells apart a digest update without newVersion from one with it", () => {
@@ -216,9 +230,13 @@ describe(fingerprintRenovateUpdates, () => {
 
   it("does not run fields together", () => {
     expect(
-      fingerprintRenovateUpdates([{ ...turbo, depName: "a:b", manager: "npm" }])
+      fingerprintRenovateUpdates([
+        { ...turbo, datasource: "npm", depName: "a:b" },
+      ])
     ).not.toBe(
-      fingerprintRenovateUpdates([{ ...turbo, depName: "b", manager: "npm:a" }])
+      fingerprintRenovateUpdates([
+        { ...turbo, datasource: "npm:a", depName: "b" },
+      ])
     );
   });
 });
