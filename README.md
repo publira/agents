@@ -100,7 +100,7 @@ When it is on, the bot enables GitHub's auto-merge for the head it approved, and
 
 The bot closes an issue as completed once it has at least one sub-issue and all of them are closed, whatever their reason, and comments that it did so. It decides from the sub-issue structure alone, not from labels. It evaluates the parent when a sub-issue is closed and when a sub-issue is removed from it. The bot's own close of a parent is delivered as an event too, so the parent's parent is evaluated in turn.
 
-A sub-issue can live in another repository than its parent. The bot closes a parent only in a repository the App is installed on. It leaves an issue that is already closed as it is, so one reopened by hand stays open until a sub-issue is closed or removed again.
+A sub-issue can live in another repository than its parent. The bot closes a parent only in a repository the App is installed on. It leaves an issue that is already closed as it is, so one reopened by hand stays open until a sub-issue is closed or removed again. The exception is an issue the bot closed itself: if its comment is missing, such as after posting it failed, the next evaluation of the issue posts it.
 
 ## License
 

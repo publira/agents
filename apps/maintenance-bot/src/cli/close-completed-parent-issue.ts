@@ -72,6 +72,20 @@ switch (result.status) {
     );
     break;
   }
+  case "would-comment": {
+    console.log(
+      "The bot closed it before, without its comment: would comment now."
+    );
+    break;
+  }
+  case "already-closed": {
+    console.log(
+      result.comment.created
+        ? `The bot closed it before, without its comment: commented now (comment ${result.comment.id}).`
+        : `The bot closed it before (comment ${result.comment.id}).`
+    );
+    break;
+  }
   default: {
     break;
   }

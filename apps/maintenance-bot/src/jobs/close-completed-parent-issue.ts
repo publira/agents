@@ -1,4 +1,4 @@
-import { ensureIssueComment } from "@publira/github";
+import { ensureIssueComment, findIssueComment } from "@publira/github";
 import type { EnsureIssueCommentResult, Octokit } from "@publira/github";
 import { evaluateParentIssue } from "@publira/maintenance-policies";
 
@@ -14,6 +14,18 @@ export type CloseCompletedParentIssueResult =
   | {
       status: "closed";
       subIssues: number;
+      comment: EnsureIssueCommentResult;
+    }
+  | {
+      /** The bot closed it before, and its comment is missing. */
+      status: "would-comment";
+    }
+  | {
+      /**
+       * The bot closed it before. `comment.created` tells that its comment
+       * was missing and is posted now.
+       */
+      status: "already-closed";
       comment: EnsureIssueCommentResult;
     };
 
@@ -34,9 +46,10 @@ export interface CloseCompletedParentIssueOptions {
  * `evaluateParentIssue` finds all of its sub-issues closed. No model is
  * asked.
  *
- * A closed issue is left as it is, so a redelivered event changes nothing.
- * Two runs that find the issue open at once both close it, and leave one
- * comment between them.
+ * A closed issue is left as it is, so a redelivered event changes nothing,
+ * except that the bot's own close gets its comment when that is missing, such
+ * as after the comment failed. Two runs that find the issue open at once both
+ * close it, and leave one comment between them.
  */
 export const closeCompletedParentIssue = async ({
   octokit,
@@ -56,16 +69,52 @@ export const closeCompletedParentIssue = async ({
           per_page: 100,
         })
       : [];
-  const verdict = evaluateParentIssue({ state: data.state, subIssues });
+  const verdict = evaluateParentIssue({
+    closedByBot:
+      author !== undefined &&
+      data.closed_by?.login === author &&
+      data.state_reason === "completed",
+    state: data.state,
+    subIssues,
+  });
 
   if (verdict.action === "leave") {
     return { reason: verdict.reason, status: "left" };
   }
-  if (dryRun) {
+  if (verdict.action === "close" && dryRun) {
     return { status: "would-close", subIssues: subIssues.length };
   }
+  // Only a bot with a login closes an issue, so a comment verdict has one.
   if (author === undefined) {
     throw new Error("Closing an issue needs the login that comments on it");
+  }
+
+  // The comment counts from the close it explains.
+  const comment = (closedAt: string | null, updatedAt: string) => ({
+    author,
+    body: COMPLETED_PARENT_COMMENT,
+    issueNumber,
+    owner,
+    repo,
+    since: new Date(closedAt ?? updatedAt),
+  });
+
+  if (verdict.action === "comment") {
+    const options = comment(data.closed_at, data.updated_at);
+
+    if (dryRun) {
+      const existing = await findIssueComment(octokit, options);
+      return existing === undefined
+        ? { status: "would-comment" }
+        : {
+            comment: { created: false, id: existing.id },
+            status: "already-closed",
+          };
+    }
+    return {
+      comment: await ensureIssueComment(octokit, options),
+      status: "already-closed",
+    };
   }
 
   const { data: closed } = await octokit.rest.issues.update({
@@ -73,27 +122,25 @@ export const closeCompletedParentIssue = async ({
     state: "closed",
     state_reason: "completed",
   });
-  const comment = await ensureIssueComment(octokit, {
-    author,
-    body: COMPLETED_PARENT_COMMENT,
-    issueNumber,
-    owner,
-    repo,
-    since: new Date(closed.closed_at ?? closed.updated_at),
-  });
 
-  return { comment, status: "closed", subIssues: subIssues.length };
+  return {
+    comment: await ensureIssueComment(
+      octokit,
+      comment(closed.closed_at, closed.updated_at)
+    ),
+    status: "closed",
+    subIssues: subIssues.length,
+  };
 };
 
 /** The fields of a result to log. */
 export const summarizeCloseCompletedParentIssueResult = (
   result: CloseCompletedParentIssueResult
 ): LogFields => ({
-  comment: result.status === "closed" ? result.comment.id : undefined,
-  commentCreated:
-    result.status === "closed" ? result.comment.created : undefined,
+  comment: "comment" in result ? result.comment.id : undefined,
+  commentCreated: "comment" in result ? result.comment.created : undefined,
   modelInvoked: false,
-  reason: result.status === "left" ? result.reason : undefined,
+  reason: "reason" in result ? result.reason : undefined,
   status: result.status,
-  subIssues: result.status === "left" ? undefined : result.subIssues,
+  subIssues: "subIssues" in result ? result.subIssues : undefined,
 });

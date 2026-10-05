@@ -41,6 +41,7 @@ export type {
 } from "./issue.ts";
 export {
   ensureIssueComment,
+  findIssueComment,
   getParentIssue,
   issueLocationOf,
 } from "./issue.ts";

@@ -71,6 +71,33 @@ export interface EnsureIssueCommentResult {
 }
 
 /**
+ * Returns the earliest comment the author posted with the body since
+ * `since`, or `undefined` when there is none.
+ */
+export const findIssueComment = async (
+  octokit: Octokit,
+  { owner, repo, issueNumber, body, author, since }: EnsureIssueCommentOptions
+): Promise<{ id: number } | undefined> => {
+  // `since` filters by the time a comment was last updated.
+  const comments = await octokit.paginate(octokit.rest.issues.listComments, {
+    issue_number: issueNumber,
+    owner,
+    per_page: 100,
+    repo,
+    since: since.toISOString(),
+  });
+  const same = comments.filter(
+    (comment) =>
+      comment.user?.login === author &&
+      comment.body === body &&
+      new Date(comment.created_at).getTime() >= since.getTime()
+  );
+  const [earliest] = same.toSorted((a, b) => a.id - b.id);
+
+  return earliest === undefined ? undefined : { id: earliest.id };
+};
+
+/**
  * Posts a comment on an issue, unless the author already posted the same one
  * since `since`.
  *
@@ -80,35 +107,21 @@ export interface EnsureIssueCommentResult {
  */
 export const ensureIssueComment = async (
   octokit: Octokit,
-  { owner, repo, issueNumber, body, author, since }: EnsureIssueCommentOptions
+  options: EnsureIssueCommentOptions
 ): Promise<EnsureIssueCommentResult> => {
-  const issue = { issue_number: issueNumber, owner, repo };
-  const findEarliest = async () => {
-    // `since` filters by the time a comment was last updated.
-    const comments = await octokit.paginate(octokit.rest.issues.listComments, {
-      ...issue,
-      per_page: 100,
-      since: since.toISOString(),
-    });
-    const same = comments.filter(
-      (comment) =>
-        comment.user?.login === author &&
-        comment.body === body &&
-        new Date(comment.created_at).getTime() >= since.getTime()
-    );
-    return same.toSorted((a, b) => a.id - b.id)[0];
-  };
-
-  const existing = await findEarliest();
+  const { owner, repo, issueNumber, body } = options;
+  const existing = await findIssueComment(octokit, options);
   if (existing !== undefined) {
     return { created: false, id: existing.id };
   }
 
   const { data: posted } = await octokit.rest.issues.createComment({
-    ...issue,
     body,
+    issue_number: issueNumber,
+    owner,
+    repo,
   });
-  const earliest = await findEarliest();
+  const earliest = await findIssueComment(octokit, options);
 
   if (earliest === undefined || earliest.id === posted.id) {
     return { created: true, id: posted.id };

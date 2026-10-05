@@ -13,6 +13,8 @@ const CLOSED_AT = "2026-10-05T03:00:00Z";
 
 interface Scenario {
   state?: string;
+  /** Who closed it, as completed. */
+  closedBy?: string;
   subIssues?: readonly { state: string }[];
   comments?: readonly { body: string; user: { login: string } }[];
 }
@@ -21,6 +23,7 @@ interface Scenario {
 // records the writes.
 const fakeGitHub = ({
   state = "open",
+  closedBy,
   subIssues = [{ state: "closed" }, { state: "closed" }],
   comments = [],
 }: Scenario = {}) => {
@@ -47,7 +50,14 @@ const fakeGitHub = ({
     const respond = () => {
       switch (route) {
         case `GET ${ISSUE}`: {
-          return Response.json({ number: 3408, state });
+          return Response.json({
+            closed_at: closedBy === undefined ? null : CLOSED_AT,
+            closed_by: closedBy === undefined ? null : { login: closedBy },
+            number: 3408,
+            state,
+            state_reason: closedBy === undefined ? null : "completed",
+            updated_at: CLOSED_AT,
+          });
         }
         case `GET ${ISSUE}/sub_issues`: {
           return Response.json(subIssues);
@@ -162,17 +172,66 @@ describe(closeCompletedParentIssue, () => {
     expect(github.writes).toStrictEqual([]);
   });
 
-  it("leaves a closed issue without listing its sub-issues", async () => {
-    const github = fakeGitHub({ state: "closed" });
+  it("posts the missing comment of the bot's own close", async () => {
+    const github = fakeGitHub({ closedBy: BOT, state: "closed" });
 
     await expect(
       closeCompletedParentIssue({ ...options, octokit: github.octokit })
     ).resolves.toStrictEqual({
-      reason: "it is already closed",
-      status: "left",
+      comment: { created: true, id: 100 },
+      status: "already-closed",
     });
-    expect(github.routes).toStrictEqual([`GET ${ISSUE}`]);
+    expect(github.writes.map(({ route }) => route)).toStrictEqual([
+      `POST ${ISSUE}/comments`,
+    ]);
   });
+
+  it("leaves the bot's own close that has its comment", async () => {
+    const github = fakeGitHub({
+      closedBy: BOT,
+      comments: [{ body: COMPLETED_PARENT_COMMENT, user: { login: BOT } }],
+      state: "closed",
+    });
+
+    await expect(
+      closeCompletedParentIssue({ ...options, octokit: github.octokit })
+    ).resolves.toStrictEqual({
+      comment: { created: false, id: 1 },
+      status: "already-closed",
+    });
+    expect(github.writes).toStrictEqual([]);
+  });
+
+  it("only tells about the missing comment in a dry run", async () => {
+    const github = fakeGitHub({ closedBy: BOT, state: "closed" });
+
+    await expect(
+      closeCompletedParentIssue({
+        ...options,
+        dryRun: true,
+        octokit: github.octokit,
+      })
+    ).resolves.toStrictEqual({ status: "would-comment" });
+    expect(github.writes).toStrictEqual([]);
+  });
+
+  it.each([
+    ["by hand", "ykzts"],
+    ["without a known closer", undefined],
+  ])(
+    "leaves an issue closed %s, without listing its sub-issues",
+    async (_, closedBy) => {
+      const github = fakeGitHub({ closedBy, state: "closed" });
+
+      await expect(
+        closeCompletedParentIssue({ ...options, octokit: github.octokit })
+      ).resolves.toStrictEqual({
+        reason: "it is already closed",
+        status: "left",
+      });
+      expect(github.routes).toStrictEqual([`GET ${ISSUE}`]);
+    }
+  );
 });
 
 describe(summarizeCloseCompletedParentIssueResult, () => {
