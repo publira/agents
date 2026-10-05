@@ -70,7 +70,6 @@ Environment variables of the Vercel project turn the bot's writes on and off. Ea
 | `RENOVATE_APPROVAL` | `true` | Approves the Renovate pull requests that a maintainer approved and merged elsewhere. |
 | `RENOVATE_AUTO_MERGE` | `false` | Has GitHub merge the Renovate pull requests the bot approved; see below. |
 | `RELEASE_AGE_EXCLUSION_CLEANUP` | `true` | Opens the daily pull requests that remove expired `minimumReleaseAgeExclude` entries. |
-| `PARENT_ISSUE_CLOSING` | `false` | Closes an issue as completed when all of its sub-issues are closed; see below. |
 
 The bot acts only on the repositories the App is installed on. To start on a new feature or more repositories, install the App on a few of them, run with `DRY_RUN=true`, read the logs, and then turn `DRY_RUN` off and widen the installation.
 
@@ -99,7 +98,7 @@ When it is on, the bot enables GitHub's auto-merge for the head it approved, and
 
 ### Closing completed issues
 
-When `PARENT_ISSUE_CLOSING` is `true`, the bot closes an issue as completed once it has at least one sub-issue and all of them are closed, whatever their reason, and comments that it did so. It decides from the sub-issue structure alone, not from labels. It evaluates the parent when a sub-issue is closed and when a sub-issue is removed from it. The bot's own close of a parent is delivered as an event too, so the parent's parent is evaluated in turn.
+The bot closes an issue as completed once it has at least one sub-issue and all of them are closed, whatever their reason, and comments that it did so. It decides from the sub-issue structure alone, not from labels. It evaluates the parent when a sub-issue is closed and when a sub-issue is removed from it. The bot's own close of a parent is delivered as an event too, so the parent's parent is evaluated in turn.
 
 A sub-issue can live in another repository than its parent. The bot closes a parent only in a repository the App is installed on. It leaves an issue that is already closed as it is, so one reopened by hand stays open until a sub-issue is closed or removed again.
 

@@ -45,7 +45,7 @@ export interface ParentIssueHandlerOptions {
 
 /**
  * The handlers that close an issue as completed once all of its sub-issues
- * are closed, as the settings allow, by event name:
+ * are closed, by event name:
  *
  * - `issues` evaluates the parent of an issue that was closed. The bot's own
  *   close of a parent is delivered too, so its parent is evaluated in turn.
@@ -138,11 +138,7 @@ export const createParentIssueHandlers = ({
       if (payload.action !== "closed") {
         return;
       }
-      const { dryRun, parentIssueClosing } = read(context.log);
-      if (!parentIssueClosing) {
-        return;
-      }
-
+      const { dryRun } = read(context.log);
       const subIssue = issueLocationOf(payload.issue);
       const parent = await getParentIssue(
         await context.app.getInstallationOctokit(payload.installation.id),
@@ -171,11 +167,7 @@ export const createParentIssueHandlers = ({
       if (payload.action !== "sub_issue_removed") {
         return;
       }
-      const { dryRun, parentIssueClosing } = read(context.log);
-      if (!parentIssueClosing) {
-        return;
-      }
-
+      const { dryRun } = read(context.log);
       const parent = issueLocationOf(payload.parent_issue);
 
       await evaluate(

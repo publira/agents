@@ -64,7 +64,6 @@ const setup = ({
       close,
       readSettings: () => ({
         dryRun: false,
-        parentIssueClosing: true,
         releaseAgeExclusionCleanup: true,
         renovateApproval: true,
         renovateAutoMerge: false,
@@ -137,16 +136,10 @@ describe("issues", () => {
   });
 
   it.each([
-    ["an issue without a parent", "closed", 53, {}],
-    ["an issue that was reopened", "reopened", 52, {}],
-    [
-      "a close while the feature is off",
-      "closed",
-      52,
-      { parentIssueClosing: false },
-    ],
-  ])("ignores %s", async (_, action, number, settings) => {
-    const { close, context, handlers } = setup({ settings });
+    ["an issue without a parent", "closed", 53],
+    ["an issue that was reopened", "reopened", 52],
+  ])("ignores %s", async (_, action, number) => {
+    const { close, context, handlers } = setup();
 
     await handlers.issues(
       delivery("issues", { action, issue: issue("agents", number) }),

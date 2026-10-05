@@ -62,7 +62,6 @@ const setup = ({ autoMerge = false } = {}) => {
       evaluateEverywhere,
       readSettings: () => ({
         dryRun: false,
-        parentIssueClosing: false,
         releaseAgeExclusionCleanup: true,
         renovateApproval: true,
         renovateAutoMerge: autoMerge,
