@@ -34,6 +34,17 @@ export { createGitHubClient } from "./client.ts";
 export type { CommitToBranchOptions, CommitToBranchResult } from "./commit.ts";
 export { commitToBranch } from "./commit.ts";
 export type { InstallationRepository } from "./installations.ts";
+export type {
+  EnsureIssueCommentOptions,
+  EnsureIssueCommentResult,
+  IssueLocation,
+} from "./issue.ts";
+export {
+  ensureIssueComment,
+  findIssueComment,
+  getParentIssue,
+  issueLocationOf,
+} from "./issue.ts";
 export {
   listAppRepositories,
   listInstallationRepositories,
