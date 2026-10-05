@@ -7,6 +7,8 @@ export interface Settings {
    * GitHub. The switches below still choose which jobs run.
    */
   dryRun: boolean;
+  /** Closes an issue as completed once all of its sub-issues are closed. */
+  parentIssueClosing: boolean;
   /** Approves the Renovate pull requests a maintainer approved elsewhere. */
   renovateApproval: boolean;
   /**
@@ -29,6 +31,11 @@ interface Switch {
 // An invalid value takes the safe side: dry run on, every feature off.
 const switches: Readonly<Record<keyof Settings, Switch>> = {
   dryRun: { invalid: true, unset: false, variable: "DRY_RUN" },
+  parentIssueClosing: {
+    invalid: false,
+    unset: false,
+    variable: "PARENT_ISSUE_CLOSING",
+  },
   releaseAgeExclusionCleanup: {
     invalid: false,
     unset: true,
@@ -74,6 +81,7 @@ export const readSettings = (
 
   return {
     dryRun: read(switches.dryRun),
+    parentIssueClosing: read(switches.parentIssueClosing),
     releaseAgeExclusionCleanup: read(switches.releaseAgeExclusionCleanup),
     renovateApproval: read(switches.renovateApproval),
     renovateAutoMerge: read(switches.renovateAutoMerge),

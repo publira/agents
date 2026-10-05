@@ -1,3 +1,4 @@
+import { createParentIssueHandlers } from "./parent-issues.ts";
 import type { WebhookHandlers } from "./receive-webhook.ts";
 import { createRenovateUpdateHandlers } from "./renovate-updates.ts";
 
@@ -7,5 +8,6 @@ import { createRenovateUpdateHandlers } from "./renovate-updates.ts";
  * dropped.
  */
 export const webhookHandlers: WebhookHandlers = {
+  ...createParentIssueHandlers(),
   ...createRenovateUpdateHandlers(),
 };

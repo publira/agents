@@ -25,6 +25,11 @@ export {
   isRenovate,
 } from "./equivalent-update-approval.ts";
 export type {
+  ParentIssueInput,
+  ParentIssueVerdict,
+} from "./parent-issue-completion.ts";
+export { evaluateParentIssue } from "./parent-issue-completion.ts";
+export type {
   ReleaseAgeExclusionInput,
   ReleaseAgeExclusionKeepReason,
   ReleaseAgeExclusionTarget,
