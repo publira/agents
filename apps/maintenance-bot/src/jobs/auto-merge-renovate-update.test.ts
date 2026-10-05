@@ -160,6 +160,7 @@ const approvable = vi.fn<typeof approveEquivalentRenovateUpdate>(() =>
       number: 120,
       owner: "publira",
       repo: "website",
+      updates: [],
       url: "https://github.com/publira/website/pull/120",
     },
     status: "would-approve",

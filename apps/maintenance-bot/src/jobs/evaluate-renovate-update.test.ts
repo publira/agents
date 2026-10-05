@@ -113,6 +113,7 @@ describe(evaluateRenovateUpdate, () => {
             number: 12,
             owner: "publira",
             repo: "publira",
+            updates: [],
             url: "https://github.com/publira/publira/pull/12",
           },
           review: { created: true, id: 80 },

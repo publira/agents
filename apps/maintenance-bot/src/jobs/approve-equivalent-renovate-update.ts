@@ -67,6 +67,8 @@ export interface Precedent {
   /** The maintainer whose approval makes it a precedent. */
   approvedBy: string;
   mergedAt: Date;
+  /** Its updates, whose managers may differ from the evaluated ones'. */
+  updates: RenovateUpdate[];
 }
 
 export type ApproveEquivalentRenovateUpdateResult =
@@ -372,7 +374,13 @@ const findPrecedent = async ({
       const parsed = parseRenovateUpdates(pull.body ?? "");
       return parsed.result === "parsed" &&
         fingerprintRenovateUpdates(parsed.updates) === fingerprint
-        ? [{ ...pull, mergedAt: new Date(pull.merged_at) }]
+        ? [
+            {
+              ...pull,
+              mergedAt: new Date(pull.merged_at),
+              updates: parsed.updates,
+            },
+          ]
         : [];
     })
     // The latest first.
@@ -441,6 +449,7 @@ const findPrecedent = async ({
         number: candidate.number,
         owner,
         repo: candidate.repo,
+        updates: candidate.updates,
         url: candidate.html_url,
       },
     };
@@ -449,6 +458,9 @@ const findPrecedent = async ({
   return { reasons };
 };
 
+const listUpdates = (updates: readonly RenovateUpdate[]) =>
+  updates.map((update) => `- \`${formatRenovateUpdate(update)}\``);
+
 const reviewBody = (
   updates: readonly RenovateUpdate[],
   precedent: Precedent,
@@ -456,12 +468,20 @@ const reviewBody = (
 ) => {
   const detail = (condition: ApprovalCondition) =>
     conditions.find((result) => result.condition === condition)?.detail ?? "";
+  const name = `${precedent.owner}/${precedent.repo}#${precedent.number}`;
+  const listed = listUpdates(updates);
+  const precedentListed = listUpdates(precedent.updates);
+  // The fingerprints match, so the lists can differ only in the managers.
+  const managersDiffer = precedentListed.join("\n") !== listed.join("\n");
 
   return [
-    `Approved as the same update a maintainer approved in ${precedent.owner}/${precedent.repo}#${precedent.number}, merged ${precedent.mergedAt.toISOString()}:`,
+    `Approved as the same update a maintainer approved in ${name}, merged ${precedent.mergedAt.toISOString()}:`,
     "",
-    ...updates.map((update) => `- \`${formatRenovateUpdate(update)}\``),
+    ...listed,
     "",
+    ...(managersDiffer
+      ? [`${name} made it through another manager:`, "", ...precedentListed, ""]
+      : []),
     "The maintenance bot checked, by fixed rules and without a model, that:",
     "",
     "- Renovate opened this pull request, wrote its update metadata, and made every commit.",
@@ -690,10 +710,13 @@ const evaluateConditions = async (
  *
  * The update is what the organization's Renovate preset writes at the top of
  * the body: manager, datasource, dependency, both versions and digests, and
- * update type. Every one of them has to match the precedent's, which a
- * maintainer approved at the head that was merged; a bot's approval never
- * counts. The pull request must also hold only Renovate's commits and have
- * passed CI on its head. Fixed rules decide all of it; no model is asked.
+ * update type. Every one of them but the manager has to match the
+ * precedent's, which a maintainer approved at the head that was merged; a
+ * bot's approval never counts. The manager names the kind of file Renovate
+ * rewrote, not what the update pulls in, and the review names both pull
+ * requests' managers when they differ. The pull request must also hold only
+ * Renovate's commits and have passed CI on its head. Fixed rules decide all of
+ * it; no model is asked.
  *
  * The head is read again just before the review is submitted, and the review
  * is for that commit only. If the head moved during the submission, the
