@@ -24,7 +24,7 @@ export interface RenovateUpdateJobs {
 /** The settings that decide what the evaluation may do; see `readSettings`. */
 export type RenovateUpdateSettings = Pick<
   Settings,
-  "dryRun" | "renovateApproval" | "renovateAutoMerge"
+  "dryRun" | "renovateAutoMerge"
 >;
 
 export interface EvaluateRenovateUpdateOptions {
@@ -43,11 +43,11 @@ export interface EvaluateRenovateUpdateOptions {
 
 /**
  * Evaluates one Renovate pull request: approves it when it is the same update
- * a maintainer approved elsewhere and approval is on, then has it
- * auto-merged when that is on and allowed. The auto-merge runs even when the
- * approval did not, or auto-merge is off, to take back a decision a new head
- * made stale. In a dry run, both only log what they would do. Both log their
- * outcome and failure, and neither throws.
+ * a maintainer approved elsewhere, then has it auto-merged when that is on
+ * and allowed. The auto-merge runs even when the approval did not, or
+ * auto-merge is off, to take back a decision a new head made stale. In a dry
+ * run, both only log what they would do. Both log their outcome and failure,
+ * and neither throws.
  */
 export const evaluateRenovateUpdate = async ({
   octokit,
@@ -55,7 +55,7 @@ export const evaluateRenovateUpdate = async ({
   repo,
   pullNumber,
   reviewer,
-  settings: { dryRun, renovateApproval, renovateAutoMerge },
+  settings: { dryRun, renovateAutoMerge },
   log,
   precedentScanCache,
   jobs: {
@@ -73,25 +73,23 @@ export const evaluateRenovateUpdate = async ({
     repo,
   };
 
-  if (renovateApproval) {
-    const approvalLog = withFields(log, {
-      ...fields,
-      job: "approve-equivalent-renovate-update",
-    });
-    try {
-      const result = await approve({ ...location, reviewer });
-      approvalLog(
-        "info",
-        "Renovate update evaluated",
-        summarizeApprovalResult(result)
-      );
-    } catch (error) {
-      approvalLog(
-        "error",
-        "Renovate update approval failed",
-        loggableFailure.safeParse(error).data
-      );
-    }
+  const approvalLog = withFields(log, {
+    ...fields,
+    job: "approve-equivalent-renovate-update",
+  });
+  try {
+    const result = await approve({ ...location, reviewer });
+    approvalLog(
+      "info",
+      "Renovate update evaluated",
+      summarizeApprovalResult(result)
+    );
+  } catch (error) {
+    approvalLog(
+      "error",
+      "Renovate update approval failed",
+      loggableFailure.safeParse(error).data
+    );
   }
 
   const autoMergeLog = withFields(log, {

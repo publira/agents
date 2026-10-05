@@ -48,7 +48,6 @@ const setup = ({
         reviewer: BOT,
         settings: {
           dryRun: false,
-          renovateApproval: true,
           renovateAutoMerge: true,
           ...settings,
         },
@@ -146,17 +145,6 @@ describe(evaluateRenovateUpdate, () => {
     );
     expect(autoMerge).toHaveBeenCalledWith(
       expect.objectContaining({ dryRun: true })
-    );
-  });
-
-  it("does not approve while approval is off, but still decides on auto-merge", async () => {
-    const { approve, autoMerge, run } = setup();
-
-    await run({ renovateApproval: false });
-
-    expect(approve).not.toHaveBeenCalled();
-    expect(autoMerge).toHaveBeenCalledWith(
-      expect.objectContaining({ enabled: true })
     );
   });
 
@@ -282,7 +270,6 @@ describe(evaluateRenovateUpdatesEverywhere, () => {
 
     const settings = {
       dryRun: false,
-      renovateApproval: true,
       renovateAutoMerge: true,
     };
     const log = vi.fn<Log>();

@@ -62,14 +62,12 @@ Set the production App's values in the Vercel project's Production environment o
 
 ### Settings
 
-Environment variables of the Vercel project turn the bot's writes on and off. Each is `true` or `false`; without it, or with it empty, the default applies. Any other value is logged as an error and read as the safe side: a dry run, or the feature off. Vercel applies a changed value to the next deployment, so redeploy after changing one.
+Environment variables of the Vercel project turn the bot's writes on and off. Each is `true` or `false`; without it, or with it empty, the default applies. Any other value is logged as an error and read as the safe side: a dry run, or auto-merge off. Vercel applies a changed value to the next deployment, so redeploy after changing one.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `DRY_RUN` | `false` | Every job still evaluates and logs what it would do, but writes nothing to GitHub: no review, auto-merge, branch, or pull request. The switches below still choose which jobs run. |
-| `RENOVATE_APPROVAL` | `true` | Approves the Renovate pull requests that a maintainer approved and merged elsewhere. |
+| `DRY_RUN` | `false` | Every job still evaluates and logs what it would do, but writes nothing to GitHub: no review, auto-merge, branch, or pull request. |
 | `RENOVATE_AUTO_MERGE` | `false` | Has GitHub merge the Renovate pull requests the bot approved; see below. |
-| `RELEASE_AGE_EXCLUSION_CLEANUP` | `true` | Opens the daily pull requests that remove expired `minimumReleaseAgeExclude` entries. |
 
 The bot acts only on the repositories the App is installed on. To start on a new feature or more repositories, install the App on a few of them, run with `DRY_RUN=true`, read the logs, and then turn `DRY_RUN` off and widen the installation.
 
