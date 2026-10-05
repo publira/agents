@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   evaluateCommitChecks,
   evaluateRenovateCommits,
-  findPrecedentApproval,
+  findPrecedentApprovers,
+  isMaintainerPermission,
   isRenovate,
 } from "./equivalent-update-approval.ts";
 import type { PullRequestReview } from "./equivalent-update-approval.ts";
@@ -184,17 +185,16 @@ describe(evaluateCommitChecks, () => {
 const MERGED_AT = new Date("2026-10-04T05:47:28Z");
 
 const approval: PullRequestReview = {
-  authorAssociation: "MEMBER",
   commitId: "head",
   state: "APPROVED",
   submittedAt: new Date("2026-10-04T05:45:44Z"),
   user: { login: "ykzts", type: "User" },
 };
 
-describe(findPrecedentApproval, () => {
-  it("finds a maintainer's approval of the merged head", () => {
+describe(findPrecedentApprovers, () => {
+  it("lists those who approved the merged head, once each", () => {
     expect(
-      findPrecedentApproval({
+      findPrecedentApprovers({
         headSha: "head",
         mergedAt: MERGED_AT,
         reviews: [
@@ -204,9 +204,11 @@ describe(findPrecedentApproval, () => {
             user: { login: "a", type: "User" },
           },
           approval,
+          { ...approval, user: { login: "b", type: "User" } },
+          approval,
         ],
       })
-    ).toBe(approval);
+    ).toStrictEqual(["ykzts", "b"]);
   });
 
   it.each([
@@ -214,10 +216,7 @@ describe(findPrecedentApproval, () => {
       "a bot's approval",
       { user: { login: "publira-maintenance[bot]", type: "Bot" } },
     ],
-    [
-      "an approval by someone outside the repository",
-      { authorAssociation: "NONE" },
-    ],
+    ["an approval by a deleted account", { user: null }],
     ["an approval of an earlier head", { commitId: "earlier" }],
     ["a dismissed approval", { state: "DISMISSED" }],
     [
@@ -227,11 +226,21 @@ describe(findPrecedentApproval, () => {
     ["a review asking for changes", { state: "CHANGES_REQUESTED" }],
   ] as const)("does not count %s", (_, change) => {
     expect(
-      findPrecedentApproval({
+      findPrecedentApprovers({
         headSha: "head",
         mergedAt: MERGED_AT,
         reviews: [{ ...approval, ...change }],
       })
-    ).toBeUndefined();
+    ).toStrictEqual([]);
+  });
+});
+
+describe(isMaintainerPermission, () => {
+  it.each(["admin", "write"])("takes %s as a maintainer's", (permission) => {
+    expect(isMaintainerPermission(permission)).toBeTruthy();
+  });
+
+  it.each(["read", "none", ""])("does not take %j", (permission) => {
+    expect(isMaintainerPermission(permission)).toBeFalsy();
   });
 });

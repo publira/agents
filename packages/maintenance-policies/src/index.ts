@@ -20,7 +20,8 @@ export type {
 export {
   evaluateCommitChecks,
   evaluateRenovateCommits,
-  findPrecedentApproval,
+  findPrecedentApprovers,
+  isMaintainerPermission,
   isRenovate,
 } from "./equivalent-update-approval.ts";
 export type {

@@ -37,7 +37,7 @@ The bot acts on repositories as a GitHub App, installed on the repositories it m
 
 - **Webhook URL**: `https://maintenance-bot.publira.dev/github/webhooks`, the production domain, with a random **webhook secret**. Use the custom domain, not a `*.vercel.app` one, which someone else could claim once the project gives it up. Install the App only once the production deployment has the credentials below; until then the route answers `503`. GitHub does not retry a failed delivery, and a delivery can be redelivered by hand only within three days.
 - **Repository permissions**:
-  - Metadata: read. Required by every App.
+  - Metadata: read. Required by every App. Also tells whether the reviewer of a precedent can write to its repository, which is what makes them a maintainer: a review's author association reads `CONTRIBUTOR` to the App for a member whose organization membership is private.
   - Contents: read and write. Reads files, creates the branches and commits of maintenance pull requests, and merges the Renovate pull requests the bot auto-merges.
   - Pull requests: read and write. Opens pull requests, submits reviews, and enables auto-merge or queues a pull request.
   - Checks: read, and Commit statuses: read. Tell whether a pull request's CI passed.

@@ -79,7 +79,22 @@ interface Scenario {
   /** The closed pull requests from the branch in publira/website. */
   precedents?: readonly JsonObject[];
   precedentReviews?: readonly JsonObject[];
+  /** Each reviewer's permission on publira/website; `read` for the rest. */
+  permissions?: Readonly<Record<string, string>>;
+  /** The status GitHub refuses to tell the permissions with, if it does. */
+  permissionRefusal?: number;
 }
+
+const PERMISSION_ROUTE =
+  /^GET \/repos\/publira\/website\/collaborators\/(?<login>[^/]+)\/permission$/u;
+
+const permissionResponse = (permission: string, refusal?: number) =>
+  refusal === undefined
+    ? Response.json({ permission, role_name: permission, user: null })
+    : Response.json(
+        { message: "Resource not accessible by integration" },
+        { status: refusal }
+      );
 
 const precedentPull = (fields: JsonObject = {}) => ({
   body: renovateBody(turbo),
@@ -112,11 +127,20 @@ const fakeGitHub = ({
   editors = {},
   precedents = [precedentPull()],
   precedentReviews = [humanApproval],
+  permissions = { ykzts: "admin" },
+  permissionRefusal,
 }: Scenario = {}) => {
   const writes: { route: string; body: unknown }[] = [];
   const routes: string[] = [];
   let reads = 0;
   let reviewReads = 0;
+
+  const respondWithPermission = (route: string) => {
+    const login = PERMISSION_ROUTE.exec(route)?.groups?.login;
+    return login === undefined
+      ? undefined
+      : permissionResponse(permissions[login] ?? "read", permissionRefusal);
+  };
 
   const fetchImpl = vi.fn<typeof fetch>((input, init) => {
     const url = new URL(String(input));
@@ -234,7 +258,9 @@ const fakeGitHub = ({
     };
 
     const result =
-      respond() ?? Response.json({ message: "Not Found" }, { status: 404 });
+      respondWithPermission(route) ??
+      respond() ??
+      Response.json({ message: "Not Found" }, { status: 404 });
     const response =
       result instanceof Response ? result : Response.json(result);
     // The pagination plugin reads the URL of the response.
@@ -342,6 +368,66 @@ describe(approveEquivalentRenovateUpdate, () => {
     expect(github.writes).toStrictEqual([]);
   });
 
+  it("takes the approval of someone who can write to the precedent's repository", async () => {
+    // A member whose membership is private, as the App reads the review.
+    const github = fakeGitHub({
+      permissions: { ykzts: "write" },
+      precedentReviews: [
+        { ...humanApproval, author_association: "CONTRIBUTOR" },
+      ],
+    });
+
+    const result = await run(github);
+
+    expect(result).toMatchObject({
+      precedent: { approvedBy: "ykzts" },
+      status: "approved",
+    });
+    expect(github.routes).toContain(
+      "GET /repos/publira/website/collaborators/ykzts/permission"
+    );
+  });
+
+  it("does not take the approval of someone who cannot write to the precedent's repository", async () => {
+    const github = fakeGitHub({
+      permissions: { ykzts: "read" },
+      precedentReviews: [{ ...humanApproval, author_association: "MEMBER" }],
+    });
+
+    const result = await run(github);
+
+    expect(failedCondition(result)).toMatchObject({
+      condition: "precedent",
+      detail:
+        "publira/website#120 made the same updates, but no maintainer approved the head it was merged at",
+    });
+    expect(github.writes).toStrictEqual([]);
+  });
+
+  it("takes a later approver who can write when an earlier one cannot", async () => {
+    const github = fakeGitHub({
+      permissions: { ykzts: "admin" },
+      precedentReviews: [
+        { ...humanApproval, user: { login: "someone", type: "User" } },
+        humanApproval,
+      ],
+    });
+
+    const result = await run(github, { dryRun: true });
+
+    expect(result).toMatchObject({ precedent: { approvedBy: "ykzts" } });
+  });
+
+  it("says so when it cannot read an approver's permission", async () => {
+    const github = fakeGitHub({ permissionRefusal: 403 });
+
+    expect(failedCondition(await run(github))).toMatchObject({
+      condition: "precedent",
+      detail:
+        "publira/website#120 made the same updates, but the bot cannot read whether ykzts, who approved the head it was merged at, can write to publira/website",
+    });
+  });
+
   it("does not take an approved pull request that was not merged", async () => {
     const github = fakeGitHub({
       precedents: [precedentPull({ merged_at: null })],
@@ -427,7 +513,7 @@ describe(approveEquivalentRenovateUpdate, () => {
     expect(result.status).toBe("withdrawn");
   });
 
-  it("scans for precedents once per branch in a run", async () => {
+  it("scans for precedents, and reads each permission, once per run", async () => {
     const github = fakeGitHub();
     const precedentScanCache = createPrecedentScanCache();
 
@@ -438,11 +524,13 @@ describe(approveEquivalentRenovateUpdate, () => {
       github.routes.filter(
         (route) =>
           route === "GET /orgs/publira/repos" ||
-          route === "GET /repos/publira/website/pulls"
+          route === "GET /repos/publira/website/pulls" ||
+          route.endsWith("/permission")
       )
     ).toStrictEqual([
       "GET /orgs/publira/repos",
       "GET /repos/publira/website/pulls",
+      "GET /repos/publira/website/collaborators/ykzts/permission",
     ]);
   });
 

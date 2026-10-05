@@ -183,8 +183,6 @@ export interface PullRequestReview {
   user: AccountRef | null;
   /** `APPROVED`, `DISMISSED`, and so on. */
   state: string;
-  /** How the reviewer relates to the repository, such as `MEMBER`. */
-  authorAssociation: string;
   /** The commit the review is for. */
   commitId: string | null;
   submittedAt: Date | undefined;
@@ -197,29 +195,43 @@ export interface MergedPullRequest {
   reviews: readonly PullRequestReview[];
 }
 
-// Those who can merge, or are trusted to review, in the repository. Anyone can
-// leave an approving review on a public repository.
-const MAINTAINER_ASSOCIATIONS = new Set(["COLLABORATOR", "MEMBER", "OWNER"]);
-
 /**
- * Finds the review that makes a merged pull request a precedent: a
- * maintainer's approval, still standing, of the head that was merged,
- * submitted before the merge. A bot's approval never counts, so one automatic
- * approval cannot vouch for the next. An approval of an earlier head does not
- * count either: Renovate moves its branch to newer versions under the same
- * pull request.
+ * Lists, in the order they reviewed, the people whose review would make a
+ * merged pull request a precedent if they maintain its repository: an
+ * approval, still standing, of the head that was merged, submitted before the
+ * merge. A bot's approval never counts, so one automatic approval cannot vouch
+ * for the next. An approval of an earlier head does not count either:
+ * Renovate moves its branch to newer versions under the same pull request.
+ *
+ * Whether each of them maintains the repository is for
+ * {@link isMaintainerPermission} to tell. A review's `author_association`
+ * cannot: it depends on who reads it, and reports a member whose membership
+ * is private as a `CONTRIBUTOR` to anyone outside the organization, the App
+ * included.
  */
-export const findPrecedentApproval = ({
+export const findPrecedentApprovers = ({
   headSha,
   mergedAt,
   reviews,
-}: MergedPullRequest): PullRequestReview | undefined =>
-  reviews.find(
-    (review) =>
-      review.state === "APPROVED" &&
-      review.user?.type === "User" &&
-      MAINTAINER_ASSOCIATIONS.has(review.authorAssociation) &&
-      review.commitId === headSha &&
-      review.submittedAt !== undefined &&
-      review.submittedAt.getTime() <= mergedAt.getTime()
+}: MergedPullRequest): string[] => {
+  const approvers = reviews.flatMap(({ user, state, commitId, submittedAt }) =>
+    user?.type === "User" &&
+    state === "APPROVED" &&
+    commitId === headSha &&
+    submittedAt !== undefined &&
+    submittedAt.getTime() <= mergedAt.getTime()
+      ? [user.login]
+      : []
   );
+  return [...new Set(approvers)];
+};
+
+// The permissions that let someone push to, and merge in, a repository, as
+// the REST API reports them: `maintain` reads as `write`, and a custom role as
+// the role it is based on. Anyone can leave an approving review on a public
+// repository.
+const MAINTAINER_PERMISSIONS = new Set(["admin", "write"]);
+
+/** Whether a repository permission makes its holder a maintainer. */
+export const isMaintainerPermission = (permission: string): boolean =>
+  MAINTAINER_PERMISSIONS.has(permission);

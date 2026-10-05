@@ -2,15 +2,17 @@ import {
   ensureReview,
   getCommitChecks,
   getPullRequestBodyEditor,
+  getRepositoryPermission,
   getRequiredStatusChecks,
 } from "@publira/github";
 import type { Octokit } from "@publira/github";
 import {
   evaluateCommitChecks,
   evaluateRenovateCommits,
-  findPrecedentApproval,
+  findPrecedentApprovers,
   fingerprintRenovateUpdates,
   formatRenovateUpdate,
+  isMaintainerPermission,
   isRenovate,
   parseRenovateUpdates,
   RENOVATE_LOGIN,
@@ -37,7 +39,8 @@ import type { LogFields } from "../log.ts";
  * - `commits`: every commit is Renovate's.
  * - `checks`: every check on the head passed, the required ones included.
  * - `precedent`: a merged pull request of the same owner made the same
- *   updates, and a maintainer approved its merged head.
+ *   updates, and a maintainer approved its merged head: someone who can write
+ *   to that repository.
  * - `head`: the head did not move while the job looked.
  */
 export type ApprovalCondition =
@@ -168,11 +171,9 @@ const describeChecks = (verdict: CommitChecksVerdict): string => {
 const toReview = (review: {
   user: { login: string; type: string } | null;
   state: string;
-  author_association: string;
   commit_id: string | null;
   submitted_at?: string;
 }): PullRequestReview => ({
-  authorAssociation: review.author_association,
   commitId: review.commit_id,
   state: review.state,
   submittedAt:
@@ -236,17 +237,20 @@ type ClosedPullRequest = Awaited<
 
 /**
  * Shares the scan for precedents between the evaluations of one run, such as
- * the hourly sweep: the owner's repositories are listed once, and each
- * branch's closed pull requests are listed once across them. Create one per
- * run, so that a later run sees pull requests merged since.
+ * the hourly sweep: the owner's repositories are listed once, each branch's
+ * closed pull requests are listed once across them, and each reviewer's
+ * permission on a repository is read once. Create one per run, so that a
+ * later run sees pull requests merged and permissions changed since.
  */
 export interface PrecedentScanCache {
   repositories: Map<string, Promise<string[]>>;
   closedPullRequests: Map<string, Promise<ClosedPullRequest[]>>;
+  permissions: Map<string, Promise<string | undefined>>;
 }
 
 export const createPrecedentScanCache = (): PrecedentScanCache => ({
   closedPullRequests: new Map(),
+  permissions: new Map(),
   repositories: new Map(),
 });
 
@@ -296,6 +300,48 @@ interface FindPrecedentOptions extends ScanOptions {
   cache: PrecedentScanCache | undefined;
 }
 
+interface FindMaintainerOptions {
+  octokit: Octokit;
+  owner: string;
+  repo: string;
+  approvers: readonly string[];
+  permissions: PrecedentScanCache["permissions"];
+}
+
+/**
+ * Finds the first approver who can write to the repository, from their
+ * permission on it, which reads the same to every token. Also returns those
+ * whose permission the token could not read.
+ */
+const findMaintainer = async ({
+  octokit,
+  owner,
+  repo,
+  approvers,
+  permissions,
+}: FindMaintainerOptions): Promise<{
+  maintainer: string | undefined;
+  unreadable: string[];
+}> => {
+  const unreadable: string[] = [];
+
+  for (const username of approvers) {
+    // oxlint-disable-next-line no-await-in-loop -- the first maintainer ends the search
+    const permission = await memoize(
+      permissions,
+      `${owner}/${repo}\0${username}`,
+      () => getRepositoryPermission(octokit, { owner, repo, username })
+    );
+    if (permission === undefined) {
+      unreadable.push(username);
+    } else if (isMaintainerPermission(permission)) {
+      return { maintainer: username, unreadable };
+    }
+  }
+
+  return { maintainer: undefined, unreadable };
+};
+
 /**
  * Looks for a precedent among the merged pull requests from the same branch
  * in every repository of the owner the token can read. The organization's
@@ -313,6 +359,7 @@ const findPrecedent = async ({
 > => {
   const { octokit, owner, headRef } = scan;
   const closed = await scanClosedFromBranch(scan, cache);
+  const permissions = cache?.permissions ?? new Map();
   const candidates = closed
     .flatMap((pull) => {
       if (
@@ -355,15 +402,24 @@ const findPrecedent = async ({
       pull_number: candidate.number,
       repo: candidate.repo,
     });
-    const approval = findPrecedentApproval({
-      headSha: candidate.head.sha,
-      mergedAt: candidate.mergedAt,
-      reviews: reviews.map(toReview),
+    // oxlint-disable-next-line no-await-in-loop -- the first precedent ends the search
+    const { maintainer, unreadable } = await findMaintainer({
+      approvers: findPrecedentApprovers({
+        headSha: candidate.head.sha,
+        mergedAt: candidate.mergedAt,
+        reviews: reviews.map(toReview),
+      }),
+      octokit,
+      owner,
+      permissions,
+      repo: candidate.repo,
     });
 
-    if (approval?.user === null || approval?.user === undefined) {
+    if (maintainer === undefined) {
       reasons.push(
-        `${name} made the same updates, but no maintainer approved the head it was merged at`
+        unreadable.length === 0
+          ? `${name} made the same updates, but no maintainer approved the head it was merged at`
+          : `${name} made the same updates, but the bot cannot read whether ${unreadable.join(", ")}, who approved the head it was merged at, can write to ${owner}/${candidate.repo}`
       );
       continue;
     }
@@ -380,7 +436,7 @@ const findPrecedent = async ({
 
     return {
       precedent: {
-        approvedBy: approval.user.login,
+        approvedBy: maintainer,
         mergedAt: candidate.mergedAt,
         number: candidate.number,
         owner,
