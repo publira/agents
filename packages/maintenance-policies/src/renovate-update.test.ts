@@ -21,6 +21,7 @@ const turbo = {
   updateType: "patch",
 } as const;
 
+// Renovate writes no newVersion for a digest update of the current tag.
 const baseImage = {
   currentDigest: "sha256:0a1b2c3d4e5f",
   currentVersion: "2026.10.04",
@@ -28,10 +29,13 @@ const baseImage = {
   depName: "ghcr.io/publira/base-images/publira-dev",
   manager: "devcontainer",
   newDigest: "sha256:3aeffdc00000",
-  newVersion: "2026.10.04",
   packageName: "ghcr.io/publira/base-images/publira-dev",
   updateType: "digest",
 } as const;
+
+// The header of publira/publira#3642, a digest update of the same image.
+const capturedDigestHeader =
+  "<!-- publira-renovate-update eyJtYW5hZ2VyIjoiZG9ja2VyLWNvbXBvc2UiLCJkYXRhc291cmNlIjoiZG9ja2VyIiwiZGVwTmFtZSI6ImdoY3IuaW8vcHVibGlyYS9iYXNlLWltYWdlcy9wdWJsaXJhLWRldiIsInBhY2thZ2VOYW1lIjoiZ2hjci5pby9wdWJsaXJhL2Jhc2UtaW1hZ2VzL3B1YmxpcmEtZGV2IiwiY3VycmVudFZlcnNpb24iOiIyMDI2LjEwLjA0IiwiY3VycmVudERpZ2VzdCI6InNoYTI1NjozYWVmZmRjZmU1NTBhNTNhZDljNTdjMGM4NmU3ZGVkMjVhNGM1MDQ0MzRmYTkyMThmMDY5MjRmYjc2NmZlMTJhIiwibmV3RGlnZXN0Ijoic2hhMjU2OjNmNjA5ZGVhYjc4ODYxMTEyOGQxZmJjMTRlNTdkZjhkM2U4MjBhZmVhZTRlNzdhNDdiMDg3YmJiOTFjNDFhNmQiLCJ1cGRhdGVUeXBlIjoiZGlnZXN0In0= -->";
 
 // The start of a Renovate pull request body after the header.
 const renovateBody = `This PR contains the following updates:
@@ -80,6 +84,41 @@ describe(parseRenovateUpdates, () => {
     );
   });
 
+  it("reads a digest update as Renovate writes it, without newVersion", () => {
+    expect(
+      parseRenovateUpdates(`${capturedDigestHeader}\n\n${renovateBody}`)
+    ).toStrictEqual(
+      parsed([
+        {
+          currentDigest:
+            "sha256:3aeffdcfe550a53ad9c57c0c86e7ded25a4c504434fa9218f06924fb766fe12a",
+          currentVersion: "2026.10.04",
+          datasource: "docker",
+          depName: "ghcr.io/publira/base-images/publira-dev",
+          manager: "docker-compose",
+          newDigest:
+            "sha256:3f609deab788611128d1fbc14e57df8d3e820afeae4e77a47b087bbb91c41a6d",
+          packageName: "ghcr.io/publira/base-images/publira-dev",
+          updateType: "digest",
+        },
+      ])
+    );
+  });
+
+  it("reads a digest pin, which has no digest to move from", () => {
+    const pin = {
+      currentVersion: "2026.10.04",
+      datasource: "docker",
+      depName: "ghcr.io/publira/base-images/publira-dev",
+      manager: "devcontainer",
+      newDigest: "sha256:3aeffdc00000",
+      packageName: "ghcr.io/publira/base-images/publira-dev",
+      updateType: "pinDigest",
+    } as const;
+
+    expect(parseRenovateUpdates(marker(pin))).toStrictEqual(parsed([pin]));
+  });
+
   it("finds nothing in a body without the header", () => {
     expect(parseRenovateUpdates(renovateBody)).toStrictEqual({
       reason: "the body carries no update metadata",
@@ -103,6 +142,24 @@ describe(parseRenovateUpdates, () => {
     ["an unknown field", { ...turbo, newName: "turbo-next" }],
     ["an empty field", { ...turbo, currentVersion: "" }],
     ["an unsupported update type", { ...turbo, updateType: "replacement" }],
+    ["a version update without newVersion", { ...turbo, newVersion: null }],
+    [
+      "a digest update without the digest it moves from",
+      { ...baseImage, currentDigest: undefined },
+    ],
+    [
+      "a digest update without the digest it moves to",
+      { ...baseImage, newDigest: null },
+    ],
+    [
+      "a digest pin without its digest",
+      {
+        ...baseImage,
+        currentDigest: undefined,
+        newDigest: undefined,
+        updateType: "pinDigest",
+      },
+    ],
     [
       "lock file maintenance",
       { manager: "npm", updateType: "lockFileMaintenance" },
@@ -143,6 +200,14 @@ describe(fingerprintRenovateUpdates, () => {
     );
   });
 
+  it("tells apart a digest update without newVersion from one with it", () => {
+    expect(
+      fingerprintRenovateUpdates([
+        { ...baseImage, newVersion: baseImage.currentVersion },
+      ])
+    ).not.toBe(fingerprintRenovateUpdates([baseImage]));
+  });
+
   it("tells apart a group from one of its updates", () => {
     expect(fingerprintRenovateUpdates([turbo, baseImage])).not.toBe(
       fingerprintRenovateUpdates([turbo])
@@ -167,7 +232,7 @@ describe(formatRenovateUpdate, () => {
 
   it("describes a digest update", () => {
     expect(formatRenovateUpdate(baseImage)).toBe(
-      "devcontainer:docker:ghcr.io/publira/base-images/publira-dev:2026.10.04->2026.10.04@0a1b2c3->3aeffdc:digest"
+      "devcontainer:docker:ghcr.io/publira/base-images/publira-dev:2026.10.04->@0a1b2c3->3aeffdc:digest"
     );
   });
 
