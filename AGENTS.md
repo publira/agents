@@ -31,7 +31,7 @@ Keep the decision logic in the job and the packages, not in the tool or the prom
 
 ### Settings and logs
 
-`src/settings.ts` reads the deployment's switches: `DRY_RUN`, which every writing job honors by evaluating without writing, and one switch per feature. A new job that writes takes a `dryRun` option and gets its own switch there, with the README's settings table updated. An invalid value reads as the safe side, so keep the defaults of a new switch on that side unless the feature already runs.
+`src/settings.ts` reads the deployment's switches. Every job that writes takes a `dryRun` option and honors `DRY_RUN` by evaluating without writing. Only a dangerous operation, such as having GitHub merge a pull request (`RENOVATE_AUTO_MERGE`), gets a switch of its own, with the README's settings table updated; a job whose writes a maintainer still acts on, such as a review or a pull request, does not. An invalid value reads as the safe side, so keep the default of a new switch on that side.
 
 Jobs log one JSON line per decision through `src/log.ts`. Name the `job` and bind the fields that identify the work with `withFields`, such as the installation and the webhook delivery, and log why a job skipped, what it wrote, and whether a model was asked (`modelInvoked`), so that a decision can be audited from the logs alone. The README lists the fields.
 

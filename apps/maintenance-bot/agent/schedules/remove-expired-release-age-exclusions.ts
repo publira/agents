@@ -24,12 +24,7 @@ export default defineSchedule({
       return;
     }
 
-    const { dryRun, releaseAgeExclusionCleanup } = readSettings(scheduleLog);
-
-    if (!releaseAgeExclusionCleanup) {
-      scheduleLog("info", "Schedule skipped: the cleanup is turned off");
-      return;
-    }
+    const { dryRun } = readSettings(scheduleLog);
 
     scheduleLog("info", "Schedule started", { dryRun });
     await removeExpiredReleaseAgeExclusionsEverywhere({

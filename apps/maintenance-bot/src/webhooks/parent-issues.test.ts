@@ -64,8 +64,6 @@ const setup = ({
       close,
       readSettings: () => ({
         dryRun: false,
-        releaseAgeExclusionCleanup: true,
-        renovateApproval: true,
         renovateAutoMerge: false,
         ...settings,
       }),

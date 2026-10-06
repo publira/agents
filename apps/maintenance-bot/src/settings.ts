@@ -4,18 +4,14 @@ import type { Log } from "./log.ts";
 export interface Settings {
   /**
    * Every job evaluates and logs what it would do, but writes nothing to
-   * GitHub. The switches below still choose which jobs run.
+   * GitHub.
    */
   dryRun: boolean;
-  /** Approves the Renovate pull requests a maintainer approved elsewhere. */
-  renovateApproval: boolean;
   /**
    * Has GitHub merge the Renovate pull requests the bot approved. Off, the
    * bot still takes back an auto-merge it enabled before.
    */
   renovateAutoMerge: boolean;
-  /** Opens pull requests that remove expired `minimumReleaseAgeExclude` entries. */
-  releaseAgeExclusionCleanup: boolean;
 }
 
 interface Switch {
@@ -26,19 +22,9 @@ interface Switch {
   invalid: boolean;
 }
 
-// An invalid value takes the safe side: dry run on, every feature off.
+// An invalid value takes the safe side: dry run on, auto-merge off.
 const switches: Readonly<Record<keyof Settings, Switch>> = {
   dryRun: { invalid: true, unset: false, variable: "DRY_RUN" },
-  releaseAgeExclusionCleanup: {
-    invalid: false,
-    unset: true,
-    variable: "RELEASE_AGE_EXCLUSION_CLEANUP",
-  },
-  renovateApproval: {
-    invalid: false,
-    unset: true,
-    variable: "RENOVATE_APPROVAL",
-  },
   renovateAutoMerge: {
     invalid: false,
     unset: false,
@@ -50,7 +36,7 @@ const switches: Readonly<Record<keyof Settings, Switch>> = {
  * Reads the settings from the environment. Each variable is `true` or
  * `false`; without one, or with it empty, its default applies. Any other
  * value is logged as an error and read as the safe side, so a typo does not
- * pass for a decision: dry run on, the feature off.
+ * pass for a decision: dry run on, auto-merge off.
  */
 export const readSettings = (
   log: Log,
@@ -74,8 +60,6 @@ export const readSettings = (
 
   return {
     dryRun: read(switches.dryRun),
-    releaseAgeExclusionCleanup: read(switches.releaseAgeExclusionCleanup),
-    renovateApproval: read(switches.renovateApproval),
     renovateAutoMerge: read(switches.renovateAutoMerge),
   };
 };
