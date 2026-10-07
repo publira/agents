@@ -24,7 +24,7 @@
     "@publira/npm-registry": "workspace:*",
     "@publira/pnpm-workspace": "workspace:*",
     "ai": "7.0.127",
-    "eve": "0.70.3",
+    "eve": "0.71.0",
     "zod": "catalog:"
   },
   "devDependencies": {
