@@ -13,7 +13,7 @@
     "fix": "ultracite fix"
   },
   "devDependencies": {
-    "lefthook": "2.1.16",
+    "lefthook": "2.1.17",
     "oxfmt": "0.71.0",
     "oxlint": "1.86.0",
     "turbo": "2.11.7",
