@@ -11,6 +11,7 @@ This repository is a `pnpm` workspace for Publira's maintenance automation. Its 
 - `apps/*`: deployable applications.
   - `maintenance-bot/`: the eve app deployed to Vercel. `agent/` is the eve agent (model, instructions, channels, tools); `src/jobs/` holds the deterministic jobs, and `src/cli/` runs each of them from a terminal.
 - `packages/*`: shared libraries the apps import from the workspace without publishing them.
+  - `devcontainer/`: reading Dev Container configurations, editing their lock files, and resolving Features in OCI registries.
   - `github/`: GitHub API access through Octokit.
   - `maintenance-policies/`: the rules that decide what a job does. Pure functions with no I/O.
   - `npm-registry/`: npm registry lookups.
@@ -72,6 +73,7 @@ pnpm holds back versions published less than a day ago (`minimumReleaseAge`). `p
 - `pnpm --filter @publira/maintenance-bot approve-equivalent-renovate-update <owner/repo> <number> --dry-run`: print each condition the Renovate approval job checks on that pull request, and whether it would approve it. The dry run reads GitHub's GraphQL API, so it needs the App's credentials in `.env.local` or `GH_TOKEN`. Without `--dry-run` it submits the review, which needs the App's credentials.
 - `RENOVATE_AUTO_MERGE=true pnpm --filter @publira/maintenance-bot auto-merge-renovate-update <owner/repo> <number> --dry-run`: print whether the bot would have GitHub merge that Renovate pull request, or why not. Without `RENOVATE_AUTO_MERGE=true` it decides nothing, as the deployment does. It always needs the App's credentials, because the decision rests on the App's own approval. Without `--dry-run` it enables auto-merge, queues the pull request, or merges it.
 - `pnpm --filter @publira/maintenance-bot close-completed-parent-issue <owner/repo> <number> --dry-run`: print whether the bot would close that issue because all of its sub-issues are closed, or why not, reading as `check-release-age-exclusions` does. Without `--dry-run` it closes the issue and comments on it, which needs the App's credentials.
+- `pnpm --filter @publira/maintenance-bot sync-devcontainer-lock-file <owner/repo> <number> --dry-run`: print the Dev Container lock files the bot would commit to that Renovate pull request, or why it would leave it alone, reading as `check-release-age-exclusions` does. Without `--dry-run` it commits to the pull request's branch, which needs the App's credentials.
 - `pnpm --filter @publira/maintenance-bot list-app-repositories`: list the repositories the App in `.env.local` is installed on, which checks its credentials.
 
 Run `pnpm check`, `pnpm typecheck`, and `pnpm test` before committing. The lefthook pre-commit hook formats staged files but does not lint or test them.
@@ -105,6 +107,8 @@ Request a new App permission only for a concrete API call that needs it, and say
 ### Renovate update approval
 
 The approval job (`src/jobs/approve-equivalent-renovate-update.ts`) identifies an update by the comments the organization's Renovate preset writes at the top of each pull request body through `prHeader`, one `<!-- publira-renovate-update ... -->` per update, and never by the visible table or the title. None of Renovate's default output carries every field the job needs: the title has no from-version, the table varies its columns between pull requests and never names the manager, which the review reports, and the `renovate-debug` comment holds no update data. A repository whose Renovate configuration sets its own `prHeader` gets no such comments, and its pull requests are not approved. Change the comment's fields in the preset and in `@publira/maintenance-policies` together; the parser refuses a field it does not know.
+
+The bot's own commit that syncs the Dev Container lock files (`src/jobs/sync-devcontainer-lock-file.ts`) does not make a pull request foreign: `evaluateRenovateCommits` accepts a verified commit by the bot that changes only the lock files beside the `devcontainer.json` files the pull request changes. Any other commit by the bot still counts as foreign.
 
 A precedent has to match every field except the manager. The datasource, the package name, the versions, and the digests identify the release that a maintainer vouched for. The manager only names the kind of file Renovate rewrote, and the same manager already rewrites different files in each repository. The commits and CI of the pull request itself guard what differs. Keep the manager out of the fingerprint unless a concrete case shows two different releases that only the manager tells apart.
 

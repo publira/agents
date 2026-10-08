@@ -208,6 +208,9 @@ importers:
 
   apps/maintenance-bot:
     dependencies:
+      '@publira/devcontainer':
+        specifier: workspace:*
+        version: link:../../packages/devcontainer
       '@publira/github':
         specifier: workspace:*
         version: link:../../packages/github
@@ -236,6 +239,31 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.1
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.3(@types/node@24.19.1)(vite@8.3.2(@types/node@24.19.1)(yaml@2.9.1))
+
+  packages/devcontainer:
+    dependencies:
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.5
+    devDependencies:
+      '@publira/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.1
+      jsonc-parser:
+        specifier: 3.3.1
+        version: 3.3.1
+      tsdown:
+        specifier: 'catalog:'
+        version: 0.23.0(typescript@7.0.2)
       typescript:
         specifier: 'catalog:'
         version: 7.0.2

@@ -6,11 +6,28 @@ export type {
 } from "./auto-merge.ts";
 export { canAutoMerge } from "./auto-merge.ts";
 export type {
+  FeatureBump,
+  FeatureBumpsVerdict,
+  FeatureReference,
+  LockedFeature,
+  LockFileSyncInput,
+  LockFileSyncVerdict,
+  ResolvedFeature,
+} from "./devcontainer-lock-file.ts";
+export {
+  devContainerLockFilePathOf,
+  findFeatureBumps,
+  isDevContainerConfigPath,
+  parseFeatureReference,
+  syncLockFileEntries,
+} from "./devcontainer-lock-file.ts";
+export type {
   AccountRef,
   CheckRunInput,
   CommitChecksInput,
   CommitChecksVerdict,
   CommitStatusInput,
+  LockFileCommitScope,
   MergedPullRequest,
   PullRequestCommit,
   PullRequestReview,

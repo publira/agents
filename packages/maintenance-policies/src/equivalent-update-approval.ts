@@ -1,3 +1,7 @@
+import {
+  devContainerLockFilePathOf,
+  isDevContainerConfigPath,
+} from "./devcontainer-lock-file.ts";
 import { RENOVATE_LOGIN } from "./renovate-update.ts";
 
 // The committer GitHub records, and signs for, on a commit made through its
@@ -21,17 +25,45 @@ export interface PullRequestCommit {
   committerLogin: string | undefined;
   /** Whether GitHub verified the commit's signature. */
   verified: boolean;
+  /** The files the commit changes; read only for the bot's commits. */
+  files?: readonly string[];
+}
+
+/** What tells the bot's own lock file commits apart. */
+export interface LockFileCommitScope {
+  /** The maintenance bot's login, which authors them. */
+  botLogin: string;
+  /** The files the pull request changes. */
+  changedFiles: readonly string[];
 }
 
 export type RenovateCommitsVerdict =
-  | { result: "renovate-only"; count: number }
+  | {
+      result: "accepted";
+      count: number;
+      /** How many of them are the bot's lock file commits. */
+      lockFileCommits: number;
+    }
   | { result: "no-commits" }
   | { result: "stale"; headSha: string }
   | {
       result: "foreign-commit";
       sha: string;
-      problem: "author" | "committer" | "unverified";
+      problem: "author" | "committer" | "files" | "unverified";
     };
+
+/**
+ * The lock files the bot may commit to a pull request: those beside the Dev
+ * Container configurations it changes.
+ */
+const lockFilesOf = (changedFiles: readonly string[]) =>
+  new Set(
+    changedFiles
+      .filter(isDevContainerConfigPath)
+      .map(devContainerLockFilePathOf)
+  );
+
+const COMMITTERS = new Set([RENOVATE_LOGIN, GITHUB_COMMITTER]);
 
 /**
  * Checks that every commit of a pull request is Renovate's: authored by it
@@ -39,10 +71,15 @@ export type RenovateCommitsVerdict =
  * or one they rewrote, makes the pull request something other than the
  * update its metadata describes. The last commit must be the head the rest of
  * the evaluation looked at.
+ *
+ * With `lockFiles`, the bot's own commits that sync the Dev Container lock
+ * files are accepted too, signed like Renovate's, as long as they change only
+ * the lock files beside the configurations the pull request changes.
  */
 export const evaluateRenovateCommits = (
   commits: readonly PullRequestCommit[],
-  headSha: string
+  headSha: string,
+  lockFiles?: LockFileCommitScope
 ): RenovateCommitsVerdict => {
   const last = commits.at(-1);
 
@@ -53,30 +90,41 @@ export const evaluateRenovateCommits = (
     return { headSha: last.sha, result: "stale" };
   }
 
+  const allowedLockFiles = lockFilesOf(lockFiles?.changedFiles ?? []);
+  let lockFileCommits = 0;
+
   for (const commit of commits) {
-    if (commit.authorLogin !== RENOVATE_LOGIN) {
-      return { problem: "author", result: "foreign-commit", sha: commit.sha };
+    const byBot =
+      lockFiles !== undefined && commit.authorLogin === lockFiles.botLogin;
+    const foreign = (
+      problem: "author" | "committer" | "files" | "unverified"
+    ) => ({ problem, result: "foreign-commit" as const, sha: commit.sha });
+
+    if (commit.authorLogin !== RENOVATE_LOGIN && !byBot) {
+      return foreign("author");
     }
     if (
-      commit.committerLogin !== RENOVATE_LOGIN &&
-      commit.committerLogin !== GITHUB_COMMITTER
+      !COMMITTERS.has(commit.committerLogin ?? "") &&
+      !(byBot && commit.committerLogin === lockFiles.botLogin)
     ) {
-      return {
-        problem: "committer",
-        result: "foreign-commit",
-        sha: commit.sha,
-      };
+      return foreign("committer");
     }
     if (!commit.verified) {
-      return {
-        problem: "unverified",
-        result: "foreign-commit",
-        sha: commit.sha,
-      };
+      return foreign("unverified");
+    }
+    if (byBot) {
+      const files = commit.files ?? [];
+      if (
+        files.length === 0 ||
+        !files.every((file) => allowedLockFiles.has(file))
+      ) {
+        return foreign("files");
+      }
+      lockFileCommits += 1;
     }
   }
 
-  return { count: commits.length, result: "renovate-only" };
+  return { count: commits.length, lockFileCommits, result: "accepted" };
 };
 
 export interface CheckRunInput {

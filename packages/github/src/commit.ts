@@ -132,3 +132,80 @@ export const commitToBranch = async (
 
   return { created: true, sha: commit.sha };
 };
+
+export interface AddCommitToBranchOptions {
+  owner: string;
+  repo: string;
+  /** A branch someone else owns, without `refs/heads/`. */
+  branch: string;
+  /** The commit the branch must still point to; the change goes on top. */
+  headSha: string;
+  message: string;
+  /** New contents of regular files by path. */
+  files: Readonly<Record<string, string>>;
+}
+
+export type AddCommitToBranchResult =
+  | { status: "committed"; sha: string }
+  /** The branch no longer points to `headSha`, and was left as it is. */
+  | { status: "moved" };
+
+/**
+ * Commits a change on top of `headSha` and moves `branch` to the commit, but
+ * only as a fast-forward: when the branch moved meanwhile, such as by a push
+ * of its owner, nothing is overwritten, and the commit is left unreferenced.
+ * The caller tells whether the branch already holds the change; a change that
+ * leaves the files as they are is refused.
+ */
+export const addCommitToBranch = async (
+  octokit: Octokit,
+  { owner, repo, branch, headSha, message, files }: AddCommitToBranchOptions
+): Promise<AddCommitToBranchResult> => {
+  const { data: headCommit } = await octokit.rest.git.getCommit({
+    commit_sha: headSha,
+    owner,
+    repo,
+  });
+  const { data: tree } = await octokit.rest.git.createTree({
+    base_tree: headCommit.tree.sha,
+    owner,
+    repo,
+    tree: Object.entries(files).map(([path, content]) => ({
+      content,
+      mode: "100644" as const,
+      path,
+      type: "blob" as const,
+    })),
+  });
+
+  if (tree.sha === headCommit.tree.sha) {
+    throw new Error(`The change leaves ${owner}/${repo}@${headSha} as it is`);
+  }
+
+  // Without an author or committer, GitHub signs the commit as the App.
+  const { data: commit } = await octokit.rest.git.createCommit({
+    message,
+    owner,
+    parents: [headSha],
+    repo,
+    tree: tree.sha,
+  });
+
+  try {
+    await octokit.rest.git.updateRef({
+      force: false,
+      owner,
+      ref: `heads/${branch}`,
+      repo,
+      sha: commit.sha,
+    });
+  } catch (error) {
+    // Not a fast-forward, or the branch is gone.
+    if (requestFailure.safeParse(error).data?.status === 422) {
+      return { status: "moved" };
+    }
+    throw error;
+  }
+
+  return { sha: commit.sha, status: "committed" };
+};

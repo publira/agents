@@ -15,10 +15,12 @@
     "list-app-repositories": "node --env-file-if-exists=.env.local src/cli/list-app-repositories.ts",
     "remove-expired-release-age-exclusions": "node --env-file-if-exists=.env.local src/cli/remove-expired-release-age-exclusions.ts",
     "start": "eve start",
+    "sync-devcontainer-lock-file": "node --env-file-if-exists=.env.local src/cli/sync-devcontainer-lock-file.ts",
     "test": "vitest run",
     "typecheck": "tsc"
   },
   "dependencies": {
+    "@publira/devcontainer": "workspace:*",
     "@publira/github": "workspace:*",
     "@publira/maintenance-policies": "workspace:*",
     "@publira/npm-registry": "workspace:*",

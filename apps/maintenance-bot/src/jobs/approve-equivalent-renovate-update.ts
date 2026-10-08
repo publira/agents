@@ -36,7 +36,8 @@ import type { LogFields } from "../log.ts";
  * - `metadata`: its body opens with the update metadata the organization's
  *   Renovate preset writes, and the metadata parses.
  * - `description`: nobody but Renovate edited the body since.
- * - `commits`: every commit is Renovate's.
+ * - `commits`: every commit is Renovate's, but for the bot's own commits of
+ *   the Dev Container lock files beside the configurations it changes.
  * - `checks`: every check on the head passed, the required ones included.
  * - `precedent`: a merged pull request of the same owner made the same
  *   updates, and a maintainer approved its merged head: someone who can write
@@ -109,7 +110,10 @@ export interface ApproveEquivalentRenovateUpdateOptions {
   owner: string;
   repo: string;
   pullNumber: number;
-  /** The login the review is submitted under. A dry run needs none. */
+  /**
+   * The login the review is submitted under. A dry run needs none, but
+   * without it the bot's own lock file commits count as foreign.
+   */
   reviewer?: string;
   /** Evaluates the pull request without submitting a review. */
   dryRun?: boolean;
@@ -124,8 +128,10 @@ const requestFailure = z.object({ status: z.number() });
 
 const describeCommits = (verdict: RenovateCommitsVerdict): string => {
   switch (verdict.result) {
-    case "renovate-only": {
-      return `Renovate made all ${verdict.count} commit(s), signed by GitHub`;
+    case "accepted": {
+      return verdict.lockFileCommits === 0
+        ? `Renovate made all ${verdict.count} commit(s), signed by GitHub`
+        : `Renovate made ${verdict.count - verdict.lockFileCommits} commit(s), and the maintenance bot ${verdict.lockFileCommits} syncing the Dev Container lock files, all signed by GitHub`;
     }
     case "no-commits": {
       return "the pull request has no commits";
@@ -136,7 +142,9 @@ const describeCommits = (verdict: RenovateCommitsVerdict): string => {
     case "foreign-commit": {
       const problems = {
         author: "was not authored by Renovate",
-        committer: "was committed by someone other than Renovate or GitHub",
+        committer: "was committed by someone other than its author or GitHub",
+        files:
+          "changes more than the Dev Container lock files beside the configurations the pull request changes",
         unverified: "has no verified signature",
       };
       return `commit ${shortSha(verdict.sha)} ${problems[verdict.problem]}`;
@@ -484,7 +492,8 @@ const reviewBody = (
       : []),
     "The maintenance bot checked, by fixed rules and without a model, that:",
     "",
-    "- Renovate opened this pull request, wrote its update metadata, and made every commit.",
+    "- Renovate opened this pull request and wrote its update metadata.",
+    `- Commits: ${detail("commits")}.`,
     `- Checks: ${detail("checks")}.`,
     `- Precedent: ${detail("precedent")}.`,
   ].join("\n");
@@ -505,6 +514,8 @@ interface PullRequestContext {
   repo: string;
   pullNumber: number;
   pullRequest: PullRequestData;
+  /** The bot's login, whose lock file commits are accepted. */
+  reviewer: string | undefined;
   precedentScanCache: PrecedentScanCache | undefined;
 }
 
@@ -563,32 +574,72 @@ const checkDescription = async ({
       };
 };
 
-const checkCommits = async ({
-  octokit,
-  owner,
-  repo,
-  pullNumber,
-  pullRequest,
-}: PullRequestContext): Promise<Verdict> => {
+// The files each of the bot's commits changes, and those the pull request
+// does, which tell whether they are lock file commits. Read only when the bot
+// made a commit.
+const readLockFileScope = async (
+  { octokit, owner, repo, pullNumber, reviewer }: PullRequestContext,
+  botShas: readonly string[]
+) => {
+  if (reviewer === undefined || botShas.length === 0) {
+    return { files: new Map<string, string[]>(), scope: undefined };
+  }
+  const [changed, ...commits] = await Promise.all([
+    octokit.paginate(octokit.rest.pulls.listFiles, {
+      owner,
+      per_page: 100,
+      pull_number: pullNumber,
+      repo,
+    }),
+    ...botShas.map((sha) =>
+      octokit.rest.repos.getCommit({ owner, ref: sha, repo })
+    ),
+  ]);
+  return {
+    files: new Map(
+      commits.map(({ data }) => [
+        data.sha,
+        (data.files ?? []).map(({ filename }) => filename),
+      ])
+    ),
+    scope: {
+      botLogin: reviewer,
+      changedFiles: changed.map(({ filename }) => filename),
+    },
+  };
+};
+
+const checkCommits = async (context: PullRequestContext): Promise<Verdict> => {
+  const { octokit, owner, repo, pullNumber, pullRequest, reviewer } = context;
   const commits = await octokit.paginate(octokit.rest.pulls.listCommits, {
     owner,
     per_page: 100,
     pull_number: pullNumber,
     repo,
   });
+  const { files, scope } = await readLockFileScope(
+    context,
+    commits
+      .filter(
+        ({ author }) => reviewer !== undefined && author?.login === reviewer
+      )
+      .map(({ sha }) => sha)
+  );
   const verdict = evaluateRenovateCommits(
     commits.map((commit) => ({
       authorLogin: commit.author?.login,
       committerLogin: commit.committer?.login,
+      files: files.get(commit.sha),
       sha: commit.sha,
       verified: commit.commit.verification?.verified === true,
     })),
-    pullRequest.head.sha
+    pullRequest.head.sha,
+    scope
   );
 
   return {
     detail: describeCommits(verdict),
-    passed: verdict.result === "renovate-only",
+    passed: verdict.result === "accepted",
   };
 };
 
@@ -763,6 +814,7 @@ export const approveEquivalentRenovateUpdate = async ({
     pullNumber,
     pullRequest,
     repo,
+    reviewer,
   });
 
   if (precedent === undefined || updates === undefined) {
