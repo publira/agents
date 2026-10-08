@@ -150,13 +150,18 @@ const fakeGitHub = ({
 
   // The files of the pull request and of its head, which the commit check
   // reads for the bot's commits.
-  const respondWithFiles = (route: string) => {
+  const respondWithFiles = (route: string, url: URL) => {
     if (route === "GET /repos/publira/agents/pulls/31/files") {
       return pullFiles.map((filename) => ({ filename }));
     }
     if (route === `GET /repos/publira/agents/commits/${HEAD}`) {
+      // In pages of `per_page` files, as GitHub lists them.
+      const perPage = Number(url.searchParams.get("per_page") ?? 300);
+      const page = Number(url.searchParams.get("page") ?? 1);
       return {
-        files: (commitFiles[HEAD] ?? []).map((filename) => ({ filename })),
+        files: (commitFiles[HEAD] ?? [])
+          .slice((page - 1) * perPage, page * perPage)
+          .map((filename) => ({ filename })),
         sha: HEAD,
       };
     }
@@ -279,7 +284,7 @@ const fakeGitHub = ({
 
     const result =
       respondWithPermission(route) ??
-      respondWithFiles(route) ??
+      respondWithFiles(route, url) ??
       respond() ??
       Response.json({ message: "Not Found" }, { status: 404 });
     const response =
@@ -346,6 +351,42 @@ describe(approveEquivalentRenovateUpdate, () => {
         "Renovate made 1 commit(s), and the maintenance bot 1 syncing the Dev Container lock files, all signed by GitHub",
       passed: true,
     });
+  });
+
+  it("reads every page of the files of the bot's commit", async () => {
+    const lockFiles = Array.from(
+      { length: 100 },
+      (_, index) => `.devcontainer/feature-${index}/devcontainer-lock.json`
+    );
+    const github = fakeGitHub({
+      commitFiles: { [HEAD]: [...lockFiles, "README.md"] },
+      commits: [
+        renovateCommit("renovate"),
+        {
+          author: { login: BOT },
+          commit: { verification: { verified: true } },
+          committer: { login: BOT },
+          sha: HEAD,
+        },
+      ],
+      pullFiles: [
+        ...lockFiles,
+        ...lockFiles.map((path) =>
+          path.replace("devcontainer-lock.json", "devcontainer.json")
+        ),
+        "README.md",
+      ],
+    });
+
+    expect(failedCondition(await run(github))).toMatchObject({
+      condition: "commits",
+      passed: false,
+    });
+    expect(
+      github.routes.filter(
+        (route) => route === `GET /repos/publira/agents/commits/${HEAD}`
+      )
+    ).toHaveLength(2);
   });
 
   it("refuses the bot's commit of more than the lock file", async () => {

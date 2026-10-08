@@ -6,10 +6,6 @@ import type {
   evaluateRenovateUpdate,
   evaluateRenovateUpdatesEverywhere,
 } from "../jobs/evaluate-renovate-update.ts";
-import type {
-  SyncDevContainerLockFileResult,
-  syncDevContainerLockFile,
-} from "../jobs/sync-devcontainer-lock-file.ts";
 import type { Log } from "../log.ts";
 import { createRenovateUpdateHandlers } from "./renovate-updates.ts";
 
@@ -47,21 +43,10 @@ const app: GitHubApp = {
   octokit: createGitHubClient(),
 };
 
-const setup = ({
-  autoMerge = false,
-  synced = Promise.resolve<SyncDevContainerLockFileResult>({
-    headSha: "head",
-    reason: "the pull request changes no Dev Container configuration",
-    status: "skipped",
-  }),
-}: {
-  autoMerge?: boolean;
-  synced?: Promise<SyncDevContainerLockFileResult>;
-} = {}) => {
+const setup = ({ autoMerge = false } = {}) => {
   const evaluate = vi.fn<typeof evaluateRenovateUpdate>(() =>
     Promise.resolve()
   );
-  const syncLockFile = vi.fn<typeof syncDevContainerLockFile>(() => synced);
   const evaluateEverywhere = vi.fn<typeof evaluateRenovateUpdatesEverywhere>(
     () => Promise.resolve()
   );
@@ -79,9 +64,7 @@ const setup = ({
         dryRun: false,
         renovateAutoMerge: autoMerge,
       }),
-      syncLockFile,
     }),
-    syncLockFile,
   };
 };
 
@@ -149,100 +132,6 @@ describe("pull_request", () => {
     });
   });
 
-  it.each(["opened", "synchronize"])(
-    "syncs the lock files of a pull request %s, then evaluates it",
-    async (action) => {
-      const { context, evaluated, handlers, syncLockFile } = setup();
-
-      await handlers.pull_request(
-        delivery("pull_request", { action, pull_request: pullRequest() }),
-        context
-      );
-
-      expect(syncLockFile).toHaveBeenCalledWith(
-        expect.objectContaining({
-          dryRun: false,
-          owner: "publira",
-          pullNumber: 31,
-          repo: "agents",
-        })
-      );
-      expect(context.log).toHaveBeenCalledWith(
-        "info",
-        "Dev Container lock file sync evaluated",
-        expect.objectContaining({
-          installation: 42,
-          job: "sync-devcontainer-lock-file",
-          modelInvoked: false,
-          pullRequest: 31,
-          status: "skipped",
-        })
-      );
-      expect(evaluated()).toStrictEqual([31]);
-    }
-  );
-
-  it("leaves the evaluation to the push of its lock file commit", async () => {
-    const { context, evaluated, handlers } = setup({
-      synced: Promise.resolve({
-        commitSha: "lock",
-        headSha: "head",
-        lockFiles: [".devcontainer/devcontainer-lock.json"],
-        message:
-          "chore(devcontainer): sync the lock file with docker-in-docker 4.1.3",
-        status: "committed",
-      }),
-    });
-
-    await handlers.pull_request(
-      delivery("pull_request", {
-        action: "synchronize",
-        pull_request: pullRequest(),
-      }),
-      context
-    );
-
-    expect(evaluated()).toStrictEqual([]);
-  });
-
-  it("evaluates a pull request whose lock file sync failed", async () => {
-    const { context, evaluated, handlers } = setup({
-      synced: Promise.reject(
-        Object.assign(new Error("Server Error"), { status: 502 })
-      ),
-    });
-
-    await handlers.pull_request(
-      delivery("pull_request", {
-        action: "synchronize",
-        pull_request: pullRequest(),
-      }),
-      context
-    );
-
-    expect(context.log).toHaveBeenCalledWith(
-      "error",
-      "Dev Container lock file sync failed",
-      expect.objectContaining({ error: "Server Error", status: 502 })
-    );
-    expect(evaluated()).toStrictEqual([31]);
-  });
-
-  it("does not sync the lock files after an edit of the description", async () => {
-    const { context, evaluated, handlers, syncLockFile } = setup();
-
-    await handlers.pull_request(
-      delivery("pull_request", {
-        action: "edited",
-        pull_request: pullRequest(),
-      }),
-      context
-    );
-
-    expect(syncLockFile).not.toHaveBeenCalled();
-    expect(evaluated()).toStrictEqual([31]);
-  });
-
   it("evaluates the open pull requests from the branch of a merged one", async () => {
     const { context, evaluateEverywhere, evaluated, handlers } = setup();
 
@@ -264,7 +153,7 @@ describe("pull_request", () => {
   });
 
   it("ignores a pull request someone else opened", async () => {
-    const { context, evaluated, handlers, syncLockFile } = setup();
+    const { context, evaluated, handlers } = setup();
 
     await handlers.pull_request(
       delivery("pull_request", {
@@ -275,7 +164,6 @@ describe("pull_request", () => {
     );
 
     expect(evaluated()).toStrictEqual([]);
-    expect(syncLockFile).not.toHaveBeenCalled();
   });
 
   it("ignores a pull request closed without merging", async () => {

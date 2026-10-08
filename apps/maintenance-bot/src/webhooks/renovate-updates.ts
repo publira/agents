@@ -5,11 +5,7 @@ import {
   evaluateRenovateUpdate,
   evaluateRenovateUpdatesEverywhere,
 } from "../jobs/evaluate-renovate-update.ts";
-import {
-  summarizeLockFileSyncResult,
-  syncDevContainerLockFile,
-} from "../jobs/sync-devcontainer-lock-file.ts";
-import { loggableFailure, withFields } from "../log.ts";
+import { withFields } from "../log.ts";
 import { readSettings } from "../settings.ts";
 import type { WebhookHandler } from "./receive-webhook.ts";
 
@@ -63,15 +59,11 @@ const EVALUATED_ACTIONS = new Set([
   "synchronize",
 ]);
 
-// The actions after which Renovate's branch may hold a new Feature bump.
-const LOCK_FILE_SYNC_ACTIONS = new Set(["opened", "synchronize"]);
-
 type Payload = z.infer<typeof repositoryEvent>;
 
 export interface RenovateUpdateHandlerOptions {
   evaluate: typeof evaluateRenovateUpdate;
   evaluateEverywhere: typeof evaluateRenovateUpdatesEverywhere;
-  syncLockFile: typeof syncDevContainerLockFile;
   /** Reads the settings for each delivery. */
   readSettings: typeof readSettings;
 }
@@ -81,11 +73,9 @@ export interface RenovateUpdateHandlerOptions {
  * as the settings allow, by event name:
  *
  * - `pull_request` evaluates a Renovate pull request when it opens or
- *   changes. When it opens or is pushed to, the Dev Container lock files are
- *   first synced with the Features it bumps; a commit for that skips the
- *   evaluation, which the commit's own push brings. When one merges, it may
- *   be the precedent that the open pull requests from the same branch in
- *   other repositories wait for, so those are evaluated.
+ *   changes. When one merges, it may be the precedent that the open pull
+ *   requests from the same branch in other repositories wait for, so those
+ *   are evaluated.
  * - `check_suite` evaluates the Renovate pull requests of a suite that passed.
  * - `status` evaluates the Renovate pull requests of a commit once one of its
  *   statuses, such as `renovate/stability-days`, succeeds.
@@ -98,7 +88,6 @@ export interface RenovateUpdateHandlerOptions {
 export const createRenovateUpdateHandlers = ({
   evaluate: evaluateOne = evaluateRenovateUpdate,
   evaluateEverywhere = evaluateRenovateUpdatesEverywhere,
-  syncLockFile = syncDevContainerLockFile,
   readSettings: read = readSettings,
 }: Partial<RenovateUpdateHandlerOptions> = {}): Record<
   "check_suite" | "pull_request" | "status",
@@ -131,48 +120,6 @@ export const createRenovateUpdateHandlers = ({
         reviewer,
         settings,
       });
-    }
-  };
-
-  /** Syncs the lock files, and tells whether it committed. Never throws. */
-  const syncLockFiles = async (
-    payload: Payload,
-    pullNumber: number,
-    { app, log }: Parameters<WebhookHandler>[1]
-  ): Promise<boolean> => {
-    const { dryRun } = read(log);
-    const owner = payload.repository.owner.login;
-    const repo = payload.repository.name;
-    const jobLog = withFields(log, {
-      dryRun,
-      installation: payload.installation.id,
-      job: "sync-devcontainer-lock-file",
-      owner,
-      pullRequest: pullNumber,
-      repo,
-    });
-
-    try {
-      const result = await syncLockFile({
-        dryRun,
-        octokit: await app.getInstallationOctokit(payload.installation.id),
-        owner,
-        pullNumber,
-        repo,
-      });
-      jobLog(
-        "info",
-        "Dev Container lock file sync evaluated",
-        summarizeLockFileSyncResult(result)
-      );
-      return result.status === "committed";
-    } catch (error) {
-      jobLog(
-        "error",
-        "Dev Container lock file sync failed",
-        loggableFailure.safeParse(error).data
-      );
-      return false;
     }
   };
 
@@ -211,12 +158,6 @@ export const createRenovateUpdateHandlers = ({
           settings: read(context.log),
         });
       } else if (EVALUATED_ACTIONS.has(action)) {
-        if (
-          LOCK_FILE_SYNC_ACTIONS.has(action) &&
-          (await syncLockFiles(payload, pullRequest.number, context))
-        ) {
-          return;
-        }
         await evaluate(payload, [pullRequest.number], context);
       }
     },

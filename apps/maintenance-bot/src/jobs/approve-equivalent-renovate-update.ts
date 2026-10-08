@@ -574,34 +574,56 @@ const checkDescription = async ({
       };
 };
 
+// GitHub lists a commit's files in pages, of at most 300 files in all.
+const FILES_PER_PAGE = 100;
+
+// Every file a commit changes, from all of its pages. The pagination plugin
+// does not follow a commit's files.
+const listCommitFiles = async (
+  context: PullRequestContext,
+  sha: string,
+  page = 1
+): Promise<string[]> => {
+  const { octokit, owner, repo } = context;
+  const { data } = await octokit.rest.repos.getCommit({
+    owner,
+    page,
+    per_page: FILES_PER_PAGE,
+    ref: sha,
+    repo,
+  });
+  const files = (data.files ?? []).map(({ filename }) => filename);
+  return files.length < FILES_PER_PAGE
+    ? files
+    : [...files, ...(await listCommitFiles(context, sha, page + 1))];
+};
+
 // The files each of the bot's commits changes, and those the pull request
 // does, which tell whether they are lock file commits. Read only when the bot
 // made a commit.
 const readLockFileScope = async (
-  { octokit, owner, repo, pullNumber, reviewer }: PullRequestContext,
+  context: PullRequestContext,
   botShas: readonly string[]
 ) => {
+  const { octokit, owner, repo, pullNumber, reviewer } = context;
   if (reviewer === undefined || botShas.length === 0) {
     return { files: new Map<string, string[]>(), scope: undefined };
   }
-  const [changed, ...commits] = await Promise.all([
+  const [changed, files] = await Promise.all([
     octokit.paginate(octokit.rest.pulls.listFiles, {
       owner,
       per_page: 100,
       pull_number: pullNumber,
       repo,
     }),
-    ...botShas.map((sha) =>
-      octokit.rest.repos.getCommit({ owner, ref: sha, repo })
+    Promise.all(
+      botShas.map(
+        async (sha) => [sha, await listCommitFiles(context, sha)] as const
+      )
     ),
   ]);
   return {
-    files: new Map(
-      commits.map(({ data }) => [
-        data.sha,
-        (data.files ?? []).map(({ filename }) => filename),
-      ])
-    ),
+    files: new Map(files),
     scope: {
       botLogin: reviewer,
       changedFiles: changed.map(({ filename }) => filename),
