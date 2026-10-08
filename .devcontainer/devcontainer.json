@@ -14,7 +14,7 @@
     "ghcr.io/anthropics/devcontainer-features/claude-code:1.0.5": {},
     // eve runs sandboxes that execute real binaries in a local Docker
     // daemon; without one it falls back to just-bash.
-    "ghcr.io/devcontainers/features/docker-in-docker:4.1.2": {
+    "ghcr.io/devcontainers/features/docker-in-docker:4.1.3": {
       "moby": false,
       "version": "29.3.1"
     },
