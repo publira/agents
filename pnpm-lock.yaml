@@ -203,8 +203,8 @@ importers:
         specifier: 'catalog:'
         version: 7.0.2
       ultracite:
-        specifier: 7.12.3
-        version: 7.12.3(oxfmt@0.72.0)(oxlint@1.87.0)
+        specifier: 7.12.4
+        version: 7.12.4(oxfmt@0.72.0)(oxlint@1.87.0)
 
   apps/maintenance-bot:
     dependencies:
@@ -2057,8 +2057,8 @@ packages:
   ufo@1.6.4:
     resolution: {integrity: sha512-JFNbkD1Svwe0KvGi8GOeLcP4kAWQ609twvCdcHxq1oSL8svv39ZuSvajcD8B+5D0eL4+s1Is2D/O6KN3qcTeRA==}
 
-  ultracite@7.12.3:
-    resolution: {integrity: sha512-YfC0T9sgDVWNZyysZI9numdlW9RYmHtGaJHenZxnsfbXcRzEEN4JH18CIdUqzHhW1c10yYgvJrZ9fqvr8Mh1jg==}
+  ultracite@7.12.4:
+    resolution: {integrity: sha512-6jVEwaZBaytFm6XRoI3WGS2ZydrkrNvHTD0qTf7983ti2FlEWL1YcxnPaMaYuS6PkXqMhIK2XGr0cbsL4x5pQA==}
     hasBin: true
     peerDependencies:
       '@biomejs/biome': ^2.5.0
@@ -3381,7 +3381,7 @@ snapshots:
 
   ufo@1.6.4: {}
 
-  ultracite@7.12.3(oxfmt@0.72.0)(oxlint@1.87.0):
+  ultracite@7.12.4(oxfmt@0.72.0)(oxlint@1.87.0):
     dependencies:
       '@clack/prompts': 1.8.1
       cli-truncate: 6.1.1
