@@ -38,7 +38,7 @@ describe(evaluateRenovateCommits, () => {
   it("accepts commits Renovate made through GitHub's API", () => {
     expect(
       evaluateRenovateCommits([renovateCommit("a"), renovateCommit("b")], "b")
-    ).toStrictEqual({ count: 2, result: "renovate-only" });
+    ).toStrictEqual({ count: 2, lockFileCommits: 0, result: "accepted" });
   });
 
   it("accepts commits Renovate committed itself", () => {
@@ -47,7 +47,7 @@ describe(evaluateRenovateCommits, () => {
         [{ ...renovateCommit("a"), committerLogin: "renovate[bot]" }],
         "a"
       )
-    ).toStrictEqual({ count: 1, result: "renovate-only" });
+    ).toStrictEqual({ count: 1, lockFileCommits: 0, result: "accepted" });
   });
 
   it("refuses a commit someone pushed on top", () => {
@@ -102,6 +102,127 @@ describe(evaluateRenovateCommits, () => {
   it("refuses a pull request without commits", () => {
     expect(evaluateRenovateCommits([], "a")).toStrictEqual({
       result: "no-commits",
+    });
+  });
+
+  describe("with the bot's lock file commits", () => {
+    const BOT = "publira-maintenance-bot[bot]";
+    const scope = {
+      botLogin: BOT,
+      changedFiles: [
+        ".devcontainer/devcontainer.json",
+        ".devcontainer/devcontainer-lock.json",
+      ],
+    };
+    const lockFileCommit = (sha: string, files: readonly string[]) => ({
+      authorLogin: BOT,
+      committerLogin: BOT,
+      files,
+      sha,
+      verified: true,
+    });
+
+    it("accepts a signed commit of the lock file beside a changed configuration", () => {
+      expect(
+        evaluateRenovateCommits(
+          [
+            renovateCommit("a"),
+            lockFileCommit("b", [".devcontainer/devcontainer-lock.json"]),
+          ],
+          "b",
+          scope
+        )
+      ).toStrictEqual({ count: 2, lockFileCommits: 1, result: "accepted" });
+    });
+
+    it("accepts one committed by GitHub", () => {
+      expect(
+        evaluateRenovateCommits(
+          [
+            renovateCommit("a"),
+            {
+              ...lockFileCommit("b", [".devcontainer/devcontainer-lock.json"]),
+              committerLogin: "web-flow",
+            },
+          ],
+          "b",
+          scope
+        )
+      ).toStrictEqual({ count: 2, lockFileCommits: 1, result: "accepted" });
+    });
+
+    it.each([
+      ["another file", ["pnpm-lock.yaml"]],
+      ["the configuration", [".devcontainer/devcontainer.json"]],
+      [
+        "the lock file of an unchanged configuration",
+        [".devcontainer/python/devcontainer-lock.json"],
+      ],
+      ["no file it reported", []],
+    ])("refuses one that changes %s", (_, files) => {
+      expect(
+        evaluateRenovateCommits(
+          [renovateCommit("a"), lockFileCommit("b", files)],
+          "b",
+          scope
+        )
+      ).toStrictEqual({ problem: "files", result: "foreign-commit", sha: "b" });
+    });
+
+    it("refuses an unsigned one", () => {
+      expect(
+        evaluateRenovateCommits(
+          [
+            renovateCommit("a"),
+            {
+              ...lockFileCommit("b", [".devcontainer/devcontainer-lock.json"]),
+              verified: false,
+            },
+          ],
+          "b",
+          scope
+        )
+      ).toStrictEqual({
+        problem: "unverified",
+        result: "foreign-commit",
+        sha: "b",
+      });
+    });
+
+    it("refuses one someone else committed", () => {
+      expect(
+        evaluateRenovateCommits(
+          [
+            renovateCommit("a"),
+            {
+              ...lockFileCommit("b", [".devcontainer/devcontainer-lock.json"]),
+              committerLogin: "ykzts",
+            },
+          ],
+          "b",
+          scope
+        )
+      ).toStrictEqual({
+        problem: "committer",
+        result: "foreign-commit",
+        sha: "b",
+      });
+    });
+
+    it("refuses the bot's commit without the scope", () => {
+      expect(
+        evaluateRenovateCommits(
+          [
+            renovateCommit("a"),
+            lockFileCommit("b", [".devcontainer/devcontainer-lock.json"]),
+          ],
+          "b"
+        )
+      ).toStrictEqual({
+        problem: "author",
+        result: "foreign-commit",
+        sha: "b",
+      });
     });
   });
 });

@@ -15,11 +15,24 @@ import {
   autoMergeRenovateUpdate,
   summarizeAutoMergeResult,
 } from "./auto-merge-renovate-update.ts";
+import {
+  summarizeLockFileSyncResult,
+  syncDevContainerLockFile,
+} from "./sync-devcontainer-lock-file.ts";
+import type { SyncDevContainerLockFileResult } from "./sync-devcontainer-lock-file.ts";
 
 export interface RenovateUpdateJobs {
+  syncLockFile: typeof syncDevContainerLockFile;
   approve: typeof approveEquivalentRenovateUpdate;
   autoMerge: typeof autoMergeRenovateUpdate;
 }
+
+// The outcomes after which the head the evaluation read is not the one to
+// decide on: the bot's lock file commit moves it, or would in a dry run, or it
+// moved already. The push is delivered as `synchronize` and evaluated then.
+const DEFERRING_SYNC_STATUSES = new Set<
+  SyncDevContainerLockFileResult["status"]
+>(["committed", "head-moved", "would-commit"]);
 
 /** The settings that decide what the evaluation may do; see `readSettings`. */
 export type RenovateUpdateSettings = Pick<
@@ -42,12 +55,14 @@ export interface EvaluateRenovateUpdateOptions {
 }
 
 /**
- * Evaluates one Renovate pull request: approves it when it is the same update
- * a maintainer approved elsewhere, then has it auto-merged when that is on
- * and allowed. The auto-merge runs even when the approval did not, or
- * auto-merge is off, to take back a decision a new head made stale. In a dry
- * run, both only log what they would do. Both log their outcome and failure,
- * and neither throws.
+ * Evaluates one Renovate pull request: syncs the Dev Container lock files
+ * with the Features it bumps, approves it when it is the same update a
+ * maintainer approved elsewhere, then has it auto-merged when that is on and
+ * allowed. A head whose lock files the bot commits to, or would in a dry run,
+ * is neither approved nor merged: the commit's push is evaluated instead. The
+ * auto-merge runs even when the approval did not, or auto-merge is off, to
+ * take back a decision a new head made stale. In a dry run, each only logs
+ * what it would do. Each logs its outcome and failure, and none throws.
  */
 export const evaluateRenovateUpdate = async ({
   octokit,
@@ -59,6 +74,7 @@ export const evaluateRenovateUpdate = async ({
   log,
   precedentScanCache,
   jobs: {
+    syncLockFile = syncDevContainerLockFile,
     approve = approveEquivalentRenovateUpdate,
     autoMerge = autoMergeRenovateUpdate,
   } = {},
@@ -72,6 +88,35 @@ export const evaluateRenovateUpdate = async ({
     pullNumber,
     repo,
   };
+
+  const syncLog = withFields(log, {
+    ...fields,
+    job: "sync-devcontainer-lock-file",
+  });
+  try {
+    const result = await syncLockFile({
+      dryRun,
+      octokit,
+      owner,
+      pullNumber,
+      repo,
+    });
+    const deferred = DEFERRING_SYNC_STATUSES.has(result.status);
+    syncLog("info", "Dev Container lock file sync evaluated", {
+      ...summarizeLockFileSyncResult(result),
+      evaluationDeferred: deferred,
+    });
+    if (deferred) {
+      return;
+    }
+  } catch (error) {
+    // The lock files stay as they are; approval decides on the head as it is.
+    syncLog(
+      "error",
+      "Dev Container lock file sync failed",
+      loggableFailure.safeParse(error).data
+    );
+  }
 
   const approvalLog = withFields(log, {
     ...fields,

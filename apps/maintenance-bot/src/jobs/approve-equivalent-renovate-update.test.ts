@@ -83,6 +83,10 @@ interface Scenario {
   permissions?: Readonly<Record<string, string>>;
   /** The status GitHub refuses to tell the permissions with, if it does. */
   permissionRefusal?: number;
+  /** The files the pull request changes. */
+  pullFiles?: readonly string[];
+  /** The files each commit changes, by SHA. */
+  commitFiles?: Readonly<Record<string, readonly string[]>>;
 }
 
 const PERMISSION_ROUTE =
@@ -129,6 +133,8 @@ const fakeGitHub = ({
   precedentReviews = [humanApproval],
   permissions = { ykzts: "admin" },
   permissionRefusal,
+  pullFiles = ["package.json"],
+  commitFiles = {},
 }: Scenario = {}) => {
   const writes: { route: string; body: unknown }[] = [];
   const routes: string[] = [];
@@ -140,6 +146,25 @@ const fakeGitHub = ({
     return login === undefined
       ? undefined
       : permissionResponse(permissions[login] ?? "read", permissionRefusal);
+  };
+
+  // The files of the pull request and of its head, which the commit check
+  // reads for the bot's commits.
+  const respondWithFiles = (route: string, url: URL) => {
+    if (route === "GET /repos/publira/agents/pulls/31/files") {
+      return pullFiles.map((filename) => ({ filename }));
+    }
+    if (route === `GET /repos/publira/agents/commits/${HEAD}`) {
+      // In pages of `per_page` files, as GitHub lists them.
+      const perPage = Number(url.searchParams.get("per_page") ?? 300);
+      const page = Number(url.searchParams.get("page") ?? 1);
+      return {
+        files: (commitFiles[HEAD] ?? [])
+          .slice((page - 1) * perPage, page * perPage)
+          .map((filename) => ({ filename })),
+        sha: HEAD,
+      };
+    }
   };
 
   const fetchImpl = vi.fn<typeof fetch>((input, init) => {
@@ -259,6 +284,7 @@ const fakeGitHub = ({
 
     const result =
       respondWithPermission(route) ??
+      respondWithFiles(route, url) ??
       respond() ??
       Response.json({ message: "Not Found" }, { status: 404 });
     const response =
@@ -296,6 +322,101 @@ const failedCondition = (
     : undefined;
 
 describe(approveEquivalentRenovateUpdate, () => {
+  it("approves an update the bot synced the Dev Container lock file of", async () => {
+    const lockFileCommit = {
+      author: { login: BOT },
+      commit: { verification: { verified: true } },
+      committer: { login: BOT },
+      sha: HEAD,
+    };
+    const github = fakeGitHub({
+      commitFiles: { [HEAD]: [".devcontainer/devcontainer-lock.json"] },
+      commits: [renovateCommit("renovate"), lockFileCommit],
+      pullFiles: [
+        ".devcontainer/devcontainer-lock.json",
+        ".devcontainer/devcontainer.json",
+      ],
+    });
+
+    const result = await run(github);
+
+    expect(result).toMatchObject({ status: "approved" });
+    expect(
+      result.status === "approved"
+        ? result.conditions.find(({ condition }) => condition === "commits")
+        : undefined
+    ).toStrictEqual({
+      condition: "commits",
+      detail:
+        "Renovate made 1 commit(s), and the maintenance bot 1 syncing the Dev Container lock files, all signed by GitHub",
+      passed: true,
+    });
+  });
+
+  it("reads every page of the files of the bot's commit", async () => {
+    const lockFiles = Array.from(
+      { length: 100 },
+      (_, index) => `.devcontainer/feature-${index}/devcontainer-lock.json`
+    );
+    const github = fakeGitHub({
+      commitFiles: { [HEAD]: [...lockFiles, "README.md"] },
+      commits: [
+        renovateCommit("renovate"),
+        {
+          author: { login: BOT },
+          commit: { verification: { verified: true } },
+          committer: { login: BOT },
+          sha: HEAD,
+        },
+      ],
+      pullFiles: [
+        ...lockFiles,
+        ...lockFiles.map((path) =>
+          path.replace("devcontainer-lock.json", "devcontainer.json")
+        ),
+        "README.md",
+      ],
+    });
+
+    expect(failedCondition(await run(github))).toMatchObject({
+      condition: "commits",
+      passed: false,
+    });
+    expect(
+      github.routes.filter(
+        (route) => route === `GET /repos/publira/agents/commits/${HEAD}`
+      )
+    ).toHaveLength(2);
+  });
+
+  it("refuses the bot's commit of more than the lock file", async () => {
+    const github = fakeGitHub({
+      commitFiles: {
+        [HEAD]: [".devcontainer/devcontainer-lock.json", "README.md"],
+      },
+      commits: [
+        renovateCommit("renovate"),
+        {
+          author: { login: BOT },
+          commit: { verification: { verified: true } },
+          committer: { login: BOT },
+          sha: HEAD,
+        },
+      ],
+      pullFiles: [
+        ".devcontainer/devcontainer-lock.json",
+        ".devcontainer/devcontainer.json",
+        "README.md",
+      ],
+    });
+
+    expect(failedCondition(await run(github))).toStrictEqual({
+      condition: "commits",
+      detail: `commit ${HEAD.slice(0, 7)} changes more than the Dev Container lock files beside the configurations the pull request changes`,
+      passed: false,
+    });
+  });
+
   it("approves the head of an update a maintainer approved elsewhere", async () => {
     const github = fakeGitHub();
 

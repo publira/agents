@@ -318,6 +318,7 @@ const decide = async (
           precedentScanCache,
           pullNumber,
           repo,
+          reviewer: options.reviewer,
         }),
         changesWorkflows(options),
         getBranchMergeRules(octokit, { branch: state.baseRef, owner, repo }),

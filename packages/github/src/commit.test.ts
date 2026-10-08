@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createGitHubClient } from "./client.ts";
-import { commitToBranch } from "./commit.ts";
+import { addCommitToBranch, commitToBranch } from "./commit.ts";
 import { fakeGitHub } from "./fake-github.ts";
 
 const repository = "/repos/publira/agents";
@@ -126,5 +126,80 @@ describe(commitToBranch, () => {
           method !== "GET" && !url.pathname.endsWith("/git/trees")
       )
     ).toHaveLength(0);
+  });
+});
+
+describe(addCommitToBranch, () => {
+  const branch = "renovate/docker-in-docker-4.x";
+  const addOptions = {
+    branch,
+    files: { ".devcontainer/devcontainer-lock.json": "{}\n" },
+    headSha: "head",
+    message: "chore(devcontainer): sync the lock file",
+    owner: "publira",
+    repo: "agents",
+  };
+  const routes = {
+    [`GET ${repository}/git/commits/head`]: { tree: { sha: "head-tree" } },
+    [`PATCH ${repository}/git/refs/heads/${branch}`]: {},
+    [`POST ${repository}/git/commits`]: { sha: "new-commit" },
+    [`POST ${repository}/git/trees`]: { sha: "new-tree" },
+  };
+
+  it("commits on top of the head and fast-forwards the branch", async () => {
+    const github = fakeGitHub(routes);
+
+    await expect(
+      addCommitToBranch(createGitHubClient({ fetch: github.fetch }), addOptions)
+    ).resolves.toStrictEqual({ sha: "new-commit", status: "committed" });
+
+    const body = (route: string) =>
+      github.requests[github.routes.indexOf(route)]?.body;
+    expect(body(`POST ${repository}/git/trees`)).toStrictEqual({
+      base_tree: "head-tree",
+      tree: [
+        {
+          content: "{}\n",
+          mode: "100644",
+          path: ".devcontainer/devcontainer-lock.json",
+          type: "blob",
+        },
+      ],
+    });
+    expect(body(`POST ${repository}/git/commits`)).toStrictEqual({
+      message: "chore(devcontainer): sync the lock file",
+      parents: ["head"],
+      tree: "new-tree",
+    });
+    expect(body(`PATCH ${repository}/git/refs/heads/${branch}`)).toStrictEqual({
+      force: false,
+      sha: "new-commit",
+    });
+  });
+
+  it("leaves a branch that moved", async () => {
+    const github = fakeGitHub({
+      ...routes,
+      [`PATCH ${repository}/git/refs/heads/${branch}`]: Response.json(
+        { message: "Update is not a fast forward" },
+        { status: 422 }
+      ),
+    });
+
+    await expect(
+      addCommitToBranch(createGitHubClient({ fetch: github.fetch }), addOptions)
+    ).resolves.toStrictEqual({ status: "moved" });
+  });
+
+  it("rejects a change that changes nothing", async () => {
+    const github = fakeGitHub({
+      ...routes,
+      [`POST ${repository}/git/trees`]: { sha: "head-tree" },
+    });
+
+    await expect(
+      addCommitToBranch(createGitHubClient({ fetch: github.fetch }), addOptions)
+    ).rejects.toThrow("leaves publira/agents@head as it is");
+    expect(github.routes).not.toContain(`POST ${repository}/git/commits`);
   });
 });

@@ -31,8 +31,13 @@ export type {
 export { getCommitChecks, getRequiredStatusChecks } from "./checks.ts";
 export type { GitHubClientOptions, Octokit } from "./client.ts";
 export { createGitHubClient } from "./client.ts";
-export type { CommitToBranchOptions, CommitToBranchResult } from "./commit.ts";
-export { commitToBranch } from "./commit.ts";
+export type {
+  AddCommitToBranchOptions,
+  AddCommitToBranchResult,
+  CommitToBranchOptions,
+  CommitToBranchResult,
+} from "./commit.ts";
+export { addCommitToBranch, commitToBranch } from "./commit.ts";
 export type { InstallationRepository } from "./installations.ts";
 export type {
   EnsureIssueCommentOptions,
