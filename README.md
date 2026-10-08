@@ -46,8 +46,7 @@ The bot acts on repositories as a GitHub App, installed on the repositories it m
 - **Organization and account permissions**: none.
 - **Events**: only those the bot handles; see `apps/maintenance-bot/src/webhooks/handlers.ts`. GitHub sends installation events regardless. They are now:
   - Issues and Sub-issues: close an issue as completed when all of its sub-issues are closed.
-  - Check suite, Pull request, and Status: approve a Renovate pull request when a maintainer approved and merged the same update in another Publira repository, and auto-merge it when that is on.
-  - Pull request: commit the regenerated Dev Container lock file to a Renovate pull request that bumps a Feature.
+  - Check suite, Pull request, and Status: commit the regenerated Dev Container lock file to a Renovate pull request that bumps a Feature, approve a Renovate pull request when a maintainer approved and merged the same update in another Publira repository, and auto-merge it when that is on.
 - **Where can this App be installed**: only on this account. Install it on selected repositories, not all of them.
 
 The bot reads the App's credentials from three environment variables:
@@ -84,7 +83,7 @@ The bot writes one JSON object per line to the Vercel project's runtime logs, wi
 - `approve-equivalent-renovate-update`: the `status`; for a skipped pull request, the failed `condition` and its `detail`; for an approval, the `precedent` pull request, the maintainer whose approval of it counts (`precedentApprovedBy`), and the `review` with `reviewCreated`. `modelInvoked` is always `false`.
 - `auto-merge-renovate-update`: the decision (`autoMerge`), its reason (`autoMergeReason`), the `mergeMethod`, and what it took back (`autoMergeWithdrew`).
 - `close-completed-parent-issue`: the parent `issue` and the closed or removed `subIssue` that led to it, the `status`, the `reason` an issue was left open, the number of `subIssues`, and the `comment` with `commentCreated`. `modelInvoked` is always `false`.
-- `sync-devcontainer-lock-file`: the `status`, the `headSha` it read, the `lockFiles` it compared or committed, the `reason` it left the pull request alone, and the `commit`. `modelInvoked` is always `false`.
+- `sync-devcontainer-lock-file`: the `status`, the `headSha` it read, the `lockFiles` it compared or committed, the `reason` it left the pull request alone, the `commit`, and whether approval and auto-merge wait for the commit's push (`evaluationDeferred`). `modelInvoked` is always `false`.
 - `remove-expired-release-age-exclusions`: the `status`, the `expired` entries, whether the rules or a model chose the lines (`editedBy`), whether a model was asked in this run (`modelInvoked`, with the `model`), and the `pullRequest` with `pullRequestCreated`.
 
 ### Renovate auto-merge
@@ -99,7 +98,7 @@ When it is on, the bot enables GitHub's auto-merge for the head it approved, and
 
 ### Dev Container lock files
 
-Renovate's devcontainer manager bumps a Feature's reference in `devcontainer.json` but leaves `devcontainer-lock.json` on the old version, which the Dev Container CLI then rewrites on every build. When a Renovate pull request opens or is pushed to, the bot compares each `devcontainer.json` it changes (`.devcontainer/devcontainer.json`, `.devcontainer/<name>/devcontainer.json`, or `.devcontainer.json`) with the merge base. For each Feature whose tag changed, it replaces the entry in the lock file beside it with what `devcontainer upgrade` writes: the new reference, the version the Feature's metadata declares, and the digest of its manifest, read anonymously from its registry. The other entries, their order, and the formatting stay, and the bot commits only when the file differs from the branch's, on top of the head and only as a fast-forward.
+Renovate's devcontainer manager bumps a Feature's reference in `devcontainer.json` but leaves `devcontainer-lock.json` on the old version, which the Dev Container CLI then rewrites on every build. Each time the bot evaluates a Renovate pull request for approval, whether from a webhook or the hourly sweep, it first compares each `devcontainer.json` it changes (`.devcontainer/devcontainer.json`, `.devcontainer/<name>/devcontainer.json`, or `.devcontainer.json`) with the merge base. For each Feature whose tag changed, it replaces the entry in the lock file beside it with what `devcontainer upgrade` writes: the new reference, the version the Feature's metadata declares, and the digest of its manifest, read anonymously from its registry. The other entries, their order, and the formatting stay, and the bot commits only when the file differs from the branch's, on top of the head and only as a fast-forward. A head that the bot commits to, or would in a dry run, is neither approved nor merged; the commit's push is evaluated instead.
 
 The bot leaves the pull request alone, and logs why, when a Feature was added or removed rather than bumped, its dependencies changed, its registry cannot be read, or the lock file is not as the CLI writes it. Renovate may discard the commit when it rewrites the branch, which the organization's preset lets it do, and the next push brings it back. Approval accepts the bot's signed commit on top of Renovate's, as long as it changes only the lock files beside the configurations the pull request changes.
 

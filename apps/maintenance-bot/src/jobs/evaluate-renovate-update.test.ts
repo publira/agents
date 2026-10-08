@@ -10,6 +10,7 @@ import {
   evaluateRenovateUpdatesEverywhere,
 } from "./evaluate-renovate-update.ts";
 import type { RenovateUpdateSettings } from "./evaluate-renovate-update.ts";
+import type { syncDevContainerLockFile } from "./sync-devcontainer-lock-file.ts";
 
 const BOT = "publira-maintenance[bot]";
 const HEAD = "4658aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -25,10 +26,18 @@ const setup = ({
       status: "skipped" as const,
     }),
   merge = () => Promise.resolve({ headSha: HEAD, status: "disabled" as const }),
+  sync = () =>
+    Promise.resolve({
+      headSha: HEAD,
+      reason: "the pull request changes no Dev Container configuration",
+      status: "skipped" as const,
+    }),
 }: {
   approval?: typeof approveEquivalentRenovateUpdate;
   merge?: typeof autoMergeRenovateUpdate;
+  sync?: typeof syncDevContainerLockFile;
 } = {}) => {
+  const syncLockFile = vi.fn<typeof syncDevContainerLockFile>(sync);
   const approve = vi.fn<typeof approveEquivalentRenovateUpdate>(approval);
   const autoMerge = vi.fn<typeof autoMergeRenovateUpdate>(merge);
   const log = vi.fn<Log>();
@@ -39,7 +48,7 @@ const setup = ({
     log,
     run: (settings: Partial<RenovateUpdateSettings> = {}) =>
       evaluateRenovateUpdate({
-        jobs: { approve, autoMerge },
+        jobs: { approve, autoMerge, syncLockFile },
         log,
         octokit: createGitHubClient(),
         owner: "publira",
@@ -52,10 +61,89 @@ const setup = ({
           ...settings,
         },
       }),
+    syncLockFile,
   };
 };
 
 describe(evaluateRenovateUpdate, () => {
+  it("syncs the Dev Container lock files before it approves", async () => {
+    const { approve, log, run, syncLockFile } = setup();
+
+    await run();
+
+    expect(syncLockFile).toHaveBeenCalledWith(
+      expect.objectContaining({ dryRun: false, pullNumber: 31 })
+    );
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Dev Container lock file sync evaluated",
+      expect.objectContaining({
+        evaluationDeferred: false,
+        job: "sync-devcontainer-lock-file",
+        modelInvoked: false,
+        status: "skipped",
+      })
+    );
+    expect(approve).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    {
+      commitSha: "lock",
+      headSha: HEAD,
+      lockFiles: [".devcontainer/devcontainer-lock.json"],
+      message:
+        "chore(devcontainer): sync the lock file with docker-in-docker 4.1.3",
+      status: "committed" as const,
+    },
+    {
+      files: { ".devcontainer/devcontainer-lock.json": "{}" },
+      headSha: HEAD,
+      lockFiles: [".devcontainer/devcontainer-lock.json"],
+      message:
+        "chore(devcontainer): sync the lock file with docker-in-docker 4.1.3",
+      status: "would-commit" as const,
+    },
+    {
+      headSha: HEAD,
+      lockFiles: [".devcontainer/devcontainer-lock.json"],
+      status: "head-moved" as const,
+    },
+  ])("leaves a head the lock file sync $status to the push", async (result) => {
+    const { approve, autoMerge, log, run } = setup({
+      sync: () => Promise.resolve(result),
+    });
+
+    await run({ dryRun: result.status === "would-commit" });
+
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Dev Container lock file sync evaluated",
+      expect.objectContaining({
+        evaluationDeferred: true,
+        status: result.status,
+      })
+    );
+    expect(approve).not.toHaveBeenCalled();
+    expect(autoMerge).not.toHaveBeenCalled();
+  });
+
+  it("still evaluates when the lock file sync failed", async () => {
+    const { approve, autoMerge, log, run } = setup({
+      sync: () => Promise.reject(new Error("Server Error")),
+    });
+
+    await run();
+
+    expect(log).toHaveBeenCalledWith(
+      "error",
+      "Dev Container lock file sync failed",
+      expect.objectContaining({ error: "Server Error" })
+    );
+    expect(approve).toHaveBeenCalledOnce();
+    expect(autoMerge).toHaveBeenCalledOnce();
+  });
+
   it("approves, then decides on auto-merge as configured", async () => {
     const { approve, autoMerge, log, run } = setup({
       merge: () =>

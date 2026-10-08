@@ -6,8 +6,8 @@ import { log, withFields } from "../../src/log.ts";
 import { readSettings } from "../../src/settings.ts";
 
 // Evaluates every open Renovate pull request in the repositories the App is
-// installed on: approves the equivalent updates, and auto-merges them, as
-// the settings allow. The webhook handlers evaluate them as they change;
+// installed on: syncs their Dev Container lock files, approves the equivalent
+// updates, and auto-merges them, as the settings allow. The webhook handlers evaluate them as they change;
 // this catches up on a delivery that failed, which GitHub does not retry,
 // and takes back an auto-merge that a new head or turning auto-merge off
 // made stale. No model is involved.
