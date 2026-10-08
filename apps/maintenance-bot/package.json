@@ -25,7 +25,7 @@
     "@publira/maintenance-policies": "workspace:*",
     "@publira/npm-registry": "workspace:*",
     "@publira/pnpm-workspace": "workspace:*",
-    "ai": "7.0.127",
+    "ai": "7.0.128",
     "eve": "0.71.0",
     "zod": "catalog:"
   },
