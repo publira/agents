@@ -38,16 +38,30 @@ const pathPattern = z
     { message: "must be a path from the root, or a directory ending in /**" }
   );
 
+/**
+ * Whether a pattern matches a path under the workflows directory: a path
+ * there, or the directory itself, under it, or above it, such as `.github/**`.
+ */
+const reachesWorkflows = (pattern: string) => {
+  if (!pattern.endsWith(DIRECTORY_SUFFIX)) {
+    return pattern.startsWith(WORKFLOWS_DIRECTORY);
+  }
+  const directory = pattern.slice(0, -DIRECTORY_SUFFIX.length + 1);
+  return (
+    directory.startsWith(WORKFLOWS_DIRECTORY) ||
+    WORKFLOWS_DIRECTORY.startsWith(directory)
+  );
+};
+
 const regenerationConfig = z.strictObject({
   /** The command that regenerates the output, run by Bash at the root. */
   command: z.string().min(1),
   /** The generated output: the only paths the bot commits. */
   paths: z
     .array(
-      pathPattern.refine(
-        (pattern) => !pattern.startsWith(WORKFLOWS_DIRECTORY),
-        { message: `must not be under ${WORKFLOWS_DIRECTORY}` }
-      )
+      pathPattern.refine((pattern) => !reachesWorkflows(pattern), {
+        message: `must not match anything under ${WORKFLOWS_DIRECTORY}`,
+      })
     )
     .min(1),
   /** Commands that install the generators, run by Bash before `command`. */

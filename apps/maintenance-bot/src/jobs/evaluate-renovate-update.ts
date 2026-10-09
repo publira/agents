@@ -83,6 +83,70 @@ export interface EvaluateRenovateUpdateOptions {
   jobs?: Partial<RenovateUpdateJobs>;
 }
 
+interface RegenerateOptions {
+  octokit: Octokit;
+  owner: string;
+  repo: string;
+  pullNumber: number;
+  reviewer: string;
+  dryRun: boolean;
+  log: Log;
+  regeneration: Regeneration;
+  regenerate: typeof regenerateGeneratedOutput;
+}
+
+/**
+ * Regenerates a pull request's generated output and logs the outcome or the
+ * failure. Tells whether approval and auto-merge wait for the push of the
+ * bot's commit.
+ */
+const regenerateAndLog = async ({
+  octokit,
+  owner,
+  repo,
+  pullNumber,
+  reviewer,
+  dryRun,
+  log,
+  regeneration,
+  regenerate,
+}: RegenerateOptions): Promise<boolean> => {
+  const regenerationLog = withFields(log, {
+    dryRun,
+    job: "regenerate-generated-output",
+    owner,
+    pullRequest: pullNumber,
+    repo,
+  });
+  try {
+    const result = await regenerate({
+      ...regeneration,
+      botLogin: reviewer,
+      dryRun,
+      octokit,
+      owner,
+      pullNumber,
+      repo,
+    });
+    const deferred = DEFERRING_REGENERATION_STATUSES.has(result.status);
+    regenerationLog(
+      result.status === "failed" ? "warn" : "info",
+      "Generated output regeneration evaluated",
+      { ...summarizeRegenerationResult(result), evaluationDeferred: deferred }
+    );
+    return deferred;
+  } catch (error) {
+    // The output stays as it is; the repository's CI tells whether it is
+    // stale, and approval waits for CI.
+    regenerationLog(
+      "error",
+      "Generated output regeneration failed",
+      loggableFailure.safeParse(error).data
+    );
+    return false;
+  }
+};
+
 /**
  * Evaluates one Renovate pull request: syncs the Dev Container lock files
  * with the Features it bumps, regenerates the output of the generators it
@@ -150,39 +214,21 @@ export const evaluateRenovateUpdate = async ({
     );
   }
 
-  if (regeneration !== undefined) {
-    const regenerationLog = withFields(log, {
-      ...fields,
-      job: "regenerate-generated-output",
-    });
-    try {
-      const result = await regenerate({
-        ...regeneration,
-        botLogin: reviewer,
-        dryRun,
-        octokit,
-        owner,
-        pullNumber,
-        repo,
-      });
-      const deferred = DEFERRING_REGENERATION_STATUSES.has(result.status);
-      regenerationLog(
-        result.status === "failed" ? "warn" : "info",
-        "Generated output regeneration evaluated",
-        { ...summarizeRegenerationResult(result), evaluationDeferred: deferred }
-      );
-      if (deferred) {
-        return;
-      }
-    } catch (error) {
-      // The output stays as it is; the repository's CI tells whether it is
-      // stale, and approval waits for CI.
-      regenerationLog(
-        "error",
-        "Generated output regeneration failed",
-        loggableFailure.safeParse(error).data
-      );
-    }
+  if (
+    regeneration !== undefined &&
+    (await regenerateAndLog({
+      dryRun,
+      log,
+      octokit,
+      owner,
+      pullNumber,
+      regenerate,
+      regeneration,
+      repo,
+      reviewer,
+    }))
+  ) {
+    return;
   }
 
   const approvalLog = withFields(log, {
@@ -240,12 +286,44 @@ export interface EvaluateRenovateUpdatesEverywhereOptions {
   sandbox?: SandboxRunner;
   /** Replaced in tests. */
   evaluate?: typeof evaluateRenovateUpdate;
+  /** Replaced in tests. */
+  regenerate?: typeof regenerateGeneratedOutput;
 }
+
+/**
+ * How many regenerations of one repository the sweep runs at once. Each can
+ * hold a sandbox for up to 240 seconds, close to the 300 the function running
+ * the sweep has, so one after another, a slow one would leave the next too
+ * little time, every hour again.
+ */
+export const SWEEP_REGENERATION_CONCURRENCY = 4;
+
+// Runs a task for each item, at most `limit` at once.
+const forEachConcurrently = async <T>(
+  items: readonly T[],
+  limit: number,
+  task: (item: T) => Promise<void>
+) => {
+  const queue = [...items];
+  await Promise.all(
+    Array.from({ length: Math.min(limit, queue.length) }, async () => {
+      for (let item = queue.shift(); item !== undefined; item = queue.shift()) {
+        // oxlint-disable-next-line no-await-in-loop -- one per worker at a time
+        await task(item);
+      }
+    })
+  );
+};
 
 /**
  * Runs {@link evaluateRenovateUpdate} on every open Renovate pull request in
  * the unarchived repositories the App is installed on. A repository that
  * fails is logged, and the others still run.
+ *
+ * With a sandbox, it first regenerates the generated output of a
+ * repository's pull requests, a few at a time, and then evaluates the rest
+ * one at a time; a pull request whose head the regeneration moves, or would
+ * in a dry run, is left to the push's evaluation.
  */
 export const evaluateRenovateUpdatesEverywhere = async ({
   app,
@@ -254,6 +332,7 @@ export const evaluateRenovateUpdatesEverywhere = async ({
   headRef,
   sandbox,
   evaluate = evaluateRenovateUpdate,
+  regenerate = regenerateGeneratedOutput,
 }: EvaluateRenovateUpdatesEverywhereOptions): Promise<void> => {
   const [repositories, reviewer] = await Promise.all([
     listAppRepositories(app),
@@ -278,30 +357,55 @@ export const evaluateRenovateUpdatesEverywhere = async ({
             state: "open",
           });
 
+          const renovatePulls = pulls
+            .filter(({ user }) => isRenovate(user))
+            .map(({ number }) => number);
+          const deferred = new Set<number>();
+
+          if (sandbox !== undefined) {
+            const regeneration = {
+              createReadToken: () =>
+                createRepositoryReadToken(app, { installationId, repo }),
+              sandbox,
+            };
+            await forEachConcurrently(
+              renovatePulls,
+              SWEEP_REGENERATION_CONCURRENCY,
+              async (pullNumber) => {
+                if (
+                  await regenerateAndLog({
+                    dryRun: settings.dryRun,
+                    log: repositoryLog,
+                    octokit,
+                    owner,
+                    pullNumber,
+                    regenerate,
+                    regeneration,
+                    repo,
+                    reviewer,
+                  })
+                ) {
+                  deferred.add(pullNumber);
+                }
+              }
+            );
+          }
+
           // One at a time, so a repository with many updates does not burst.
-          for (const pull of pulls.filter(({ user }) => isRenovate(user))) {
-            // oxlint-disable-next-line no-await-in-loop -- see above
-            await evaluate({
-              log: repositoryLog,
-              octokit,
-              owner,
-              precedentScanCache,
-              pullNumber: pull.number,
-              regeneration:
-                sandbox === undefined
-                  ? undefined
-                  : {
-                      createReadToken: () =>
-                        createRepositoryReadToken(app, {
-                          installationId,
-                          repo,
-                        }),
-                      sandbox,
-                    },
-              repo,
-              reviewer,
-              settings,
-            });
+          for (const pullNumber of renovatePulls) {
+            if (!deferred.has(pullNumber)) {
+              // oxlint-disable-next-line no-await-in-loop -- see above
+              await evaluate({
+                log: repositoryLog,
+                octokit,
+                owner,
+                precedentScanCache,
+                pullNumber,
+                repo,
+                reviewer,
+                settings,
+              });
+            }
           }
         } catch (error) {
           repositoryLog("error", "Renovate update evaluation failed", {

@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from "node:timers/promises";
+
 import { createGitHubClient } from "@publira/github";
 import type { GitHubApp } from "@publira/github";
 import { describe, expect, it, vi } from "vitest";
@@ -9,6 +11,7 @@ import type { autoMergeRenovateUpdate } from "./auto-merge-renovate-update.ts";
 import {
   evaluateRenovateUpdate,
   evaluateRenovateUpdatesEverywhere,
+  SWEEP_REGENERATION_CONCURRENCY,
 } from "./evaluate-renovate-update.ts";
 import type {
   Regeneration,
@@ -466,61 +469,113 @@ describe(evaluateRenovateUpdate, () => {
 const sandbox: SandboxRunner = () =>
   Promise.reject(new Error("The evaluation is replaced"));
 
-describe(evaluateRenovateUpdatesEverywhere, () => {
-  it("evaluates the open Renovate pull requests from the branch", async () => {
-    const requests: string[] = [];
-    const octokit = createGitHubClient({
+// An App installed on publira/agents, whose open pull requests are `pulls`.
+const fakeApp = (pulls: readonly { number: number; user: object }[]) => {
+  const requests: string[] = [];
+  const octokit = createGitHubClient({
+    fetch: (input) => {
+      const url = new URL(String(input));
+      requests.push(`${url.pathname}${url.search}`);
+      const response = Response.json(
+        url.pathname === "/installation/repositories"
+          ? {
+              repositories: [
+                {
+                  archived: false,
+                  default_branch: "main",
+                  name: "agents",
+                  owner: { login: "publira" },
+                },
+              ],
+              total_count: 1,
+            }
+          : pulls
+      );
+      Object.defineProperty(response, "url", { value: url.href });
+      return Promise.resolve(response);
+    },
+  });
+  const app: GitHubApp = {
+    getBotLogin: () => Promise.resolve(BOT),
+    getInstallationOctokit: () => Promise.resolve(octokit),
+    getRepositoryOctokit: () => Promise.reject(new Error("unused")),
+    octokit: createGitHubClient({
       fetch: (input) => {
         const url = new URL(String(input));
-        requests.push(`${url.pathname}${url.search}`);
         const response = Response.json(
-          url.pathname === "/installation/repositories"
-            ? {
-                repositories: [
-                  {
-                    archived: false,
-                    default_branch: "main",
-                    name: "agents",
-                    owner: { login: "publira" },
-                  },
-                ],
-                total_count: 1,
-              }
-            : [
-                { number: 31, user: renovate },
-                { number: 32, user: maintainer },
-              ]
+          url.pathname === "/app/installations"
+            ? [{ id: 1, suspended_at: null }]
+            : { message: "Not Found" },
+          { status: url.pathname === "/app/installations" ? 200 : 404 }
         );
         Object.defineProperty(response, "url", { value: url.href });
         return Promise.resolve(response);
       },
-    });
-    const app: GitHubApp = {
-      getBotLogin: () => Promise.resolve(BOT),
-      getInstallationOctokit: () => Promise.resolve(octokit),
-      getRepositoryOctokit: () => Promise.reject(new Error("unused")),
-      octokit: createGitHubClient({
-        fetch: (input) => {
-          const url = new URL(String(input));
-          const response = Response.json(
-            url.pathname === "/app/installations"
-              ? [{ id: 1, suspended_at: null }]
-              : { message: "Not Found" },
-            { status: url.pathname === "/app/installations" ? 200 : 404 }
-          );
-          Object.defineProperty(response, "url", { value: url.href });
-          return Promise.resolve(response);
-        },
-      }),
-    };
+    }),
+  };
+  return { app, requests };
+};
+
+const settings = { dryRun: false, renovateAutoMerge: true };
+
+// Regenerates nothing but #33, which it commits to, after a moment.
+const regenerateSlowly = (state: { running: number; mostRunning: number }) =>
+  vi.fn<typeof regenerateGeneratedOutput>(async ({ pullNumber }) => {
+    state.running += 1;
+    state.mostRunning = Math.max(state.mostRunning, state.running);
+    await sleep(5);
+    state.running -= 1;
+    return pullNumber === 33
+      ? {
+          commitSha: "regenerated",
+          headSha: HEAD,
+          ignoredPaths: [],
+          paths: ["gen/api.pb.go"],
+          status: "committed" as const,
+        }
+      : {
+          headSha: HEAD,
+          reason:
+            "the pull request changes no file that calls for a regeneration",
+          status: "skipped" as const,
+        };
+  });
+
+const pullNumbers = [31, 32, 33, 34, 35, 36];
+
+const sweepWithSandbox = async () => {
+  const { app } = fakeApp([
+    ...pullNumbers.map((number) => ({ number, user: renovate })),
+    { number: 40, user: maintainer },
+  ]);
+  const state = { mostRunning: 0, running: 0 };
+  const regenerate = regenerateSlowly(state);
+  const evaluate = vi.fn<typeof evaluateRenovateUpdate>(() =>
+    Promise.resolve()
+  );
+  const log = vi.fn<Log>();
+
+  await evaluateRenovateUpdatesEverywhere({
+    app,
+    evaluate,
+    log,
+    regenerate,
+    sandbox,
+    settings,
+  });
+
+  return { evaluate, log, regenerate, state };
+};
+
+describe(evaluateRenovateUpdatesEverywhere, () => {
+  it("evaluates the open Renovate pull requests from the branch", async () => {
+    const { app, requests } = fakeApp([
+      { number: 31, user: renovate },
+      { number: 32, user: maintainer },
+    ]);
     const evaluate = vi.fn<typeof evaluateRenovateUpdate>(() =>
       Promise.resolve()
     );
-
-    const settings = {
-      dryRun: false,
-      renovateAutoMerge: true,
-    };
     const log = vi.fn<Log>();
 
     await evaluateRenovateUpdatesEverywhere({
@@ -528,7 +583,6 @@ describe(evaluateRenovateUpdatesEverywhere, () => {
       evaluate,
       headRef: "renovate/turbo-monorepo",
       log,
-      sandbox,
       settings,
     });
 
@@ -540,7 +594,6 @@ describe(evaluateRenovateUpdatesEverywhere, () => {
       owner: "publira",
       precedentScanCache: expect.any(Object),
       pullNumber: 31,
-      regeneration: { createReadToken: expect.any(Function), sandbox },
       repo: "agents",
       reviewer: BOT,
       settings,
@@ -548,5 +601,67 @@ describe(evaluateRenovateUpdatesEverywhere, () => {
     expect(requests).toContain(
       "/repos/publira/agents/pulls?head=publira%3Arenovate%2Fturbo-monorepo&per_page=100&state=open"
     );
+  });
+
+  it("leaves the generated output alone without a sandbox", async () => {
+    const { app } = fakeApp([{ number: 31, user: renovate }]);
+    const evaluate = vi.fn<typeof evaluateRenovateUpdate>(() =>
+      Promise.resolve()
+    );
+    const regenerate = vi.fn<typeof regenerateGeneratedOutput>();
+
+    await evaluateRenovateUpdatesEverywhere({
+      app,
+      evaluate,
+      log: vi.fn<Log>(),
+      regenerate,
+      settings,
+    });
+
+    expect(regenerate).not.toHaveBeenCalled();
+    expect(evaluate.mock.calls[0]?.[0].regeneration).toBeUndefined();
+  });
+
+  it("regenerates a few pull requests of a repository at a time", async () => {
+    const { regenerate, state } = await sweepWithSandbox();
+
+    expect(
+      regenerate.mock.calls.map(([options]) => options.pullNumber)
+    ).toStrictEqual(pullNumbers);
+    expect(regenerate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        botLogin: BOT,
+        createReadToken: expect.any(Function),
+        dryRun: false,
+        owner: "publira",
+        repo: "agents",
+        sandbox,
+      })
+    );
+    expect(state.mostRunning).toBe(SWEEP_REGENERATION_CONCURRENCY);
+  });
+
+  it("then evaluates the pull requests the regeneration did not move", async () => {
+    const { evaluate, log } = await sweepWithSandbox();
+
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Generated output regeneration evaluated",
+      expect.objectContaining({
+        evaluationDeferred: true,
+        installation: 1,
+        job: "regenerate-generated-output",
+        pullRequest: 33,
+      })
+    );
+    // The bot's commit moved the head of #33; its push is evaluated.
+    expect(
+      evaluate.mock.calls.map(([options]) => options.pullNumber)
+    ).toStrictEqual([31, 32, 34, 35, 36]);
+    expect(
+      evaluate.mock.calls.every(
+        ([options]) => options.regeneration === undefined
+      )
+    ).toBeTruthy();
   });
 });

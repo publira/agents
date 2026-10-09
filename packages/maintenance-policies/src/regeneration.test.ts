@@ -43,6 +43,17 @@ describe(parseRegenerationConfig, () => {
     });
   });
 
+  it("reads generated paths beside the workflows", () => {
+    expect(
+      parseRegenerationConfig(
+        "triggers: [a]\ncommand: make\npaths: [.github/gen/**, .github/workflows.json]\n"
+      )
+    ).toMatchObject({
+      config: { paths: [".github/gen/**", ".github/workflows.json"] },
+      result: "valid",
+    });
+  });
+
   it("reads one without setup or workflow", () => {
     expect(
       parseRegenerationConfig(
@@ -72,7 +83,19 @@ describe(parseRegenerationConfig, () => {
     ["the root", "triggers: [a]\ncommand: make\npaths: ['**']\n"],
     [
       "a workflow path",
+      "triggers: [a]\ncommand: make\npaths: [.github/workflows/ci.yml]\n",
+    ],
+    [
+      "the workflows directory",
       "triggers: [a]\ncommand: make\npaths: [.github/workflows/**]\n",
+    ],
+    [
+      "a directory under the workflows",
+      "triggers: [a]\ncommand: make\npaths: [.github/workflows/gen/**]\n",
+    ],
+    [
+      "a directory holding the workflows",
+      "triggers: [a]\ncommand: make\npaths: [.github/**]\n",
     ],
     [
       "an unknown key",
