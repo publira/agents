@@ -4,7 +4,7 @@ Conventions for the maintenance bot, on top of the repository's [AGENTS.md](../.
 
 ## Overview
 
-The maintenance bot is an eve app deployed to Vercel. It hosts GitHub-facing maintenance jobs and uses eve where agentic behavior helps, while deterministic jobs run without invoking a model. `agent/` is the eve agent (model, instructions, channels, tools); `src/jobs/` holds the deterministic jobs, and `src/cli/` runs each of them from a terminal.
+The maintenance bot is an eve app deployed to Vercel. It hosts GitHub-facing maintenance jobs and uses eve where agentic behavior helps, while deterministic jobs run without invoking a model. `agent/` is the eve agent (model, instructions, channels, tools); `src/jobs/` holds the deterministic jobs, and `src/cli/` runs most of them from a terminal.
 
 ## Deterministic jobs and the agent
 
@@ -44,7 +44,9 @@ The agent's model is an AI Gateway model ID in `agent/agent.ts`. On Vercel the d
 
 The `eve` channel accepts Vercel OIDC and, under `eve dev`, localhost. Add an authenticator before exposing a route to anyone else.
 
-The bot uses no sandbox. `agent/agent.ts` sets `defaultTools: false`, which leaves the agent only its own tools, and `agent/sandbox.ts` replaces eve's default sandbox, which is a Vercel Sandbox on Vercel, with a provider that prepares nothing and refuses to start. Add a sandbox only for a feature that needs one, and say why in the pull request.
+The agent uses no sandbox. `agent/agent.ts` sets `defaultTools: false`, which leaves the agent only its own tools, and `agent/sandbox.ts` replaces eve's default sandbox, which is a Vercel Sandbox on Vercel, with a provider that prepares nothing and refuses to start. Add a sandbox only for a feature that needs one, and say why in the pull request.
+
+A job that has to run a third-party tool, such as the skills update running `npx skills update`, does so in a Vercel Sandbox it creates through `src/sandbox-runner.ts`, not in eve's: eve opens a sandbox only for an agent session, and a schedule handler that calls a job starts none. The job takes the runner as an argument, so tests run its commands on a local repository instead. The sandbox gets no credential of the App beyond a token that can only read the one repository, and only for a private repository; the job writes the commit and the pull request from the app runtime.
 
 ## Deployment
 

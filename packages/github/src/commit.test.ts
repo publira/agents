@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createGitHubClient } from "./client.ts";
 import { addCommitToBranch, commitToBranch } from "./commit.ts";
-import { fakeGitHub } from "./fake-github.ts";
+import { dynamic, fakeGitHub } from "./fake-github.ts";
 
 const repository = "/repos/publira/agents";
 
@@ -63,6 +63,97 @@ describe(commitToBranch, () => {
       ref: "refs/heads/maintenance-bot/cleanup",
       sha: "new-commit",
     });
+  });
+
+  it("keeps the mode of each file and uploads bytes that are not UTF-8", async () => {
+    const github = fakeGitHub({
+      ...gitRoutes(),
+      [`POST ${repository}/git/blobs`]: { sha: "font-blob" },
+    });
+    const font = Uint8Array.of(0, 1, 0, 0, 0xff);
+
+    await commitToBranch(createGitHubClient({ fetch: github.fetch }), {
+      ...options,
+      files: {
+        ".agents/skills/canvas/fonts/Serif.ttf": font,
+        ".agents/skills/canvas/scripts/render.sh": new TextEncoder().encode(
+          "#!/bin/sh\n"
+        ),
+        ".claude/skills/canvas": "../../.agents/skills/canvas",
+        ".claude/skills/obsolete": null,
+      },
+      modes: {
+        ".agents/skills/canvas/scripts/render.sh": "100755",
+        ".claude/skills/canvas": "120000",
+        ".claude/skills/obsolete": "120000",
+      },
+    });
+
+    const body = (route: string) =>
+      github.requests[github.routes.indexOf(route)]?.body;
+    expect(body(`POST ${repository}/git/blobs`)).toStrictEqual({
+      content: Buffer.from(font).toString("base64"),
+      encoding: "base64",
+    });
+    expect(body(`POST ${repository}/git/trees`)).toStrictEqual({
+      base_tree: "base-tree",
+      tree: [
+        {
+          mode: "100644",
+          path: ".agents/skills/canvas/fonts/Serif.ttf",
+          sha: "font-blob",
+          type: "blob",
+        },
+        {
+          content: "#!/bin/sh\n",
+          mode: "100755",
+          path: ".agents/skills/canvas/scripts/render.sh",
+          type: "blob",
+        },
+        {
+          content: "../../.agents/skills/canvas",
+          mode: "120000",
+          path: ".claude/skills/canvas",
+          type: "blob",
+        },
+        {
+          mode: "120000",
+          path: ".claude/skills/obsolete",
+          sha: null,
+          type: "blob",
+        },
+      ],
+    });
+  });
+
+  it("writes the blobs and then the tree one at a time, a second apart", async () => {
+    const writtenAt: number[] = [];
+    const github = fakeGitHub({
+      ...gitRoutes(),
+      [`POST ${repository}/git/blobs`]: dynamic(() => {
+        writtenAt.push(Date.now());
+        return { sha: `blob-${writtenAt.length}` };
+      }),
+      [`POST ${repository}/git/trees`]: dynamic(() => {
+        writtenAt.push(Date.now());
+        return { sha: "new-tree" };
+      }),
+    });
+
+    await commitToBranch(createGitHubClient({ fetch: github.fetch }), {
+      ...options,
+      files: {
+        "fonts/Sans.ttf": Uint8Array.of(0xfe),
+        "fonts/Serif.ttf": Uint8Array.of(0xff),
+      },
+    });
+
+    // Two uploads, then the tree.
+    const gaps = writtenAt
+      .slice(1)
+      .map((time, index) => time - (writtenAt[index] ?? 0));
+    expect(gaps).toHaveLength(2);
+    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(990);
   });
 
   it("leaves a branch that already holds the change", async () => {

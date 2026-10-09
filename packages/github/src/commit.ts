@@ -1,6 +1,15 @@
+import { isUtf8 } from "node:buffer";
+import { setTimeout as sleep } from "node:timers/promises";
+
 import type { Octokit } from "@octokit/rest";
 
 import { requestFailure } from "./request-error.ts";
+
+/**
+ * A file's mode in a Git tree: a regular file, an executable, or a symbolic
+ * link, whose content is the path it points to.
+ */
+export type FileMode = "100644" | "100755" | "120000";
 
 export interface CommitToBranchOptions {
   owner: string;
@@ -10,8 +19,13 @@ export interface CommitToBranchOptions {
   /** The commit the change applies to. */
   baseSha: string;
   message: string;
-  /** New contents of regular files by path; `null` deletes the file. */
-  files: Readonly<Record<string, string | null>>;
+  /**
+   * New contents by path, as text or as bytes, which need not be UTF-8;
+   * `null` deletes the file.
+   */
+  files: Readonly<Record<string, string | Uint8Array | null>>;
+  /** The mode of each file by path. A file without one is regular. */
+  modes?: Readonly<Record<string, FileMode>>;
 }
 
 export interface CommitToBranchResult {
@@ -43,6 +57,65 @@ const getBranchSha = async (
 };
 
 /**
+ * How long to wait after each blob upload, before the next write, which is
+ * another upload or the tree. GitHub asks for writes one at a time, at least
+ * a second apart, to stay within its secondary rate limits, and a write that
+ * fails is not tried again.
+ */
+const BLOB_UPLOAD_INTERVAL_MS = 1000;
+
+interface TreeEntriesOptions {
+  octokit: Octokit;
+  owner: string;
+  repo: string;
+  files: Readonly<Record<string, string | Uint8Array | null>>;
+  modes: Readonly<Record<string, FileMode>>;
+}
+
+// A tree entry takes text inline. Other bytes go up as a blob first, which
+// costs a write per file, so only the files that are not UTF-8 do, one after
+// another.
+const treeEntriesOf = async ({
+  octokit,
+  owner,
+  repo,
+  files,
+  modes,
+}: TreeEntriesOptions) => {
+  const entries = [];
+
+  for (const [path, content] of Object.entries(files)) {
+    const mode = modes[path] ?? "100644";
+
+    if (content === null) {
+      entries.push({ mode, path, sha: null, type: "blob" as const });
+    } else if (!(content instanceof Uint8Array)) {
+      entries.push({ content, mode, path, type: "blob" as const });
+    } else if (isUtf8(content)) {
+      entries.push({
+        content: Buffer.from(content).toString("utf-8"),
+        mode,
+        path,
+        type: "blob" as const,
+      });
+    } else {
+      // oxlint-disable-next-line no-await-in-loop -- one write at a time
+      const { data: blob } = await octokit.rest.git.createBlob({
+        content: Buffer.from(content).toString("base64"),
+        encoding: "base64",
+        owner,
+        repo,
+      });
+      entries.push({ mode, path, sha: blob.sha, type: "blob" as const });
+      // oxlint-disable-next-line no-await-in-loop -- one write at a time
+      await sleep(BLOB_UPLOAD_INTERVAL_MS);
+    }
+  }
+
+  return entries;
+};
+
+/**
  * Commits a change on top of `baseSha` and points `branch` at the commit,
  * creating the branch if needed. The branch belongs to the caller: whatever
  * else it holds is replaced.
@@ -52,7 +125,15 @@ const getBranchSha = async (
  */
 export const commitToBranch = async (
   octokit: Octokit,
-  { owner, repo, branch, baseSha, message, files }: CommitToBranchOptions
+  {
+    owner,
+    repo,
+    branch,
+    baseSha,
+    message,
+    files,
+    modes = {},
+  }: CommitToBranchOptions
 ): Promise<CommitToBranchResult> => {
   const { data: baseCommit } = await octokit.rest.git.getCommit({
     commit_sha: baseSha,
@@ -65,11 +146,7 @@ export const commitToBranch = async (
     base_tree: baseCommit.tree.sha,
     owner,
     repo,
-    tree: Object.entries(files).map(([path, content]) =>
-      content === null
-        ? { mode: "100644" as const, path, sha: null, type: "blob" as const }
-        : { content, mode: "100644" as const, path, type: "blob" as const }
-    ),
+    tree: await treeEntriesOf({ files, modes, octokit, owner, repo }),
   });
 
   if (tree.sha === baseCommit.tree.sha) {

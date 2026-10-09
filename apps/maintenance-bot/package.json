@@ -26,6 +26,7 @@
     "@publira/maintenance-policies": "workspace:*",
     "@publira/npm-registry": "workspace:*",
     "@publira/pnpm-workspace": "workspace:*",
+    "@vercel/sandbox": "catalog:",
     "ai": "7.0.128",
     "eve": "0.71.2",
     "zod": "catalog:"

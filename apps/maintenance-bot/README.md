@@ -51,7 +51,7 @@ The bot acts only on the repositories the App is installed on. To start on a new
 
 Every write is idempotent. A job checks what is already in place before it writes, so a webhook delivered twice, a redelivery, or the next scheduled run changes nothing that is already done. The requests to GitHub and the npm registry time out, and the reads among them are tried again after a server error, a rate limit, or a failed connection; writes are not, since a failed write may still have been applied. A job that still cannot tell the state of a repository, its CI, or a pull request does nothing, and its next run tries again.
 
-The model is asked only to remove expired `minimumReleaseAgeExclude` entries whose comments the fixed rules cannot sort out. It sees only that block of `pnpm-workspace.yaml`, and it is not asked when no entry has expired. No model takes part in approving, merging, syncing lock files, closing issues, or labelling pull requests. The bot uses no sandbox: the agent has no shell or file tools, and `agent/sandbox.ts` keeps eve from creating a Vercel Sandbox.
+The model is asked only to remove expired `minimumReleaseAgeExclude` entries whose comments the fixed rules cannot sort out. It sees only that block of `pnpm-workspace.yaml`, and it is not asked when no entry has expired. No model takes part in approving, merging, syncing lock files, updating agent skills, closing issues, or labelling pull requests. The agent uses no sandbox: it has no shell or file tools, and `agent/sandbox.ts` keeps eve from creating a Vercel Sandbox. Only the agent skills update runs in one, of its own, because it runs a third-party command; see below.
 
 ### Logs
 
@@ -63,6 +63,7 @@ The bot writes one JSON object per line to the Vercel project's runtime logs, wi
 - `label-agent-assisted-pull-request`: the `status`, the number of `commits` it read, and the `reason` it left the label as it is. `modelInvoked` is always `false`.
 - `sync-devcontainer-lock-file`: the `status`, the `headSha` it read, the `lockFiles` it compared or committed, the `reason` it left the pull request alone, the `commit`, and whether approval and auto-merge wait for the commit's push (`evaluationDeferred`). `modelInvoked` is always `false`.
 - `remove-expired-release-age-exclusions`: the `status`, the `expired` entries, whether the rules or a model chose the lines (`editedBy`), whether a model was asked in this run (`modelInvoked`, with the `model`), and the `pullRequest` with `pullRequestCreated`.
+- `update-agent-skills`: the `status`, the default branch's commit the update ran on (`baseSha`), the `skills` it added, updated, or removed, the `paths` it commits and the `ignoredPaths` it leaves out, whether it committed (`committed`), and the `pullRequest` with `pullRequestCreated`. When the sandbox could not clone the repository or update its skills, the `step`, the `exitCode`, and the end of the command's `output`. `modelInvoked` is always `false`.
 
 ### Renovate auto-merge
 
@@ -79,6 +80,18 @@ When it is on, the bot enables GitHub's auto-merge for the head it approved, and
 Renovate's devcontainer manager bumps a Feature's reference in `devcontainer.json` but leaves `devcontainer-lock.json` on the old version, which the Dev Container CLI then rewrites on every build. Each time the bot evaluates a Renovate pull request for approval, whether from a webhook or the hourly sweep, it first compares each `devcontainer.json` it changes (`.devcontainer/devcontainer.json`, `.devcontainer/<name>/devcontainer.json`, or `.devcontainer.json`) with the merge base. For each Feature whose tag changed, it replaces the entry in the lock file beside it with what `devcontainer upgrade` writes: the new reference, the version the Feature's metadata declares, and the digest of its manifest, read anonymously from its registry. The other entries, their order, and the formatting stay, and the bot commits only when the file differs from the branch's, on top of the head and only as a fast-forward. A head that the bot commits to, or would in a dry run, is neither approved nor merged; the commit's push is evaluated instead.
 
 The bot leaves the pull request alone, and logs why, when a Feature was added or removed rather than bumped, its dependencies changed, its registry cannot be read, or the lock file is not as the CLI writes it. Renovate may discard the commit when it rewrites the branch, which the organization's preset lets it do, and the next push brings it back. Approval accepts the bot's signed commit on top of Renovate's, as long as it changes only the lock files beside the configurations the pull request changes.
+
+### Agent skills updates
+
+Every Monday at 00:00 UTC the bot refreshes the agent skills vendored in each repository it is installed on whose default branch has a `skills-lock.json` at its root. A repository opts in by committing that file, which `npx skills add` writes.
+
+The update runs `npx -y skills@<version> update -p -y`, which downloads the skills from their sources and runs third-party code, so it runs in a Vercel Sandbox of its own, which is deleted afterwards. The sandbox clones the default branch shallowly: anonymously for a public repository, and for a private one with an installation token that can only read that repository's contents and expires within an hour. It holds no other credential. The bot reads the changed files back from the sandbox and writes the commit and the pull request itself, from the app runtime. The skills CLI's version is pinned in `src/jobs/update-agent-skills.ts`, and Renovate updates it.
+
+The bot commits only the changes under `.agents/skills/`, `.claude/skills/`, and `skills-lock.json`, with their file modes, so symbolic links and executables stay as they are, and logs any other path the update touched. It commits them to the `maintenance-bot/update-agent-skills` branch on top of the default branch and opens a pull request titled `chore(skills): update agent skills`, which lists the changed skills from the lock file and asks the reviewer to read the instruction changes. It neither approves nor merges the pull request: a skill changes what agents do, so a person reviews it.
+
+When the update changes nothing, the bot writes nothing. While the open pull request holds the same skill files, it leaves the branch as it is, even once the default branch moved on; when the skills changed upstream again, it moves the branch to a new commit on the current default branch. When the clone or the update fails, it leaves the repository alone and logs why.
+
+The schedule runs in a Vercel Function, which the project allows 300 seconds by default, and updates the repositories at the same time. Each sandbox lives at most 240 seconds, its clone at most 60, and the update at most 120; a shallow clone and an update of publira/publira took about 30 seconds together. Vercel Sandbox itself allows a sandbox up to 24 hours on the team's plan. On Vercel the sandbox authenticates with the project's OIDC token, which needs no setting.
 
 ### Closing completed issues
 
