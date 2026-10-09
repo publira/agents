@@ -20,7 +20,8 @@ interface Scenario {
   /** How many commits it has; GitHub lists at most 250. */
   commitCount?: number;
   labels?: readonly string[];
-  labelDefined?: boolean;
+  /** The repository's label, or `null` when it has none. */
+  label?: { archived_at: string | null } | null;
   /** Whether the label is still on the pull request when it is removed. */
   removable?: boolean;
 }
@@ -31,7 +32,7 @@ const fakeGitHub = ({
   messages = [UNASSISTED, ASSISTED],
   commitCount = messages.length,
   labels = [],
-  labelDefined = true,
+  label = { archived_at: null },
   removable = true,
 }: Scenario = {}) => {
   const routes: string[] = [];
@@ -66,9 +67,9 @@ const fakeGitHub = ({
           );
         }
         case `GET ${REPOSITORY}/labels/ai-assisted`: {
-          return labelDefined
-            ? Response.json({ name: "ai-assisted" })
-            : Response.json({ message: "Not Found" }, { status: 404 });
+          return label === null
+            ? Response.json({ message: "Not Found" }, { status: 404 })
+            : Response.json({ ...label, name: "ai-assisted" });
         }
         case `POST ${ISSUE_LABELS}`: {
           return Response.json([{ name: "ai-assisted" }]);
@@ -159,12 +160,17 @@ describe(labelAgentAssistedPullRequest, () => {
     expect(github.writes).toStrictEqual([]);
   });
 
-  it.each([
+  it.each<[string, Scenario, string]>([
     ["a draft", { draft: true }, "it is a draft"],
     [
       "a pull request in a repository without the label",
-      { labelDefined: false },
+      { label: null },
       "the repository does not define the ai-assisted label",
+    ],
+    [
+      "a pull request in a repository that archived the label",
+      { label: { archived_at: "2026-10-09T00:00:00Z" } },
+      "the repository archived the ai-assisted label",
     ],
     [
       "a pull request that is already labelled",

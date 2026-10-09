@@ -21,8 +21,12 @@ export interface AgentAssistanceLabelInput {
   commitCount: number;
   /** The names of the labels it carries now. */
   labels: readonly string[];
-  /** Whether the repository defines {@link AI_ASSISTED_LABEL}. */
-  labelDefined: boolean;
+  /**
+   * Whether {@link AI_ASSISTED_LABEL} can be added: `active` when the
+   * repository defines it, `archived` when it archived the label, which
+   * GitHub refuses to add, and `missing` when it does not define it.
+   */
+  labelState: "active" | "archived" | "missing";
 }
 
 export type AgentAssistanceLabelVerdict =
@@ -40,7 +44,8 @@ const leave = (reason: string): AgentAssistanceLabelVerdict => ({
  * exactly when one of its commits has an `Assisted-by:` trailer. The trailers
  * are the only source of truth, so a pull request that loses its agent
  * commits to a force-push loses the label with them, and the label is never
- * created in a repository that does not define it. The label stays on a pull
+ * created in a repository that does not define it, nor added once archived.
+ * The label stays on a pull
  * request whose commits GitHub does not list in full, since a trailer may be
  * in one it leaves out.
  */
@@ -49,7 +54,7 @@ export const evaluateAgentAssistanceLabel = ({
   commitMessages,
   commitCount,
   labels,
-  labelDefined,
+  labelState,
 }: AgentAssistanceLabelInput): AgentAssistanceLabelVerdict => {
   if (draft) {
     return leave("it is a draft");
@@ -72,10 +77,13 @@ export const evaluateAgentAssistanceLabel = ({
         )
       : { action: "remove" };
   }
-  if (!labelDefined) {
+  if (labelState === "missing") {
     return leave(
       `the repository does not define the ${AI_ASSISTED_LABEL} label`
     );
+  }
+  if (labelState === "archived") {
+    return leave(`the repository archived the ${AI_ASSISTED_LABEL} label`);
   }
   return { action: "add" };
 };

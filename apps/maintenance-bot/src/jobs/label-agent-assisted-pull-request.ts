@@ -1,4 +1,4 @@
-import { hasRepositoryLabel, removeIssueLabel } from "@publira/github";
+import { getRepositoryLabelState, removeIssueLabel } from "@publira/github";
 import type { Octokit } from "@publira/github";
 import {
   AI_ASSISTED_LABEL,
@@ -39,19 +39,19 @@ export const labelAgentAssistedPullRequest = async ({
   dryRun = false,
 }: LabelAgentAssistedPullRequestOptions): Promise<LabelAgentAssistedPullRequestResult> => {
   const pull = { owner, pull_number: pullNumber, repo };
-  const [{ data }, commits, labelDefined] = await Promise.all([
+  const [{ data }, commits, labelState] = await Promise.all([
     octokit.rest.pulls.get(pull),
     octokit.paginate(octokit.rest.pulls.listCommits, {
       ...pull,
       per_page: 100,
     }),
-    hasRepositoryLabel(octokit, { name: AI_ASSISTED_LABEL, owner, repo }),
+    getRepositoryLabelState(octokit, { name: AI_ASSISTED_LABEL, owner, repo }),
   ]);
   const verdict = evaluateAgentAssistanceLabel({
     commitCount: data.commits,
     commitMessages: commits.map(({ commit }) => commit.message),
     draft: data.draft === true,
-    labelDefined,
+    labelState,
     labels: data.labels.map(({ name }) => name),
   });
   const counted = { commits: commits.length };

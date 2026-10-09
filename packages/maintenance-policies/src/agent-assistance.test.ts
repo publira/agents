@@ -5,6 +5,7 @@ import {
   disclosesAgentAssistance,
   evaluateAgentAssistanceLabel,
 } from "./agent-assistance.ts";
+import type { AgentAssistanceLabelInput } from "./agent-assistance.ts";
 
 const assisted =
   "feat: add a maintenance policy\n\nAssisted-by: Claude Code:claude-opus-5-5\n";
@@ -31,11 +32,11 @@ describe(disclosesAgentAssistance, () => {
 });
 
 describe(evaluateAgentAssistanceLabel, () => {
-  const input = {
+  const input: AgentAssistanceLabelInput = {
     commitCount: 2,
     commitMessages: [unassisted, assisted],
     draft: false,
-    labelDefined: true,
+    labelState: "active",
     labels: [],
   };
 
@@ -56,7 +57,7 @@ describe(evaluateAgentAssistanceLabel, () => {
     ).toStrictEqual({ action: "remove" });
   });
 
-  it.each([
+  it.each<[string, Partial<AgentAssistanceLabelInput>, string]>([
     ["a draft", { draft: true }, "it is a draft"],
     [
       "a pull request that is already labelled",
@@ -79,8 +80,13 @@ describe(evaluateAgentAssistanceLabel, () => {
     ],
     [
       "a pull request in a repository without the label",
-      { labelDefined: false },
+      { labelState: "missing" },
       "the repository does not define the ai-assisted label",
+    ],
+    [
+      "a pull request in a repository that archived the label",
+      { labelState: "archived" },
+      "the repository archived the ai-assisted label",
     ],
   ])("leaves %s", (_, overrides, reason) => {
     expect(

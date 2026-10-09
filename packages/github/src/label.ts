@@ -1,20 +1,35 @@
 import type { Octokit } from "@octokit/rest";
+import { z } from "zod";
 
 import type { IssueLocation } from "./issue.ts";
 import type { RepositoryName } from "./repository-name.ts";
 import { requestFailure } from "./request-error.ts";
 
-/** Whether a repository defines a label. */
-export const hasRepositoryLabel = async (
+/**
+ * Whether a repository's label can be added to an issue or a pull request:
+ * `active` when it can, `archived` when the repository archived it, which
+ * GitHub refuses to add, and `missing` when the repository does not define
+ * it.
+ */
+export type RepositoryLabelState = "active" | "archived" | "missing";
+
+// The REST API returns `archived_at` for a label, which Octokit's types do
+// not describe yet.
+const archivedLabel = z.object({ archived_at: z.string().nullish() });
+
+/** Tells whether a repository's label can be added; see {@link RepositoryLabelState}. */
+export const getRepositoryLabelState = async (
   octokit: Octokit,
   { owner, repo, name }: RepositoryName & { name: string }
-): Promise<boolean> => {
+): Promise<RepositoryLabelState> => {
   try {
-    await octokit.rest.issues.getLabel({ name, owner, repo });
-    return true;
+    const { data } = await octokit.rest.issues.getLabel({ name, owner, repo });
+    return archivedLabel.safeParse(data).data?.archived_at
+      ? "archived"
+      : "active";
   } catch (error) {
     if (requestFailure.safeParse(error).data?.status === 404) {
-      return false;
+      return "missing";
     }
     throw error;
   }
