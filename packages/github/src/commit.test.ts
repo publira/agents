@@ -126,13 +126,17 @@ describe(commitToBranch, () => {
     });
   });
 
-  it("uploads the blobs one at a time, a second apart", async () => {
-    const uploadedAt: number[] = [];
+  it("writes the blobs and then the tree one at a time, a second apart", async () => {
+    const writtenAt: number[] = [];
     const github = fakeGitHub({
       ...gitRoutes(),
       [`POST ${repository}/git/blobs`]: dynamic(() => {
-        uploadedAt.push(Date.now());
-        return { sha: `blob-${uploadedAt.length}` };
+        writtenAt.push(Date.now());
+        return { sha: `blob-${writtenAt.length}` };
+      }),
+      [`POST ${repository}/git/trees`]: dynamic(() => {
+        writtenAt.push(Date.now());
+        return { sha: "new-tree" };
       }),
     });
 
@@ -144,10 +148,12 @@ describe(commitToBranch, () => {
       },
     });
 
-    expect(uploadedAt).toHaveLength(2);
-    expect((uploadedAt[1] ?? 0) - (uploadedAt[0] ?? 0)).toBeGreaterThanOrEqual(
-      990
-    );
+    // Two uploads, then the tree.
+    const gaps = writtenAt
+      .slice(1)
+      .map((time, index) => time - (writtenAt[index] ?? 0));
+    expect(gaps).toHaveLength(2);
+    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(990);
   });
 
   it("leaves a branch that already holds the change", async () => {

@@ -57,9 +57,10 @@ const getBranchSha = async (
 };
 
 /**
- * How long to wait between blob uploads. GitHub asks for writes one at a
- * time, at least a second apart, to stay within its secondary rate limits,
- * and a write that fails is not tried again.
+ * How long to wait after each blob upload, before the next write, which is
+ * another upload or the tree. GitHub asks for writes one at a time, at least
+ * a second apart, to stay within its secondary rate limits, and a write that
+ * fails is not tried again.
  */
 const BLOB_UPLOAD_INTERVAL_MS = 1000;
 
@@ -82,7 +83,6 @@ const treeEntriesOf = async ({
   modes,
 }: TreeEntriesOptions) => {
   const entries = [];
-  let uploaded = false;
 
   for (const [path, content] of Object.entries(files)) {
     const mode = modes[path] ?? "100644";
@@ -99,10 +99,6 @@ const treeEntriesOf = async ({
         type: "blob" as const,
       });
     } else {
-      if (uploaded) {
-        // oxlint-disable-next-line no-await-in-loop -- one write at a time
-        await sleep(BLOB_UPLOAD_INTERVAL_MS);
-      }
       // oxlint-disable-next-line no-await-in-loop -- one write at a time
       const { data: blob } = await octokit.rest.git.createBlob({
         content: Buffer.from(content).toString("base64"),
@@ -110,8 +106,9 @@ const treeEntriesOf = async ({
         owner,
         repo,
       });
-      uploaded = true;
       entries.push({ mode, path, sha: blob.sha, type: "blob" as const });
+      // oxlint-disable-next-line no-await-in-loop -- one write at a time
+      await sleep(BLOB_UPLOAD_INTERVAL_MS);
     }
   }
 
