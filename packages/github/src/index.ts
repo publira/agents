@@ -50,6 +50,8 @@ export {
   getParentIssue,
   issueLocationOf,
 } from "./issue.ts";
+export type { RepositoryLabelState } from "./label.ts";
+export { getRepositoryLabelState, removeIssueLabel } from "./label.ts";
 export {
   listAppRepositories,
   listInstallationRepositories,

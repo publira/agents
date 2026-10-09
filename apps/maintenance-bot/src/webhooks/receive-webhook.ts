@@ -22,6 +22,37 @@ export type WebhookHandler = (
 /** Handlers by event name, such as `pull_request`. */
 export type WebhookHandlers = Readonly<Record<string, WebhookHandler>>;
 
+/**
+ * Joins sets of handlers into one. The handlers that several sets have for
+ * the same event all run, each whether or not another fails; the first
+ * failure is passed on once they are done.
+ */
+export const combineWebhookHandlers = (
+  ...sets: readonly WebhookHandlers[]
+): WebhookHandlers => {
+  const byEvent = new Map<string, WebhookHandler[]>();
+  for (const handlers of sets) {
+    for (const [name, handler] of Object.entries(handlers)) {
+      byEvent.set(name, [...(byEvent.get(name) ?? []), handler]);
+    }
+  }
+
+  return Object.fromEntries(
+    [...byEvent].map(([name, handlers]): [string, WebhookHandler] => [
+      name,
+      async (delivery, context) => {
+        const results = await Promise.allSettled(
+          handlers.map((handler) => handler(delivery, context))
+        );
+        const failed = results.find((result) => result.status === "rejected");
+        if (failed !== undefined) {
+          throw failed.reason;
+        }
+      },
+    ])
+  );
+};
+
 export interface ReceiveWebhookOptions {
   /** `undefined` when the GitHub App is not configured. */
   app: GitHubApp | undefined;

@@ -5,7 +5,7 @@ import type { GitHubApp } from "@publira/github";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Log } from "../log.ts";
-import { receiveWebhook } from "./receive-webhook.ts";
+import { combineWebhookHandlers, receiveWebhook } from "./receive-webhook.ts";
 import type { WebhookHandler } from "./receive-webhook.ts";
 
 const webhookSecret = "test-secret";
@@ -156,5 +156,41 @@ describe(receiveWebhook, () => {
     );
     expect(logged()).not.toContain("Private details");
     expect(logged()).not.toContain(webhookSecret);
+  });
+});
+
+describe(combineWebhookHandlers, () => {
+  const delivery = { id: "delivery-1", name: "pull_request", payload };
+  const context = { app, log: vi.fn<Log>() };
+
+  it("runs every handler of an event", async () => {
+    const first = vi.fn<WebhookHandler>(() => Promise.resolve());
+    const second = vi.fn<WebhookHandler>(() => Promise.resolve());
+    const other = vi.fn<WebhookHandler>(() => Promise.resolve());
+    const handlers = combineWebhookHandlers(
+      { pull_request: first },
+      { issues: other, pull_request: second }
+    );
+
+    expect(Object.keys(handlers)).toStrictEqual(["pull_request", "issues"]);
+    await handlers.pull_request?.(delivery, context);
+
+    expect(first).toHaveBeenCalledWith(delivery, context);
+    expect(second).toHaveBeenCalledWith(delivery, context);
+    expect(other).not.toHaveBeenCalled();
+  });
+
+  it("runs the other handlers when one fails, then passes the failure on", async () => {
+    const failure = new Error("Not Found");
+    const second = vi.fn<WebhookHandler>(() => Promise.resolve());
+    const handlers = combineWebhookHandlers(
+      { pull_request: () => Promise.reject(failure) },
+      { pull_request: second }
+    );
+
+    await expect(handlers.pull_request?.(delivery, context)).rejects.toBe(
+      failure
+    );
+    expect(second).toHaveBeenCalledWith(delivery, context);
   });
 });
