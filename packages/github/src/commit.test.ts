@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createGitHubClient } from "./client.ts";
 import { addCommitToBranch, commitToBranch } from "./commit.ts";
-import { fakeGitHub } from "./fake-github.ts";
+import { dynamic, fakeGitHub } from "./fake-github.ts";
 
 const repository = "/repos/publira/agents";
 
@@ -124,6 +124,30 @@ describe(commitToBranch, () => {
         },
       ],
     });
+  });
+
+  it("uploads the blobs one at a time, a second apart", async () => {
+    const uploadedAt: number[] = [];
+    const github = fakeGitHub({
+      ...gitRoutes(),
+      [`POST ${repository}/git/blobs`]: dynamic(() => {
+        uploadedAt.push(Date.now());
+        return { sha: `blob-${uploadedAt.length}` };
+      }),
+    });
+
+    await commitToBranch(createGitHubClient({ fetch: github.fetch }), {
+      ...options,
+      files: {
+        "fonts/Sans.ttf": Uint8Array.of(0xfe),
+        "fonts/Serif.ttf": Uint8Array.of(0xff),
+      },
+    });
+
+    expect(uploadedAt).toHaveLength(2);
+    expect((uploadedAt[1] ?? 0) - (uploadedAt[0] ?? 0)).toBeGreaterThanOrEqual(
+      990
+    );
   });
 
   it("leaves a branch that already holds the change", async () => {
