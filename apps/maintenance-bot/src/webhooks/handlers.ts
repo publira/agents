@@ -1,4 +1,6 @@
+import { createAgentAssistedPullRequestHandlers } from "./agent-assisted-pull-requests.ts";
 import { createParentIssueHandlers } from "./parent-issues.ts";
+import { combineWebhookHandlers } from "./receive-webhook.ts";
 import type { WebhookHandlers } from "./receive-webhook.ts";
 import { createRenovateUpdateHandlers } from "./renovate-updates.ts";
 
@@ -7,7 +9,8 @@ import { createRenovateUpdateHandlers } from "./renovate-updates.ts";
  * event only once it has a handler here; the others are acknowledged and
  * dropped.
  */
-export const webhookHandlers: WebhookHandlers = {
-  ...createParentIssueHandlers(),
-  ...createRenovateUpdateHandlers(),
-};
+export const webhookHandlers: WebhookHandlers = combineWebhookHandlers(
+  createAgentAssistedPullRequestHandlers(),
+  createParentIssueHandlers(),
+  createRenovateUpdateHandlers()
+);
