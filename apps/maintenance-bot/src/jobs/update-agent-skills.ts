@@ -63,7 +63,7 @@ export interface UpdateAgentSkillsOptions {
    * Creates a token that can only read the repository, which the sandbox
    * clones a private repository with. A public one is cloned anonymously.
    */
-  createReadToken?: () => Promise<string>;
+  createReadToken: () => Promise<string>;
   /** Runs the update without pushing a branch or opening a pull request. */
   dryRun?: boolean;
 }
@@ -343,17 +343,7 @@ export const updateAgentSkills = async ({
     return { status: "no-lock-file" };
   }
 
-  let readToken: string | undefined;
-
-  if (repository.private) {
-    if (createReadToken === undefined) {
-      throw new Error(
-        `${owner}/${repo} is private, and no read token can be created`
-      );
-    }
-    readToken = await createReadToken();
-  }
-
+  const readToken = repository.private ? await createReadToken() : undefined;
   const update = await sandbox((session) =>
     updateInSandbox(session, { branch, owner, readToken, repo })
   );

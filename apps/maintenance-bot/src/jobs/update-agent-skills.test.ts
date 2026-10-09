@@ -327,7 +327,12 @@ const fakeGitHub = ({
   };
 };
 
-const location = { owner: "publira", repo: "publira" };
+const location = {
+  // A public repository is cloned without a token.
+  createReadToken: () => Promise.reject(new Error("No token for a public one")),
+  owner: "publira",
+  repo: "publira",
+};
 
 describe(updateAgentSkills, () => {
   let root: string;
@@ -672,17 +677,18 @@ describe(updateAgentSkills, () => {
     expect(sandbox.commands[0]?.args?.[0]).toBe("clone");
   });
 
-  it("refuses a private repository it cannot get a read token for", async () => {
+  it("starts no sandbox when the read token cannot be created", async () => {
     const github = fakeGitHub({ private: true });
     const sandbox = localSandbox({ origin: fixture.origin, root });
 
     await expect(
       updateAgentSkills({
         ...location,
+        createReadToken: () => Promise.reject(new Error("Bad credentials")),
         octokit: github.octokit,
         sandbox: sandbox.runner,
       })
-    ).rejects.toThrow("publira/publira is private");
+    ).rejects.toThrow("Bad credentials");
     expect(sandbox.started()).toBe(0);
   });
 });

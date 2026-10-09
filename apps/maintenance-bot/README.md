@@ -79,12 +79,6 @@ Renovate's devcontainer manager bumps a Feature's reference in `devcontainer.jso
 
 The bot leaves the pull request alone, and logs why, when a Feature was added or removed rather than bumped, its dependencies changed, its registry cannot be read, or the lock file is not as the CLI writes it. Renovate may discard the commit when it rewrites the branch, which the organization's preset lets it do, and the next push brings it back. Approval accepts the bot's signed commit on top of Renovate's, as long as it changes only the lock files beside the configurations the pull request changes.
 
-### Closing completed issues
-
-The bot closes an issue as completed once it has at least one sub-issue and all of them are closed, whatever their reason, and comments that it did so. It decides from the sub-issue structure alone, not from labels. It evaluates the parent when a sub-issue is closed and when a sub-issue is removed from it. The bot's own close of a parent is delivered as an event too, so the parent's parent is evaluated in turn.
-
-A sub-issue can live in another repository than its parent. The bot closes a parent only in a repository the App is installed on. It leaves an issue that is already closed as it is, so one reopened by hand stays open until a sub-issue is closed or removed again. The exception is an issue the bot closed itself: if its comment is missing, such as after posting it failed, the next evaluation of the issue posts it.
-
 ### Agent skills updates
 
 Every Monday at 00:00 UTC the bot refreshes the agent skills vendored in each repository it is installed on whose default branch has a `skills-lock.json` at its root. A repository opts in by committing that file, which `npx skills add` writes.
@@ -96,3 +90,9 @@ The bot commits only the changes under `.agents/skills/`, `.claude/skills/`, and
 When the update changes nothing, the bot writes nothing. While the open pull request holds the same skill files, it leaves the branch as it is, even once the default branch moved on; when the skills changed upstream again, it moves the branch to a new commit on the current default branch. When the clone or the update fails, it leaves the repository alone and logs why.
 
 The schedule runs in a Vercel Function, which the project allows 300 seconds by default, and updates the repositories at the same time. Each sandbox lives at most 240 seconds, its clone at most 60, and the update at most 120; a shallow clone and an update of publira/publira took about 30 seconds together. Vercel Sandbox itself allows a sandbox up to 24 hours on the team's plan. On Vercel the sandbox authenticates with the project's OIDC token, which needs no setting.
+
+### Closing completed issues
+
+The bot closes an issue as completed once it has at least one sub-issue and all of them are closed, whatever their reason, and comments that it did so. It decides from the sub-issue structure alone, not from labels. It evaluates the parent when a sub-issue is closed and when a sub-issue is removed from it. The bot's own close of a parent is delivered as an event too, so the parent's parent is evaluated in turn.
+
+A sub-issue can live in another repository than its parent. The bot closes a parent only in a repository the App is installed on. It leaves an issue that is already closed as it is, so one reopened by hand stays open until a sub-issue is closed or removed again. The exception is an issue the bot closed itself: if its comment is missing, such as after posting it failed, the next evaluation of the issue posts it.

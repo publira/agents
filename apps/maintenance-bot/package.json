@@ -17,8 +17,7 @@
     "start": "eve start",
     "sync-devcontainer-lock-file": "node --env-file-if-exists=.env.local src/cli/sync-devcontainer-lock-file.ts",
     "test": "vitest run",
-    "typecheck": "tsc",
-    "update-agent-skills": "node --env-file-if-exists=.env.local src/cli/update-agent-skills.ts"
+    "typecheck": "tsc"
   },
   "dependencies": {
     "@publira/devcontainer": "workspace:*",
