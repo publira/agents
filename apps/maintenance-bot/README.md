@@ -16,12 +16,13 @@ The bot acts on repositories as a GitHub App, installed on the repositories it m
 - **Repository permissions**:
   - Metadata: read. Required by every App. Also tells whether the reviewer of a precedent can write to its repository, which is what makes them a maintainer: a review's author association reads `CONTRIBUTOR` to the App for a member whose organization membership is private.
   - Contents: read and write. Reads files, creates the branches and commits of maintenance pull requests, commits the synced Dev Container lock files to Renovate pull requests, and merges the Renovate pull requests the bot auto-merges.
-  - Pull requests: read and write. Opens pull requests, submits reviews, and enables auto-merge or queues a pull request.
+  - Pull requests: read and write. Opens pull requests, submits reviews, enables auto-merge or queues a pull request, and adds or removes the `ai-assisted` label.
   - Issues: read and write. Reads an issue's parent and sub-issues, closes an issue whose sub-issues are all closed, and comments on it.
   - Checks: read, and Commit statuses: read. Tell whether a pull request's CI passed.
 - **Organization and account permissions**: none.
 - **Events**: only those the bot handles; see `src/webhooks/handlers.ts`. GitHub sends installation events regardless. They are now:
   - Issues and Sub-issues: close an issue as completed when all of its sub-issues are closed.
+  - Pull request: label a pull request `ai-assisted` when its commits disclose a coding agent.
   - Check suite, Pull request, and Status: commit the regenerated Dev Container lock file to a Renovate pull request that bumps a Feature, approve a Renovate pull request when a maintainer approved and merged the same update in another Publira repository, and auto-merge it when that is on.
 - **Where can this App be installed**: only on this account. Install it on selected repositories, not all of them.
 
@@ -50,7 +51,7 @@ The bot acts only on the repositories the App is installed on. To start on a new
 
 Every write is idempotent. A job checks what is already in place before it writes, so a webhook delivered twice, a redelivery, or the next scheduled run changes nothing that is already done. The requests to GitHub and the npm registry time out, and the reads among them are tried again after a server error, a rate limit, or a failed connection; writes are not, since a failed write may still have been applied. A job that still cannot tell the state of a repository, its CI, or a pull request does nothing, and its next run tries again.
 
-The model is asked only to remove expired `minimumReleaseAgeExclude` entries whose comments the fixed rules cannot sort out. It sees only that block of `pnpm-workspace.yaml`, and it is not asked when no entry has expired. No model takes part in approving, merging, syncing lock files, updating agent skills, or closing issues. The agent uses no sandbox: it has no shell or file tools, and `agent/sandbox.ts` keeps eve from creating a Vercel Sandbox. Only the agent skills update runs in one, of its own, because it runs a third-party command; see below.
+The model is asked only to remove expired `minimumReleaseAgeExclude` entries whose comments the fixed rules cannot sort out. It sees only that block of `pnpm-workspace.yaml`, and it is not asked when no entry has expired. No model takes part in approving, merging, syncing lock files, updating agent skills, closing issues, or labelling pull requests. The agent uses no sandbox: it has no shell or file tools, and `agent/sandbox.ts` keeps eve from creating a Vercel Sandbox. Only the agent skills update runs in one, of its own, because it runs a third-party command; see below.
 
 ### Logs
 
@@ -59,6 +60,7 @@ The bot writes one JSON object per line to the Vercel project's runtime logs, wi
 - `approve-equivalent-renovate-update`: the `status`; for a skipped pull request, the failed `condition` and its `detail`; for an approval, the `precedent` pull request, the maintainer whose approval of it counts (`precedentApprovedBy`), and the `review` with `reviewCreated`. `modelInvoked` is always `false`.
 - `auto-merge-renovate-update`: the decision (`autoMerge`), its reason (`autoMergeReason`), the `mergeMethod`, and what it took back (`autoMergeWithdrew`).
 - `close-completed-parent-issue`: the parent `issue` and the closed or removed `subIssue` that led to it, the `status`, the `reason` an issue was left open, the number of `subIssues`, and the `comment` with `commentCreated`. `modelInvoked` is always `false`.
+- `label-agent-assisted-pull-request`: the `status`, the number of `commits` it read, and the `reason` it left the label as it is. `modelInvoked` is always `false`.
 - `sync-devcontainer-lock-file`: the `status`, the `headSha` it read, the `lockFiles` it compared or committed, the `reason` it left the pull request alone, the `commit`, and whether approval and auto-merge wait for the commit's push (`evaluationDeferred`). `modelInvoked` is always `false`.
 - `remove-expired-release-age-exclusions`: the `status`, the `expired` entries, whether the rules or a model chose the lines (`editedBy`), whether a model was asked in this run (`modelInvoked`, with the `model`), and the `pullRequest` with `pullRequestCreated`.
 - `update-agent-skills`: the `status`, the default branch's commit the update ran on (`baseSha`), the `skills` it added, updated, or removed, the `paths` it commits and the `ignoredPaths` it leaves out, whether it committed (`committed`), and the `pullRequest` with `pullRequestCreated`. When the sandbox could not clone the repository or update its skills, the `step`, the `exitCode`, and the end of the command's `output`. `modelInvoked` is always `false`.
@@ -96,3 +98,7 @@ The schedule runs in a Vercel Function, which the project allows 300 seconds by 
 The bot closes an issue as completed once it has at least one sub-issue and all of them are closed, whatever their reason, and comments that it did so. It decides from the sub-issue structure alone, not from labels. It evaluates the parent when a sub-issue is closed and when a sub-issue is removed from it. The bot's own close of a parent is delivered as an event too, so the parent's parent is evaluated in turn.
 
 A sub-issue can live in another repository than its parent. The bot closes a parent only in a repository the App is installed on. It leaves an issue that is already closed as it is, so one reopened by hand stays open until a sub-issue is closed or removed again. The exception is an issue the bot closed itself: if its comment is missing, such as after posting it failed, the next evaluation of the issue posts it.
+
+### Labelling agent-assisted pull requests
+
+The bot gives a pull request the `ai-assisted` label when any of its commits carries an `Assisted-by:` trailer, matched case-insensitively as trailer tokens are, and takes the label off when none does, so a force-push that drops the agent commits drops the label too. GitHub lists at most 250 commits of a pull request, so the bot keeps the label on a longer one whose listed commits have no trailer. It evaluates a pull request when it is opened, marked ready for review, or pushed to, and leaves a draft alone until it is ready. It reads the labels from the API rather than from the event, and adds the label only in a repository that defines it and has not archived it.

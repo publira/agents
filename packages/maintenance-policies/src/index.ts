@@ -5,6 +5,15 @@ export {
   SKILLS_LOCK_FILE,
 } from "./agent-skills.ts";
 export type {
+  AgentAssistanceLabelInput,
+  AgentAssistanceLabelVerdict,
+} from "./agent-assistance.ts";
+export {
+  AI_ASSISTED_LABEL,
+  disclosesAgentAssistance,
+  evaluateAgentAssistanceLabel,
+} from "./agent-assistance.ts";
+export type {
   ApprovalPolicyVerdict,
   AutoMergeInput,
   AutoMergeVerdict,
