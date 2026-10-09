@@ -2,12 +2,15 @@ import { defineSchedule } from "eve/schedules";
 
 import { getGitHubApp } from "../../src/github-app.ts";
 import { evaluateRenovateUpdatesEverywhere } from "../../src/jobs/evaluate-renovate-update.ts";
+import { SANDBOX_TIMEOUT_MS } from "../../src/jobs/regenerate-generated-output.ts";
 import { log, withFields } from "../../src/log.ts";
+import { createVercelSandboxRunner } from "../../src/sandbox-runner.ts";
 import { readSettings } from "../../src/settings.ts";
 
 // Evaluates every open Renovate pull request in the repositories the App is
-// installed on: syncs their Dev Container lock files, approves the equivalent
-// updates, and auto-merges them, as the settings allow. The webhook handlers evaluate them as they change;
+// installed on: syncs their Dev Container lock files, regenerates their
+// generated output in a Vercel Sandbox, approves the equivalent updates, and
+// auto-merges them, as the settings allow. The webhook handlers evaluate them as they change;
 // this catches up on a delivery that failed, which GitHub does not retry,
 // and takes back an auto-merge that a new head or turning auto-merge off
 // made stale. No model is involved.
@@ -30,6 +33,10 @@ export default defineSchedule({
     await evaluateRenovateUpdatesEverywhere({
       app,
       log: scheduleLog,
+      sandbox: createVercelSandboxRunner({
+        log: scheduleLog,
+        timeoutMs: SANDBOX_TIMEOUT_MS,
+      }),
       settings,
     });
   },

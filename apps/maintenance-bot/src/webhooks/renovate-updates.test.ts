@@ -7,6 +7,7 @@ import type {
   evaluateRenovateUpdatesEverywhere,
 } from "../jobs/evaluate-renovate-update.ts";
 import type { Log } from "../log.ts";
+import type { SandboxRunner } from "../sandbox-runner.ts";
 import { createRenovateUpdateHandlers } from "./renovate-updates.ts";
 
 const BOT = "publira-maintenance[bot]";
@@ -43,6 +44,9 @@ const app: GitHubApp = {
   octokit: createGitHubClient(),
 };
 
+const sandbox: SandboxRunner = () =>
+  Promise.reject(new Error("The handler does not run it itself"));
+
 const setup = ({ autoMerge = false } = {}) => {
   const evaluate = vi.fn<typeof evaluateRenovateUpdate>(() =>
     Promise.resolve()
@@ -58,6 +62,7 @@ const setup = ({ autoMerge = false } = {}) => {
     /** The pull requests evaluated one by one. */
     evaluated: () => evaluate.mock.calls.map(([options]) => options.pullNumber),
     handlers: createRenovateUpdateHandlers({
+      createSandbox: () => sandbox,
       evaluate,
       evaluateEverywhere,
       readSettings: () => ({
@@ -132,6 +137,38 @@ describe("pull_request", () => {
     });
   });
 
+  it.each(["opened", "reopened", "synchronize"])(
+    "regenerates the generated output of a pull request %s",
+    async (action) => {
+      const { context, evaluate, handlers } = setup();
+
+      await handlers.pull_request(
+        delivery("pull_request", { action, pull_request: pullRequest() }),
+        context
+      );
+
+      expect(evaluate.mock.calls[0]?.[0].regeneration).toStrictEqual({
+        createReadToken: expect.any(Function),
+        sandbox,
+      });
+    }
+  );
+
+  it.each(["edited", "ready_for_review"])(
+    "leaves the generated output of a pull request %s as it is",
+    async (action) => {
+      const { context, evaluate, evaluated, handlers } = setup();
+
+      await handlers.pull_request(
+        delivery("pull_request", { action, pull_request: pullRequest() }),
+        context
+      );
+
+      expect(evaluated()).toStrictEqual([31]);
+      expect(evaluate.mock.calls[0]?.[0].regeneration).toBeUndefined();
+    }
+  );
+
   it("evaluates the open pull requests from the branch of a merged one", async () => {
     const { context, evaluateEverywhere, evaluated, handlers } = setup();
 
@@ -184,7 +221,7 @@ describe("pull_request", () => {
 
 describe("check_suite", () => {
   it("evaluates the pull requests of a suite that passed", async () => {
-    const { context, evaluated, handlers } = setup();
+    const { context, evaluate, evaluated, handlers } = setup();
 
     await handlers.check_suite(
       delivery("check_suite", {
@@ -195,6 +232,7 @@ describe("check_suite", () => {
     );
 
     expect(evaluated()).toStrictEqual([31]);
+    expect(evaluate.mock.calls[0]?.[0].regeneration).toBeUndefined();
   });
 
   it.each([

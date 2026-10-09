@@ -16,19 +16,18 @@ import {
 } from "@publira/maintenance-policies";
 import type { SkillChange } from "@publira/maintenance-policies";
 
-import {
-  parseCatFileBatch,
-  parseRawDiff,
-  parseStagedFiles,
-} from "../git-output.ts";
+import { parseStagedFiles } from "../git-output.ts";
 import type { GitFile, GitFileChange } from "../git-output.ts";
 import { loggableFailure, withFields } from "../log.ts";
 import type { Log, LogFields } from "../log.ts";
-import type {
-  Sandbox,
-  SandboxCommand,
-  SandboxRunner,
-} from "../sandbox-runner.ts";
+import {
+  git,
+  readBlobs,
+  readTokenOptions,
+  stageChanges,
+  tail,
+} from "../sandbox-git.ts";
+import type { Sandbox, SandboxRunner } from "../sandbox-runner.ts";
 
 // renovate: datasource=npm depName=skills
 export const SKILLS_VERSION = "1.7.1";
@@ -49,10 +48,6 @@ export const SANDBOX_TIMEOUT_MS = 240_000;
 
 const CLONE_TIMEOUT_MS = 60_000;
 const UPDATE_TIMEOUT_MS = 120_000;
-const GIT_TIMEOUT_MS = 30_000;
-
-// How much of a failed command's output a result keeps, from its end.
-const OUTPUT_LIMIT = 2000;
 
 export interface UpdateAgentSkillsOptions {
   octokit: Octokit;
@@ -97,26 +92,6 @@ export type UpdateAgentSkillsResult =
       pullRequest: { number: number; url: string; created: boolean };
     } & SkillsUpdatePlan);
 
-const tail = (output: string) =>
-  output.length > OUTPUT_LIMIT ? output.slice(-OUTPUT_LIMIT) : output;
-
-const run = async (sandbox: Sandbox, command: SandboxCommand) => {
-  const result = await sandbox.run(command);
-  if (result.exitCode !== 0) {
-    throw new Error(
-      `${[command.cmd, ...(command.args ?? [])].join(" ")} exited with ${result.exitCode}: ${tail(result.stderr)}`
-    );
-  }
-  return result.stdout;
-};
-
-const git = (sandbox: Sandbox, ...args: string[]) =>
-  run(sandbox, {
-    args: ["-C", WORKTREE, ...args],
-    cmd: "git",
-    timeoutMs: GIT_TIMEOUT_MS,
-  });
-
 interface SandboxUpdateRequest {
   owner: string;
   repo: string;
@@ -139,23 +114,15 @@ type SandboxUpdateResult =
 /**
  * Clones the branch, updates its skills, and reads back what changed. The
  * sandbox gets no credential but the read token, and that only for the
- * clone: it is passed as a header on the command line, so it is not stored
- * in the clone's configuration, where the update could read it.
+ * clone, which does not store it where the update could read it.
  */
 const updateInSandbox = async (
   sandbox: Sandbox,
   { owner, repo, branch, readToken }: SandboxUpdateRequest
 ): Promise<SandboxUpdateResult> => {
-  const authorization =
-    readToken === undefined
-      ? []
-      : [
-          "-c",
-          `http.extraHeader=Authorization: Basic ${Buffer.from(`x-access-token:${readToken}`).toString("base64")}`,
-        ];
   const clone = await sandbox.run({
     args: [
-      ...authorization,
+      ...readTokenOptions(readToken),
       "clone",
       "--depth=1",
       "--single-branch",
@@ -178,7 +145,7 @@ const updateInSandbox = async (
     };
   }
 
-  const head = await git(sandbox, "rev-parse", "HEAD");
+  const head = await git(sandbox, WORKTREE, "rev-parse", "HEAD");
   const baseSha = head.trim();
   const update = await sandbox.run({
     args: ["-y", `skills@${SKILLS_VERSION}`, "update", "-p", "-y"],
@@ -197,23 +164,9 @@ const updateInSandbox = async (
     };
   }
 
-  // Staging every change lets Git report modes and blobs, symbolic links
-  // included, and compare the files without reading them.
-  await git(sandbox, "add", "--all");
-  const changes = parseRawDiff(
-    await git(
-      sandbox,
-      "diff",
-      "--cached",
-      "--raw",
-      "-z",
-      "--no-renames",
-      "--no-abbrev",
-      "HEAD"
-    )
-  );
+  const changes = await stageChanges(sandbox, WORKTREE);
   const files = parseStagedFiles(
-    await git(sandbox, "ls-files", "--stage", "-z")
+    await git(sandbox, WORKTREE, "ls-files", "--stage", "-z")
   );
   const wanted = [
     ...new Set(
@@ -228,26 +181,7 @@ const updateInSandbox = async (
         ])
     ),
   ];
-  // The output of a command arrives as text, so binary content crosses
-  // over in Base64.
-  const blobs =
-    wanted.length === 0
-      ? new Map<string, Buffer>()
-      : parseCatFileBatch(
-          Buffer.from(
-            await run(sandbox, {
-              args: [
-                "-c",
-                `printf '%s\\n' "$@" | git -C ${WORKTREE} cat-file --batch | base64 -w 0`,
-                "cat-file",
-                ...wanted,
-              ],
-              cmd: "bash",
-              timeoutMs: GIT_TIMEOUT_MS,
-            }),
-            "base64"
-          )
-        );
+  const blobs = await readBlobs(sandbox, WORKTREE, wanted);
 
   return { baseSha, blobs, changes, files, status: "updated" };
 };

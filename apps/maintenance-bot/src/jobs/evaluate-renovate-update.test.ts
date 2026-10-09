@@ -1,15 +1,23 @@
+import { setTimeout as sleep } from "node:timers/promises";
+
 import { createGitHubClient } from "@publira/github";
 import type { GitHubApp } from "@publira/github";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Log } from "../log.ts";
+import type { SandboxRunner } from "../sandbox-runner.ts";
 import type { approveEquivalentRenovateUpdate } from "./approve-equivalent-renovate-update.ts";
 import type { autoMergeRenovateUpdate } from "./auto-merge-renovate-update.ts";
 import {
   evaluateRenovateUpdate,
   evaluateRenovateUpdatesEverywhere,
+  SWEEP_REGENERATION_CONCURRENCY,
 } from "./evaluate-renovate-update.ts";
-import type { RenovateUpdateSettings } from "./evaluate-renovate-update.ts";
+import type {
+  Regeneration,
+  RenovateUpdateSettings,
+} from "./evaluate-renovate-update.ts";
+import type { regenerateGeneratedOutput } from "./regenerate-generated-output.ts";
 import type { syncDevContainerLockFile } from "./sync-devcontainer-lock-file.ts";
 
 const BOT = "publira-maintenance[bot]";
@@ -32,12 +40,23 @@ const setup = ({
       reason: "the pull request changes no Dev Container configuration",
       status: "skipped" as const,
     }),
+  regeneration = () =>
+    Promise.resolve({
+      headSha: HEAD,
+      reason: "the base branch has no .github/maintenance-bot/regenerate.yml",
+      status: "skipped" as const,
+    }),
+  sandbox,
 }: {
   approval?: typeof approveEquivalentRenovateUpdate;
   merge?: typeof autoMergeRenovateUpdate;
   sync?: typeof syncDevContainerLockFile;
+  regeneration?: typeof regenerateGeneratedOutput;
+  /** Lets the evaluation regenerate. */
+  sandbox?: Regeneration;
 } = {}) => {
   const syncLockFile = vi.fn<typeof syncDevContainerLockFile>(sync);
+  const regenerate = vi.fn<typeof regenerateGeneratedOutput>(regeneration);
   const approve = vi.fn<typeof approveEquivalentRenovateUpdate>(approval);
   const autoMerge = vi.fn<typeof autoMergeRenovateUpdate>(merge);
   const log = vi.fn<Log>();
@@ -46,13 +65,15 @@ const setup = ({
     approve,
     autoMerge,
     log,
+    regenerate,
     run: (settings: Partial<RenovateUpdateSettings> = {}) =>
       evaluateRenovateUpdate({
-        jobs: { approve, autoMerge, syncLockFile },
+        jobs: { approve, autoMerge, regenerate, syncLockFile },
         log,
         octokit: createGitHubClient(),
         owner: "publira",
         pullNumber: 31,
+        regeneration: sandbox,
         repo: "agents",
         reviewer: BOT,
         settings: {
@@ -63,6 +84,11 @@ const setup = ({
       }),
     syncLockFile,
   };
+};
+
+const regeneration: Regeneration = {
+  createReadToken: () => Promise.resolve("read-token"),
+  sandbox: () => Promise.reject(new Error("The job is replaced")),
 };
 
 describe(evaluateRenovateUpdate, () => {
@@ -142,6 +168,141 @@ describe(evaluateRenovateUpdate, () => {
     );
     expect(approve).toHaveBeenCalledOnce();
     expect(autoMerge).toHaveBeenCalledOnce();
+  });
+
+  it("leaves the generated output alone without a sandbox", async () => {
+    const { approve, regenerate, run } = setup();
+
+    await run();
+
+    expect(regenerate).not.toHaveBeenCalled();
+    expect(approve).toHaveBeenCalledOnce();
+  });
+
+  it("regenerates the generated output before it approves", async () => {
+    const { approve, log, regenerate, run } = setup({ sandbox: regeneration });
+
+    await run({ dryRun: true });
+
+    expect(regenerate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ...regeneration,
+        botLogin: BOT,
+        dryRun: true,
+        pullNumber: 31,
+      })
+    );
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Generated output regeneration evaluated",
+      expect.objectContaining({
+        evaluationDeferred: false,
+        job: "regenerate-generated-output",
+        modelInvoked: false,
+        status: "skipped",
+      })
+    );
+    expect(approve).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    {
+      commitSha: "regenerated",
+      headSha: HEAD,
+      ignoredPaths: [],
+      paths: ["gen/api.pb.go"],
+      status: "committed" as const,
+    },
+    {
+      headSha: HEAD,
+      ignoredPaths: [],
+      paths: ["gen/api.pb.go"],
+      status: "would-commit" as const,
+    },
+    {
+      headSha: HEAD,
+      ignoredPaths: [],
+      paths: ["gen/api.pb.go"],
+      status: "head-moved" as const,
+    },
+  ])("leaves a head the regeneration $status to the push", async (result) => {
+    const { approve, autoMerge, log, run } = setup({
+      regeneration: () => Promise.resolve(result),
+      sandbox: regeneration,
+    });
+
+    await run();
+
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Generated output regeneration evaluated",
+      expect.objectContaining({
+        evaluationDeferred: true,
+        paths: ["gen/api.pb.go"],
+        status: result.status,
+      })
+    );
+    expect(approve).not.toHaveBeenCalled();
+    expect(autoMerge).not.toHaveBeenCalled();
+  });
+
+  it("does not regenerate a head the lock file sync commits to", async () => {
+    const { regenerate, run } = setup({
+      sandbox: regeneration,
+      sync: () =>
+        Promise.resolve({
+          headSha: HEAD,
+          lockFiles: [".devcontainer/devcontainer-lock.json"],
+          status: "head-moved" as const,
+        }),
+    });
+
+    await run();
+
+    expect(regenerate).not.toHaveBeenCalled();
+  });
+
+  it("warns of a failed regeneration and still evaluates", async () => {
+    const { approve, log, run } = setup({
+      regeneration: () =>
+        Promise.resolve({
+          exitCode: 1,
+          headSha: HEAD,
+          output: "buf: plugin not found",
+          status: "failed" as const,
+          step: "command" as const,
+        }),
+      sandbox: regeneration,
+    });
+
+    await run();
+
+    expect(log).toHaveBeenCalledWith(
+      "warn",
+      "Generated output regeneration evaluated",
+      expect.objectContaining({
+        evaluationDeferred: false,
+        output: "buf: plugin not found",
+        step: "command",
+      })
+    );
+    expect(approve).toHaveBeenCalledOnce();
+  });
+
+  it("logs a regeneration that threw and still evaluates", async () => {
+    const { approve, log, run } = setup({
+      regeneration: () => Promise.reject(new Error("Sandbox quota exceeded")),
+      sandbox: regeneration,
+    });
+
+    await run();
+
+    expect(log).toHaveBeenCalledWith(
+      "error",
+      "Generated output regeneration failed",
+      expect.objectContaining({ error: "Sandbox quota exceeded" })
+    );
+    expect(approve).toHaveBeenCalledOnce();
   });
 
   it("approves, then decides on auto-merge as configured", async () => {
@@ -305,61 +466,116 @@ describe(evaluateRenovateUpdate, () => {
   });
 });
 
-describe(evaluateRenovateUpdatesEverywhere, () => {
-  it("evaluates the open Renovate pull requests from the branch", async () => {
-    const requests: string[] = [];
-    const octokit = createGitHubClient({
+const sandbox: SandboxRunner = () =>
+  Promise.reject(new Error("The evaluation is replaced"));
+
+// An App installed on publira/agents, whose open pull requests are `pulls`.
+const fakeApp = (pulls: readonly { number: number; user: object }[]) => {
+  const requests: string[] = [];
+  const octokit = createGitHubClient({
+    fetch: (input) => {
+      const url = new URL(String(input));
+      requests.push(`${url.pathname}${url.search}`);
+      const response = Response.json(
+        url.pathname === "/installation/repositories"
+          ? {
+              repositories: [
+                {
+                  archived: false,
+                  default_branch: "main",
+                  name: "agents",
+                  owner: { login: "publira" },
+                },
+              ],
+              total_count: 1,
+            }
+          : pulls
+      );
+      Object.defineProperty(response, "url", { value: url.href });
+      return Promise.resolve(response);
+    },
+  });
+  const app: GitHubApp = {
+    getBotLogin: () => Promise.resolve(BOT),
+    getInstallationOctokit: () => Promise.resolve(octokit),
+    getRepositoryOctokit: () => Promise.reject(new Error("unused")),
+    octokit: createGitHubClient({
       fetch: (input) => {
         const url = new URL(String(input));
-        requests.push(`${url.pathname}${url.search}`);
         const response = Response.json(
-          url.pathname === "/installation/repositories"
-            ? {
-                repositories: [
-                  {
-                    archived: false,
-                    default_branch: "main",
-                    name: "agents",
-                    owner: { login: "publira" },
-                  },
-                ],
-                total_count: 1,
-              }
-            : [
-                { number: 31, user: renovate },
-                { number: 32, user: maintainer },
-              ]
+          url.pathname === "/app/installations"
+            ? [{ id: 1, suspended_at: null }]
+            : { message: "Not Found" },
+          { status: url.pathname === "/app/installations" ? 200 : 404 }
         );
         Object.defineProperty(response, "url", { value: url.href });
         return Promise.resolve(response);
       },
-    });
-    const app: GitHubApp = {
-      getBotLogin: () => Promise.resolve(BOT),
-      getInstallationOctokit: () => Promise.resolve(octokit),
-      getRepositoryOctokit: () => Promise.reject(new Error("unused")),
-      octokit: createGitHubClient({
-        fetch: (input) => {
-          const url = new URL(String(input));
-          const response = Response.json(
-            url.pathname === "/app/installations"
-              ? [{ id: 1, suspended_at: null }]
-              : { message: "Not Found" },
-            { status: url.pathname === "/app/installations" ? 200 : 404 }
-          );
-          Object.defineProperty(response, "url", { value: url.href });
-          return Promise.resolve(response);
-        },
-      }),
-    };
+    }),
+  };
+  return { app, requests };
+};
+
+const settings = { dryRun: false, renovateAutoMerge: true };
+
+// Regenerates nothing but #33, which it commits to, after a moment.
+const regenerateSlowly = (state: { running: number; mostRunning: number }) =>
+  vi.fn<typeof regenerateGeneratedOutput>(async ({ pullNumber }) => {
+    state.running += 1;
+    state.mostRunning = Math.max(state.mostRunning, state.running);
+    await sleep(5);
+    state.running -= 1;
+    return pullNumber === 33
+      ? {
+          commitSha: "regenerated",
+          headSha: HEAD,
+          ignoredPaths: [],
+          paths: ["gen/api.pb.go"],
+          status: "committed" as const,
+        }
+      : {
+          headSha: HEAD,
+          reason:
+            "the pull request changes no file that calls for a regeneration",
+          status: "skipped" as const,
+        };
+  });
+
+const pullNumbers = [31, 32, 33, 34, 35, 36];
+
+const sweepWithSandbox = async () => {
+  const { app } = fakeApp([
+    ...pullNumbers.map((number) => ({ number, user: renovate })),
+    { number: 40, user: maintainer },
+  ]);
+  const state = { mostRunning: 0, running: 0 };
+  const regenerate = regenerateSlowly(state);
+  const evaluate = vi.fn<typeof evaluateRenovateUpdate>(() =>
+    Promise.resolve()
+  );
+  const log = vi.fn<Log>();
+
+  await evaluateRenovateUpdatesEverywhere({
+    app,
+    evaluate,
+    log,
+    regenerate,
+    sandbox,
+    settings,
+  });
+
+  return { evaluate, log, regenerate, state };
+};
+
+describe(evaluateRenovateUpdatesEverywhere, () => {
+  it("evaluates the open Renovate pull requests from the branch", async () => {
+    const { app, requests } = fakeApp([
+      { number: 31, user: renovate },
+      { number: 32, user: maintainer },
+    ]);
     const evaluate = vi.fn<typeof evaluateRenovateUpdate>(() =>
       Promise.resolve()
     );
-
-    const settings = {
-      dryRun: false,
-      renovateAutoMerge: true,
-    };
     const log = vi.fn<Log>();
 
     await evaluateRenovateUpdatesEverywhere({
@@ -385,5 +601,67 @@ describe(evaluateRenovateUpdatesEverywhere, () => {
     expect(requests).toContain(
       "/repos/publira/agents/pulls?head=publira%3Arenovate%2Fturbo-monorepo&per_page=100&state=open"
     );
+  });
+
+  it("leaves the generated output alone without a sandbox", async () => {
+    const { app } = fakeApp([{ number: 31, user: renovate }]);
+    const evaluate = vi.fn<typeof evaluateRenovateUpdate>(() =>
+      Promise.resolve()
+    );
+    const regenerate = vi.fn<typeof regenerateGeneratedOutput>();
+
+    await evaluateRenovateUpdatesEverywhere({
+      app,
+      evaluate,
+      log: vi.fn<Log>(),
+      regenerate,
+      settings,
+    });
+
+    expect(regenerate).not.toHaveBeenCalled();
+    expect(evaluate.mock.calls[0]?.[0].regeneration).toBeUndefined();
+  });
+
+  it("regenerates a few pull requests of a repository at a time", async () => {
+    const { regenerate, state } = await sweepWithSandbox();
+
+    expect(
+      regenerate.mock.calls.map(([options]) => options.pullNumber)
+    ).toStrictEqual(pullNumbers);
+    expect(regenerate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        botLogin: BOT,
+        createReadToken: expect.any(Function),
+        dryRun: false,
+        owner: "publira",
+        repo: "agents",
+        sandbox,
+      })
+    );
+    expect(state.mostRunning).toBe(SWEEP_REGENERATION_CONCURRENCY);
+  });
+
+  it("then evaluates the pull requests the regeneration did not move", async () => {
+    const { evaluate, log } = await sweepWithSandbox();
+
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Generated output regeneration evaluated",
+      expect.objectContaining({
+        evaluationDeferred: true,
+        installation: 1,
+        job: "regenerate-generated-output",
+        pullRequest: 33,
+      })
+    );
+    // The bot's commit moved the head of #33; its push is evaluated.
+    expect(
+      evaluate.mock.calls.map(([options]) => options.pullNumber)
+    ).toStrictEqual([31, 32, 34, 35, 36]);
+    expect(
+      evaluate.mock.calls.every(
+        ([options]) => options.regeneration === undefined
+      )
+    ).toBeTruthy();
   });
 });

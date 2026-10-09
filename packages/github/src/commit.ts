@@ -218,8 +218,13 @@ export interface AddCommitToBranchOptions {
   /** The commit the branch must still point to; the change goes on top. */
   headSha: string;
   message: string;
-  /** New contents of regular files by path. */
-  files: Readonly<Record<string, string>>;
+  /**
+   * New contents by path, as text or as bytes, which need not be UTF-8;
+   * `null` deletes the file.
+   */
+  files: Readonly<Record<string, string | Uint8Array | null>>;
+  /** The mode of each file by path. A file without one is regular. */
+  modes?: Readonly<Record<string, FileMode>>;
 }
 
 export type AddCommitToBranchResult =
@@ -236,7 +241,15 @@ export type AddCommitToBranchResult =
  */
 export const addCommitToBranch = async (
   octokit: Octokit,
-  { owner, repo, branch, headSha, message, files }: AddCommitToBranchOptions
+  {
+    owner,
+    repo,
+    branch,
+    headSha,
+    message,
+    files,
+    modes = {},
+  }: AddCommitToBranchOptions
 ): Promise<AddCommitToBranchResult> => {
   const { data: headCommit } = await octokit.rest.git.getCommit({
     commit_sha: headSha,
@@ -247,12 +260,7 @@ export const addCommitToBranch = async (
     base_tree: headCommit.tree.sha,
     owner,
     repo,
-    tree: Object.entries(files).map(([path, content]) => ({
-      content,
-      mode: "100644" as const,
-      path,
-      type: "blob" as const,
-    })),
+    tree: await treeEntriesOf({ files, modes, octokit, owner, repo }),
   });
 
   if (tree.sha === headCommit.tree.sha) {

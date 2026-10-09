@@ -4,6 +4,7 @@ import {
   getPullRequestBodyEditor,
   getRepositoryPermission,
   getRequiredStatusChecks,
+  readOptionalRepositoryFile,
 } from "@publira/github";
 import type { Octokit } from "@publira/github";
 import {
@@ -14,7 +15,9 @@ import {
   formatRenovateUpdate,
   isMaintainerPermission,
   isRenovate,
+  parseRegenerationConfig,
   parseRenovateUpdates,
+  REGENERATION_CONFIG_PATH,
   RENOVATE_LOGIN,
 } from "@publira/maintenance-policies";
 import type {
@@ -37,7 +40,8 @@ import type { LogFields } from "../log.ts";
  *   Renovate preset writes, and the metadata parses.
  * - `description`: nobody but Renovate edited the body since.
  * - `commits`: every commit is Renovate's, but for the bot's own commits of
- *   the Dev Container lock files beside the configurations it changes.
+ *   the Dev Container lock files beside the configurations it changes, and
+ *   of the generated output the repository declares.
  * - `checks`: every check on the head passed, the required ones included.
  * - `precedent`: a merged pull request of the same owner made the same
  *   updates, and a maintainer approved its merged head: someone who can write
@@ -112,7 +116,7 @@ export interface ApproveEquivalentRenovateUpdateOptions {
   pullNumber: number;
   /**
    * The login the review is submitted under. A dry run needs none, but
-   * without it the bot's own lock file commits count as foreign.
+   * without it the bot's own commits count as foreign.
    */
   reviewer?: string;
   /** Evaluates the pull request without submitting a review. */
@@ -129,9 +133,18 @@ const requestFailure = z.object({ status: z.number() });
 const describeCommits = (verdict: RenovateCommitsVerdict): string => {
   switch (verdict.result) {
     case "accepted": {
-      return verdict.lockFileCommits === 0
-        ? `Renovate made all ${verdict.count} commit(s), signed by GitHub`
-        : `Renovate made ${verdict.count - verdict.lockFileCommits} commit(s), and the maintenance bot ${verdict.lockFileCommits} syncing the Dev Container lock files, all signed by GitHub`;
+      const { count, lockFileCommits, regenerationCommits } = verdict;
+      const botCommits = [
+        ...(lockFileCommits === 0
+          ? []
+          : [`${lockFileCommits} syncing the Dev Container lock files`]),
+        ...(regenerationCommits === 0
+          ? []
+          : [`${regenerationCommits} regenerating the generated output`]),
+      ];
+      return botCommits.length === 0
+        ? `Renovate made all ${count} commit(s), signed by GitHub`
+        : `Renovate made ${count - lockFileCommits - regenerationCommits} commit(s), and the maintenance bot ${botCommits.join(" and ")}, all signed by GitHub`;
     }
     case "no-commits": {
       return "the pull request has no commits";
@@ -144,7 +157,7 @@ const describeCommits = (verdict: RenovateCommitsVerdict): string => {
         author: "was not authored by Renovate",
         committer: "was committed by someone other than its author or GitHub",
         files:
-          "changes more than the Dev Container lock files beside the configurations the pull request changes",
+          "changes more than either the Dev Container lock files beside the configurations the pull request changes or the generated output the repository declares",
         unverified: "has no verified signature",
       };
       return `commit ${shortSha(verdict.sha)} ${problems[verdict.problem]}`;
@@ -598,10 +611,31 @@ const listCommitFiles = async (
     : [...files, ...(await listCommitFiles(context, sha, page + 1))];
 };
 
+// The generated output the repository declares on the base branch, which
+// the bot may commit; none without a valid declaration.
+const readGeneratedPaths = async ({
+  octokit,
+  owner,
+  repo,
+  pullRequest,
+}: PullRequestContext) => {
+  const source = await readOptionalRepositoryFile(octokit, {
+    owner,
+    path: REGENERATION_CONFIG_PATH,
+    ref: pullRequest.base.sha,
+    repo,
+  });
+  if (source === undefined) {
+    return [];
+  }
+  const parsed = parseRegenerationConfig(source);
+  return parsed.result === "valid" ? parsed.config.paths : [];
+};
+
 // The files each of the bot's commits changes, and those the pull request
-// does, which tell whether they are lock file commits. Read only when the bot
-// made a commit.
-const readLockFileScope = async (
+// does and the generated output, which tell whether the bot may have made
+// them. Read only when the bot made a commit.
+const readBotCommitScope = async (
   context: PullRequestContext,
   botShas: readonly string[]
 ) => {
@@ -609,7 +643,7 @@ const readLockFileScope = async (
   if (reviewer === undefined || botShas.length === 0) {
     return { files: new Map<string, string[]>(), scope: undefined };
   }
-  const [changed, files] = await Promise.all([
+  const [changed, files, generatedPaths] = await Promise.all([
     octokit.paginate(octokit.rest.pulls.listFiles, {
       owner,
       per_page: 100,
@@ -621,12 +655,14 @@ const readLockFileScope = async (
         async (sha) => [sha, await listCommitFiles(context, sha)] as const
       )
     ),
+    readGeneratedPaths(context),
   ]);
   return {
     files: new Map(files),
     scope: {
       botLogin: reviewer,
       changedFiles: changed.map(({ filename }) => filename),
+      generatedPaths,
     },
   };
 };
@@ -639,7 +675,7 @@ const checkCommits = async (context: PullRequestContext): Promise<Verdict> => {
     pull_number: pullNumber,
     repo,
   });
-  const { files, scope } = await readLockFileScope(
+  const { files, scope } = await readBotCommitScope(
     context,
     commits
       .filter(
