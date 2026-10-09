@@ -1,3 +1,9 @@
+export type { SkillChange } from "./agent-skills.ts";
+export {
+  diffSkillsLocks,
+  isAgentSkillsPath,
+  SKILLS_LOCK_FILE,
+} from "./agent-skills.ts";
 export type {
   ApprovalPolicyVerdict,
   AutoMergeInput,

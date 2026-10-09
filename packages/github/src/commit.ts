@@ -1,6 +1,14 @@
+import { isUtf8 } from "node:buffer";
+
 import type { Octokit } from "@octokit/rest";
 
 import { requestFailure } from "./request-error.ts";
+
+/**
+ * A file's mode in a Git tree: a regular file, an executable, or a symbolic
+ * link, whose content is the path it points to.
+ */
+export type FileMode = "100644" | "100755" | "120000";
 
 export interface CommitToBranchOptions {
   owner: string;
@@ -10,8 +18,13 @@ export interface CommitToBranchOptions {
   /** The commit the change applies to. */
   baseSha: string;
   message: string;
-  /** New contents of regular files by path; `null` deletes the file. */
-  files: Readonly<Record<string, string | null>>;
+  /**
+   * New contents by path, as text or as bytes, which need not be UTF-8;
+   * `null` deletes the file.
+   */
+  files: Readonly<Record<string, string | Uint8Array | null>>;
+  /** The mode of each file by path. A file without one is regular. */
+  modes?: Readonly<Record<string, FileMode>>;
 }
 
 export interface CommitToBranchResult {
@@ -42,6 +55,49 @@ const getBranchSha = async (
   }
 };
 
+interface TreeEntryOptions {
+  octokit: Octokit;
+  owner: string;
+  repo: string;
+  path: string;
+  content: string | Uint8Array | null;
+  mode: FileMode;
+}
+
+// A tree entry takes text inline. Other bytes go up as a blob first, which
+// costs a request per file, so only the files that are not UTF-8 do.
+const treeEntryOf = async ({
+  octokit,
+  owner,
+  repo,
+  path,
+  content,
+  mode,
+}: TreeEntryOptions) => {
+  if (content === null) {
+    return { mode, path, sha: null, type: "blob" as const };
+  }
+  if (!(content instanceof Uint8Array)) {
+    return { content, mode, path, type: "blob" as const };
+  }
+  if (isUtf8(content)) {
+    return {
+      content: Buffer.from(content).toString("utf-8"),
+      mode,
+      path,
+      type: "blob" as const,
+    };
+  }
+
+  const { data: blob } = await octokit.rest.git.createBlob({
+    content: Buffer.from(content).toString("base64"),
+    encoding: "base64",
+    owner,
+    repo,
+  });
+  return { mode, path, sha: blob.sha, type: "blob" as const };
+};
+
 /**
  * Commits a change on top of `baseSha` and points `branch` at the commit,
  * creating the branch if needed. The branch belongs to the caller: whatever
@@ -52,7 +108,15 @@ const getBranchSha = async (
  */
 export const commitToBranch = async (
   octokit: Octokit,
-  { owner, repo, branch, baseSha, message, files }: CommitToBranchOptions
+  {
+    owner,
+    repo,
+    branch,
+    baseSha,
+    message,
+    files,
+    modes = {},
+  }: CommitToBranchOptions
 ): Promise<CommitToBranchResult> => {
   const { data: baseCommit } = await octokit.rest.git.getCommit({
     commit_sha: baseSha,
@@ -65,10 +129,17 @@ export const commitToBranch = async (
     base_tree: baseCommit.tree.sha,
     owner,
     repo,
-    tree: Object.entries(files).map(([path, content]) =>
-      content === null
-        ? { mode: "100644" as const, path, sha: null, type: "blob" as const }
-        : { content, mode: "100644" as const, path, type: "blob" as const }
+    tree: await Promise.all(
+      Object.entries(files).map(([path, content]) =>
+        treeEntryOf({
+          content,
+          mode: modes[path] ?? "100644",
+          octokit,
+          owner,
+          path,
+          repo,
+        })
+      )
     ),
   });
 

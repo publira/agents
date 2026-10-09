@@ -33,6 +33,7 @@ Run these from the repository root, once the packages are built:
 - `RENOVATE_AUTO_MERGE=true pnpm --filter @publira/maintenance-bot auto-merge-renovate-update <owner/repo> <number> --dry-run`: print whether the bot would have GitHub merge that Renovate pull request, or why not. Without `RENOVATE_AUTO_MERGE=true` it decides nothing, as the deployment does. It always needs the App's credentials, because the decision rests on the App's own approval. Without `--dry-run` it enables auto-merge, queues the pull request, or merges it.
 - `pnpm --filter @publira/maintenance-bot close-completed-parent-issue <owner/repo> <number> --dry-run`: print whether the bot would close that issue because all of its sub-issues are closed, or why not, reading as `check-release-age-exclusions` does. Without `--dry-run` it closes the issue and comments on it, which needs the App's credentials.
 - `pnpm --filter @publira/maintenance-bot sync-devcontainer-lock-file <owner/repo> <number> --dry-run`: print the Dev Container lock files the bot would commit to that Renovate pull request, or why it would leave it alone, reading as `check-release-age-exclusions` does. Without `--dry-run` it commits to the pull request's branch, which needs the App's credentials.
+- `pnpm --filter @publira/maintenance-bot update-agent-skills <owner/repo> --dry-run`: run the skills update on that repository in a Vercel Sandbox and print the paths the bot would commit, reading as `check-release-age-exclusions` does. The sandbox needs `VERCEL_OIDC_TOKEN` in `.env.local`, which `vercel env pull` writes once this directory is linked to the Vercel project; the token expires after 12 hours. A private repository needs the App's credentials, since the sandbox clones it with a token of the App; `GH_TOKEN` never reaches the sandbox. Without `--dry-run` it pushes the branch and opens the pull request, which needs the App's credentials.
 - `pnpm --filter @publira/maintenance-bot list-app-repositories`: list the repositories the App in `.env.local` is installed on, which checks its credentials.
 
 ## eve
@@ -43,7 +44,9 @@ The agent's model is an AI Gateway model ID in `agent/agent.ts`. On Vercel the d
 
 The `eve` channel accepts Vercel OIDC and, under `eve dev`, localhost. Add an authenticator before exposing a route to anyone else.
 
-The bot uses no sandbox. `agent/agent.ts` sets `defaultTools: false`, which leaves the agent only its own tools, and `agent/sandbox.ts` replaces eve's default sandbox, which is a Vercel Sandbox on Vercel, with a provider that prepares nothing and refuses to start. Add a sandbox only for a feature that needs one, and say why in the pull request.
+The agent uses no sandbox. `agent/agent.ts` sets `defaultTools: false`, which leaves the agent only its own tools, and `agent/sandbox.ts` replaces eve's default sandbox, which is a Vercel Sandbox on Vercel, with a provider that prepares nothing and refuses to start. Add a sandbox only for a feature that needs one, and say why in the pull request.
+
+A job that has to run a third-party tool, such as the skills update running `npx skills update`, does so in a Vercel Sandbox it creates through `src/sandbox-runner.ts`, not in eve's: eve opens a sandbox only for an agent session, and a schedule handler that calls a job starts none. The job takes the runner as an argument, so tests run its commands on a local repository instead. The sandbox gets no credential of the App beyond a token that can only read the one repository, and only for a private repository; the job writes the commit and the pull request from the app runtime.
 
 ## Deployment
 

@@ -65,6 +65,67 @@ describe(commitToBranch, () => {
     });
   });
 
+  it("keeps the mode of each file and uploads bytes that are not UTF-8", async () => {
+    const github = fakeGitHub({
+      ...gitRoutes(),
+      [`POST ${repository}/git/blobs`]: { sha: "font-blob" },
+    });
+    const font = Uint8Array.of(0, 1, 0, 0, 0xff);
+
+    await commitToBranch(createGitHubClient({ fetch: github.fetch }), {
+      ...options,
+      files: {
+        ".agents/skills/canvas/fonts/Serif.ttf": font,
+        ".agents/skills/canvas/scripts/render.sh": new TextEncoder().encode(
+          "#!/bin/sh\n"
+        ),
+        ".claude/skills/canvas": "../../.agents/skills/canvas",
+        ".claude/skills/obsolete": null,
+      },
+      modes: {
+        ".agents/skills/canvas/scripts/render.sh": "100755",
+        ".claude/skills/canvas": "120000",
+        ".claude/skills/obsolete": "120000",
+      },
+    });
+
+    const body = (route: string) =>
+      github.requests[github.routes.indexOf(route)]?.body;
+    expect(body(`POST ${repository}/git/blobs`)).toStrictEqual({
+      content: Buffer.from(font).toString("base64"),
+      encoding: "base64",
+    });
+    expect(body(`POST ${repository}/git/trees`)).toStrictEqual({
+      base_tree: "base-tree",
+      tree: [
+        {
+          mode: "100644",
+          path: ".agents/skills/canvas/fonts/Serif.ttf",
+          sha: "font-blob",
+          type: "blob",
+        },
+        {
+          content: "#!/bin/sh\n",
+          mode: "100755",
+          path: ".agents/skills/canvas/scripts/render.sh",
+          type: "blob",
+        },
+        {
+          content: "../../.agents/skills/canvas",
+          mode: "120000",
+          path: ".claude/skills/canvas",
+          type: "blob",
+        },
+        {
+          mode: "120000",
+          path: ".claude/skills/obsolete",
+          sha: null,
+          type: "blob",
+        },
+      ],
+    });
+  });
+
   it("leaves a branch that already holds the change", async () => {
     const github = fakeGitHub(
       gitRoutes({ parents: ["base"], tree: "new-tree" })

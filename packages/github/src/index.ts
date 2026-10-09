@@ -36,6 +36,7 @@ export type {
   AddCommitToBranchResult,
   CommitToBranchOptions,
   CommitToBranchResult,
+  FileMode,
 } from "./commit.ts";
 export { addCommitToBranch, commitToBranch } from "./commit.ts";
 export type { InstallationRepository } from "./installations.ts";
@@ -71,6 +72,8 @@ export type { RepositoryPermissionLocation } from "./repository-permission.ts";
 export { getRepositoryPermission } from "./repository-permission.ts";
 export type { RequestPolicy } from "./request-policy.ts";
 export { DEFAULT_REQUEST_POLICY } from "./request-policy.ts";
+export type { RepositoryReadTokenOptions } from "./read-token.ts";
+export { createRepositoryReadToken } from "./read-token.ts";
 export { parseRepositoryName } from "./repository-name.ts";
 export type {
   EnsureReviewOptions,
@@ -78,6 +81,8 @@ export type {
   ReviewEvent,
 } from "./review.ts";
 export { ensureReview } from "./review.ts";
+export type { CommitFilesLocation, TreeFile } from "./tree.ts";
+export { listCommitFiles } from "./tree.ts";
 export type {
   VerifyWebhookDeliveryOptions,
   WebhookDelivery,
