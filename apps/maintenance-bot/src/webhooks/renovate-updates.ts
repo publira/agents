@@ -1,3 +1,4 @@
+import { createRepositoryReadToken } from "@publira/github";
 import { RENOVATE_LOGIN } from "@publira/maintenance-policies";
 import { z } from "zod";
 
@@ -5,7 +6,11 @@ import {
   evaluateRenovateUpdate,
   evaluateRenovateUpdatesEverywhere,
 } from "../jobs/evaluate-renovate-update.ts";
+import { SANDBOX_TIMEOUT_MS } from "../jobs/regenerate-generated-output.ts";
 import { withFields } from "../log.ts";
+import type { Log } from "../log.ts";
+import { createVercelSandboxRunner } from "../sandbox-runner.ts";
+import type { SandboxRunner } from "../sandbox-runner.ts";
 import { readSettings } from "../settings.ts";
 import type { WebhookHandler } from "./receive-webhook.ts";
 
@@ -59,6 +64,11 @@ const EVALUATED_ACTIONS = new Set([
   "synchronize",
 ]);
 
+// The actions that give a pull request a head whose generated output may need
+// regenerating. The other events leave the head as the push's evaluation
+// found it, and starting a sandbox for each of them would only repeat it.
+const REGENERATING_ACTIONS = new Set(["opened", "reopened", "synchronize"]);
+
 type Payload = z.infer<typeof repositoryEvent>;
 
 export interface RenovateUpdateHandlerOptions {
@@ -66,14 +76,20 @@ export interface RenovateUpdateHandlerOptions {
   evaluateEverywhere: typeof evaluateRenovateUpdatesEverywhere;
   /** Reads the settings for each delivery. */
   readSettings: typeof readSettings;
+  /** Creates the sandbox runner that regenerates generated output. */
+  createSandbox: (log: Log) => SandboxRunner;
 }
+
+const createRegenerationSandbox = (log: Log) =>
+  createVercelSandboxRunner({ log, timeoutMs: SANDBOX_TIMEOUT_MS });
 
 /**
  * The handlers that approve equivalent Renovate updates, and auto-merge them,
  * as the settings allow, by event name:
  *
  * - `pull_request` evaluates a Renovate pull request when it opens or
- *   changes. When one merges, it may be the precedent that the open pull
+ *   changes, and regenerates its generated output when it opens or is
+ *   pushed to. When one merges, it may be the precedent that the open pull
  *   requests from the same branch in other repositories wait for, so those
  *   are evaluated.
  * - `check_suite` evaluates the Renovate pull requests of a suite that passed.
@@ -89,6 +105,7 @@ export const createRenovateUpdateHandlers = ({
   evaluate: evaluateOne = evaluateRenovateUpdate,
   evaluateEverywhere = evaluateRenovateUpdatesEverywhere,
   readSettings: read = readSettings,
+  createSandbox = createRegenerationSandbox,
 }: Partial<RenovateUpdateHandlerOptions> = {}): Record<
   "check_suite" | "pull_request" | "status",
   WebhookHandler
@@ -96,7 +113,8 @@ export const createRenovateUpdateHandlers = ({
   const evaluate = async (
     payload: Payload,
     pullNumbers: readonly number[],
-    { app, log }: Parameters<WebhookHandler>[1]
+    { app, log }: Parameters<WebhookHandler>[1],
+    { regenerate = false } = {}
   ) => {
     const owner = payload.repository.owner.login;
     const repo = payload.repository.name;
@@ -108,6 +126,16 @@ export const createRenovateUpdateHandlers = ({
     const installationLog = withFields(log, {
       installation: payload.installation.id,
     });
+    const regeneration = regenerate
+      ? {
+          createReadToken: () =>
+            createRepositoryReadToken(app, {
+              installationId: payload.installation.id,
+              repo,
+            }),
+          sandbox: createSandbox(installationLog),
+        }
+      : undefined;
 
     for (const pullNumber of new Set(pullNumbers)) {
       // oxlint-disable-next-line no-await-in-loop -- one pull request at a time
@@ -116,6 +144,7 @@ export const createRenovateUpdateHandlers = ({
         octokit,
         owner,
         pullNumber,
+        regeneration,
         repo,
         reviewer,
         settings,
@@ -158,7 +187,9 @@ export const createRenovateUpdateHandlers = ({
           settings: read(context.log),
         });
       } else if (EVALUATED_ACTIONS.has(action)) {
-        await evaluate(payload, [pullRequest.number], context);
+        await evaluate(payload, [pullRequest.number], context, {
+          regenerate: REGENERATING_ACTIONS.has(action),
+        });
       }
     },
 

@@ -38,7 +38,12 @@ describe(evaluateRenovateCommits, () => {
   it("accepts commits Renovate made through GitHub's API", () => {
     expect(
       evaluateRenovateCommits([renovateCommit("a"), renovateCommit("b")], "b")
-    ).toStrictEqual({ count: 2, lockFileCommits: 0, result: "accepted" });
+    ).toStrictEqual({
+      count: 2,
+      lockFileCommits: 0,
+      regenerationCommits: 0,
+      result: "accepted",
+    });
   });
 
   it("accepts commits Renovate committed itself", () => {
@@ -47,7 +52,12 @@ describe(evaluateRenovateCommits, () => {
         [{ ...renovateCommit("a"), committerLogin: "renovate[bot]" }],
         "a"
       )
-    ).toStrictEqual({ count: 1, lockFileCommits: 0, result: "accepted" });
+    ).toStrictEqual({
+      count: 1,
+      lockFileCommits: 0,
+      regenerationCommits: 0,
+      result: "accepted",
+    });
   });
 
   it("refuses a commit someone pushed on top", () => {
@@ -132,7 +142,12 @@ describe(evaluateRenovateCommits, () => {
           "b",
           scope
         )
-      ).toStrictEqual({ count: 2, lockFileCommits: 1, result: "accepted" });
+      ).toStrictEqual({
+        count: 2,
+        lockFileCommits: 1,
+        regenerationCommits: 0,
+        result: "accepted",
+      });
     });
 
     it("accepts one committed by GitHub", () => {
@@ -148,7 +163,12 @@ describe(evaluateRenovateCommits, () => {
           "b",
           scope
         )
-      ).toStrictEqual({ count: 2, lockFileCommits: 1, result: "accepted" });
+      ).toStrictEqual({
+        count: 2,
+        lockFileCommits: 1,
+        regenerationCommits: 0,
+        result: "accepted",
+      });
     });
 
     it.each([
@@ -206,6 +226,97 @@ describe(evaluateRenovateCommits, () => {
         problem: "committer",
         result: "foreign-commit",
         sha: "b",
+      });
+    });
+
+    describe("of regenerated output", () => {
+      const generatedScope = {
+        ...scope,
+        generatedPaths: ["server/internal/proto/gen/**", "sqlc.lock"],
+      };
+
+      it("accepts a signed commit of the declared generated paths", () => {
+        expect(
+          evaluateRenovateCommits(
+            [
+              renovateCommit("a"),
+              lockFileCommit("b", [
+                "server/internal/proto/gen/api/v1/api.pb.go",
+                "sqlc.lock",
+              ]),
+            ],
+            "b",
+            generatedScope
+          )
+        ).toStrictEqual({
+          count: 2,
+          lockFileCommits: 0,
+          regenerationCommits: 1,
+          result: "accepted",
+        });
+      });
+
+      it("accepts it beside a lock file commit", () => {
+        expect(
+          evaluateRenovateCommits(
+            [
+              renovateCommit("a"),
+              lockFileCommit("b", [".devcontainer/devcontainer-lock.json"]),
+              lockFileCommit("c", ["server/internal/proto/gen/api.pb.go"]),
+            ],
+            "c",
+            generatedScope
+          )
+        ).toStrictEqual({
+          count: 3,
+          lockFileCommits: 1,
+          regenerationCommits: 1,
+          result: "accepted",
+        });
+      });
+
+      it.each([
+        ["another file", ["server/internal/proto/api.go"]],
+        [
+          "generated output and another file",
+          ["server/internal/proto/gen/api.pb.go", "buf.gen.yaml"],
+        ],
+        [
+          "generated output and a lock file",
+          [
+            "server/internal/proto/gen/api.pb.go",
+            ".devcontainer/devcontainer-lock.json",
+          ],
+        ],
+      ])("refuses one that changes %s", (_, files) => {
+        expect(
+          evaluateRenovateCommits(
+            [renovateCommit("a"), lockFileCommit("b", files)],
+            "b",
+            generatedScope
+          )
+        ).toStrictEqual({
+          problem: "files",
+          result: "foreign-commit",
+          sha: "b",
+        });
+      });
+
+      it("refuses one in a repository that declares no generated output", () => {
+        expect(
+          evaluateRenovateCommits(
+            [
+              renovateCommit("a"),
+              lockFileCommit("b", ["server/internal/proto/gen/api.pb.go"]),
+            ],
+            "b",
+            scope
+          )
+        ).toStrictEqual({
+          problem: "files",
+          result: "foreign-commit",
+          sha: "b",
+        });
       });
     });
 

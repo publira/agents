@@ -1,9 +1,13 @@
-import { listAppRepositories } from "@publira/github";
+import {
+  createRepositoryReadToken,
+  listAppRepositories,
+} from "@publira/github";
 import type { GitHubApp, Octokit } from "@publira/github";
 import { isRenovate } from "@publira/maintenance-policies";
 
 import { loggableFailure, withFields } from "../log.ts";
 import type { Log } from "../log.ts";
+import type { SandboxRunner } from "../sandbox-runner.ts";
 import type { Settings } from "../settings.ts";
 import {
   approveEquivalentRenovateUpdate,
@@ -16,6 +20,11 @@ import {
   summarizeAutoMergeResult,
 } from "./auto-merge-renovate-update.ts";
 import {
+  regenerateGeneratedOutput,
+  summarizeRegenerationResult,
+} from "./regenerate-generated-output.ts";
+import type { RegenerateGeneratedOutputResult } from "./regenerate-generated-output.ts";
+import {
   summarizeLockFileSyncResult,
   syncDevContainerLockFile,
 } from "./sync-devcontainer-lock-file.ts";
@@ -23,6 +32,7 @@ import type { SyncDevContainerLockFileResult } from "./sync-devcontainer-lock-fi
 
 export interface RenovateUpdateJobs {
   syncLockFile: typeof syncDevContainerLockFile;
+  regenerate: typeof regenerateGeneratedOutput;
   approve: typeof approveEquivalentRenovateUpdate;
   autoMerge: typeof autoMergeRenovateUpdate;
 }
@@ -33,6 +43,18 @@ export interface RenovateUpdateJobs {
 const DEFERRING_SYNC_STATUSES = new Set<
   SyncDevContainerLockFileResult["status"]
 >(["committed", "head-moved", "would-commit"]);
+
+// The same for the bot's commit of regenerated output.
+const DEFERRING_REGENERATION_STATUSES = new Set<
+  RegenerateGeneratedOutputResult["status"]
+>(["committed", "head-moved", "would-commit"]);
+
+/** What the evaluation regenerates a repository's generated output with. */
+export interface Regeneration {
+  sandbox: SandboxRunner;
+  /** Creates a token that can only read the repository; see the job. */
+  createReadToken: () => Promise<string>;
+}
 
 /** The settings that decide what the evaluation may do; see `readSettings`. */
 export type RenovateUpdateSettings = Pick<
@@ -49,6 +71,13 @@ export interface EvaluateRenovateUpdateOptions {
   reviewer: string;
   settings: RenovateUpdateSettings;
   log: Log;
+  /**
+   * Runs the repository's generators when the pull request calls for it.
+   * Without it, the evaluation leaves the output as it is: one that the head
+   * did not change, such as a check's completion, has no new output to
+   * regenerate, and the push's evaluation already did.
+   */
+  regeneration?: Regeneration;
   precedentScanCache?: PrecedentScanCache;
   /** Replaced in tests. */
   jobs?: Partial<RenovateUpdateJobs>;
@@ -56,10 +85,11 @@ export interface EvaluateRenovateUpdateOptions {
 
 /**
  * Evaluates one Renovate pull request: syncs the Dev Container lock files
- * with the Features it bumps, approves it when it is the same update a
- * maintainer approved elsewhere, then has it auto-merged when that is on and
- * allowed. A head whose lock files the bot commits to, or would in a dry run,
- * is neither approved nor merged: the commit's push is evaluated instead. The
+ * with the Features it bumps, regenerates the output of the generators it
+ * updates, approves it when it is the same update a maintainer approved
+ * elsewhere, then has it auto-merged when that is on and allowed. A head that
+ * the bot commits to, or would in a dry run, is neither approved nor merged:
+ * the commit's push is evaluated instead. The
  * auto-merge runs even when the approval did not, or auto-merge is off, to
  * take back a decision a new head made stale. In a dry run, each only logs
  * what it would do. Each logs its outcome and failure, and none throws.
@@ -72,9 +102,11 @@ export const evaluateRenovateUpdate = async ({
   reviewer,
   settings: { dryRun, renovateAutoMerge },
   log,
+  regeneration,
   precedentScanCache,
   jobs: {
     syncLockFile = syncDevContainerLockFile,
+    regenerate = regenerateGeneratedOutput,
     approve = approveEquivalentRenovateUpdate,
     autoMerge = autoMergeRenovateUpdate,
   } = {},
@@ -116,6 +148,41 @@ export const evaluateRenovateUpdate = async ({
       "Dev Container lock file sync failed",
       loggableFailure.safeParse(error).data
     );
+  }
+
+  if (regeneration !== undefined) {
+    const regenerationLog = withFields(log, {
+      ...fields,
+      job: "regenerate-generated-output",
+    });
+    try {
+      const result = await regenerate({
+        ...regeneration,
+        botLogin: reviewer,
+        dryRun,
+        octokit,
+        owner,
+        pullNumber,
+        repo,
+      });
+      const deferred = DEFERRING_REGENERATION_STATUSES.has(result.status);
+      regenerationLog(
+        result.status === "failed" ? "warn" : "info",
+        "Generated output regeneration evaluated",
+        { ...summarizeRegenerationResult(result), evaluationDeferred: deferred }
+      );
+      if (deferred) {
+        return;
+      }
+    } catch (error) {
+      // The output stays as it is; the repository's CI tells whether it is
+      // stale, and approval waits for CI.
+      regenerationLog(
+        "error",
+        "Generated output regeneration failed",
+        loggableFailure.safeParse(error).data
+      );
+    }
   }
 
   const approvalLog = withFields(log, {
@@ -169,6 +236,8 @@ export interface EvaluateRenovateUpdatesEverywhereOptions {
   settings: RenovateUpdateSettings;
   /** Only the pull requests from this branch, such as after a precedent merged. */
   headRef?: string;
+  /** Regenerates generated output in this sandbox; see `regeneration`. */
+  sandbox?: SandboxRunner;
   /** Replaced in tests. */
   evaluate?: typeof evaluateRenovateUpdate;
 }
@@ -183,6 +252,7 @@ export const evaluateRenovateUpdatesEverywhere = async ({
   log,
   settings,
   headRef,
+  sandbox,
   evaluate = evaluateRenovateUpdate,
 }: EvaluateRenovateUpdatesEverywhereOptions): Promise<void> => {
   const [repositories, reviewer] = await Promise.all([
@@ -217,6 +287,17 @@ export const evaluateRenovateUpdatesEverywhere = async ({
               owner,
               precedentScanCache,
               pullNumber: pull.number,
+              regeneration:
+                sandbox === undefined
+                  ? undefined
+                  : {
+                      createReadToken: () =>
+                        createRepositoryReadToken(app, {
+                          installationId,
+                          repo,
+                        }),
+                      sandbox,
+                    },
               repo,
               reviewer,
               settings,

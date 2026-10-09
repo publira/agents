@@ -38,11 +38,11 @@ export {
 } from "./devcontainer-lock-file.ts";
 export type {
   AccountRef,
+  BotCommitScope,
   CheckRunInput,
   CommitChecksInput,
   CommitChecksVerdict,
   CommitStatusInput,
-  LockFileCommitScope,
   MergedPullRequest,
   PullRequestCommit,
   PullRequestReview,
@@ -71,6 +71,17 @@ export {
   evaluateReleaseAgeExclusion,
   findReleaseAgeExclusionKeepReason,
 } from "./release-age-exclusion.ts";
+export type {
+  RegenerationConfig,
+  RegenerationConfigParseResult,
+} from "./regeneration.ts";
+export {
+  matchesAnyPathPattern,
+  matchesPathPattern,
+  parseRegenerationConfig,
+  readWorkflowEnv,
+  REGENERATION_CONFIG_PATH,
+} from "./regeneration.ts";
 export type {
   RenovateUpdate,
   RenovateUpdatesParseResult,

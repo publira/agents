@@ -2,6 +2,7 @@ import {
   devContainerLockFilePathOf,
   isDevContainerConfigPath,
 } from "./devcontainer-lock-file.ts";
+import { matchesAnyPathPattern } from "./regeneration.ts";
 import { RENOVATE_LOGIN } from "./renovate-update.ts";
 
 // The committer GitHub records, and signs for, on a commit made through its
@@ -29,12 +30,17 @@ export interface PullRequestCommit {
   files?: readonly string[];
 }
 
-/** What tells the bot's own lock file commits apart. */
-export interface LockFileCommitScope {
+/** What tells the bot's own commits apart. */
+export interface BotCommitScope {
   /** The maintenance bot's login, which authors them. */
   botLogin: string;
   /** The files the pull request changes. */
   changedFiles: readonly string[];
+  /**
+   * The patterns of the generated output the repository declares on the
+   * base branch, which the bot regenerates; none without a declaration.
+   */
+  generatedPaths?: readonly string[];
 }
 
 export type RenovateCommitsVerdict =
@@ -43,6 +49,8 @@ export type RenovateCommitsVerdict =
       count: number;
       /** How many of them are the bot's lock file commits. */
       lockFileCommits: number;
+      /** How many of them are the bot's commits of regenerated output. */
+      regenerationCommits: number;
     }
   | { result: "no-commits" }
   | { result: "stale"; headSha: string }
@@ -66,20 +74,47 @@ const lockFilesOf = (changedFiles: readonly string[]) =>
 const COMMITTERS = new Set([RENOVATE_LOGIN, GITHUB_COMMITTER]);
 
 /**
+ * What a commit of the bot does, by the files it changes: sync lock files,
+ * regenerate generated output, or something the bot may not do.
+ */
+const botCommitKind = (
+  files: readonly string[],
+  {
+    allowedLockFiles,
+    generatedPaths,
+  }: {
+    allowedLockFiles: ReadonlySet<string>;
+    generatedPaths: readonly string[];
+  }
+): "lock-file" | "regeneration" | undefined => {
+  if (files.length === 0) {
+    return undefined;
+  }
+  if (files.every((file) => allowedLockFiles.has(file))) {
+    return "lock-file";
+  }
+  if (files.every((file) => matchesAnyPathPattern(generatedPaths, file))) {
+    return "regeneration";
+  }
+  return undefined;
+};
+
+/**
  * Checks that every commit of a pull request is Renovate's: authored by it
  * and committed, signed, through GitHub's API. A commit someone pushed on top,
  * or one they rewrote, makes the pull request something other than the
  * update its metadata describes. The last commit must be the head the rest of
  * the evaluation looked at.
  *
- * With `lockFiles`, the bot's own commits that sync the Dev Container lock
- * files are accepted too, signed like Renovate's, as long as they change only
- * the lock files beside the configurations the pull request changes.
+ * With `bot`, the bot's own commits are accepted too, signed like Renovate's,
+ * as long as each changes only the lock files beside the Dev Container
+ * configurations the pull request changes, or only the generated output the
+ * repository declares.
  */
 export const evaluateRenovateCommits = (
   commits: readonly PullRequestCommit[],
   headSha: string,
-  lockFiles?: LockFileCommitScope
+  bot?: BotCommitScope
 ): RenovateCommitsVerdict => {
   const last = commits.at(-1);
 
@@ -90,12 +125,13 @@ export const evaluateRenovateCommits = (
     return { headSha: last.sha, result: "stale" };
   }
 
-  const allowedLockFiles = lockFilesOf(lockFiles?.changedFiles ?? []);
+  const allowedLockFiles = lockFilesOf(bot?.changedFiles ?? []);
+  const generatedPaths = bot?.generatedPaths ?? [];
   let lockFileCommits = 0;
+  let regenerationCommits = 0;
 
   for (const commit of commits) {
-    const byBot =
-      lockFiles !== undefined && commit.authorLogin === lockFiles.botLogin;
+    const byBot = bot !== undefined && commit.authorLogin === bot.botLogin;
     const foreign = (
       problem: "author" | "committer" | "files" | "unverified"
     ) => ({ problem, result: "foreign-commit" as const, sha: commit.sha });
@@ -105,7 +141,7 @@ export const evaluateRenovateCommits = (
     }
     if (
       !COMMITTERS.has(commit.committerLogin ?? "") &&
-      !(byBot && commit.committerLogin === lockFiles.botLogin)
+      !(byBot && commit.committerLogin === bot.botLogin)
     ) {
       return foreign("committer");
     }
@@ -113,18 +149,27 @@ export const evaluateRenovateCommits = (
       return foreign("unverified");
     }
     if (byBot) {
-      const files = commit.files ?? [];
-      if (
-        files.length === 0 ||
-        !files.every((file) => allowedLockFiles.has(file))
-      ) {
+      const kind = botCommitKind(commit.files ?? [], {
+        allowedLockFiles,
+        generatedPaths,
+      });
+      if (kind === undefined) {
         return foreign("files");
       }
-      lockFileCommits += 1;
+      if (kind === "lock-file") {
+        lockFileCommits += 1;
+      } else {
+        regenerationCommits += 1;
+      }
     }
   }
 
-  return { count: commits.length, lockFileCommits, result: "accepted" };
+  return {
+    count: commits.length,
+    lockFileCommits,
+    regenerationCommits,
+    result: "accepted",
+  };
 };
 
 export interface CheckRunInput {

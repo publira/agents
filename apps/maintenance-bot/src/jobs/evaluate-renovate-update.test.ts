@@ -3,13 +3,18 @@ import type { GitHubApp } from "@publira/github";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Log } from "../log.ts";
+import type { SandboxRunner } from "../sandbox-runner.ts";
 import type { approveEquivalentRenovateUpdate } from "./approve-equivalent-renovate-update.ts";
 import type { autoMergeRenovateUpdate } from "./auto-merge-renovate-update.ts";
 import {
   evaluateRenovateUpdate,
   evaluateRenovateUpdatesEverywhere,
 } from "./evaluate-renovate-update.ts";
-import type { RenovateUpdateSettings } from "./evaluate-renovate-update.ts";
+import type {
+  Regeneration,
+  RenovateUpdateSettings,
+} from "./evaluate-renovate-update.ts";
+import type { regenerateGeneratedOutput } from "./regenerate-generated-output.ts";
 import type { syncDevContainerLockFile } from "./sync-devcontainer-lock-file.ts";
 
 const BOT = "publira-maintenance[bot]";
@@ -32,12 +37,23 @@ const setup = ({
       reason: "the pull request changes no Dev Container configuration",
       status: "skipped" as const,
     }),
+  regeneration = () =>
+    Promise.resolve({
+      headSha: HEAD,
+      reason: "the base branch has no .github/maintenance-bot/regenerate.yml",
+      status: "skipped" as const,
+    }),
+  sandbox,
 }: {
   approval?: typeof approveEquivalentRenovateUpdate;
   merge?: typeof autoMergeRenovateUpdate;
   sync?: typeof syncDevContainerLockFile;
+  regeneration?: typeof regenerateGeneratedOutput;
+  /** Lets the evaluation regenerate. */
+  sandbox?: Regeneration;
 } = {}) => {
   const syncLockFile = vi.fn<typeof syncDevContainerLockFile>(sync);
+  const regenerate = vi.fn<typeof regenerateGeneratedOutput>(regeneration);
   const approve = vi.fn<typeof approveEquivalentRenovateUpdate>(approval);
   const autoMerge = vi.fn<typeof autoMergeRenovateUpdate>(merge);
   const log = vi.fn<Log>();
@@ -46,13 +62,15 @@ const setup = ({
     approve,
     autoMerge,
     log,
+    regenerate,
     run: (settings: Partial<RenovateUpdateSettings> = {}) =>
       evaluateRenovateUpdate({
-        jobs: { approve, autoMerge, syncLockFile },
+        jobs: { approve, autoMerge, regenerate, syncLockFile },
         log,
         octokit: createGitHubClient(),
         owner: "publira",
         pullNumber: 31,
+        regeneration: sandbox,
         repo: "agents",
         reviewer: BOT,
         settings: {
@@ -63,6 +81,11 @@ const setup = ({
       }),
     syncLockFile,
   };
+};
+
+const regeneration: Regeneration = {
+  createReadToken: () => Promise.resolve("read-token"),
+  sandbox: () => Promise.reject(new Error("The job is replaced")),
 };
 
 describe(evaluateRenovateUpdate, () => {
@@ -142,6 +165,141 @@ describe(evaluateRenovateUpdate, () => {
     );
     expect(approve).toHaveBeenCalledOnce();
     expect(autoMerge).toHaveBeenCalledOnce();
+  });
+
+  it("leaves the generated output alone without a sandbox", async () => {
+    const { approve, regenerate, run } = setup();
+
+    await run();
+
+    expect(regenerate).not.toHaveBeenCalled();
+    expect(approve).toHaveBeenCalledOnce();
+  });
+
+  it("regenerates the generated output before it approves", async () => {
+    const { approve, log, regenerate, run } = setup({ sandbox: regeneration });
+
+    await run({ dryRun: true });
+
+    expect(regenerate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ...regeneration,
+        botLogin: BOT,
+        dryRun: true,
+        pullNumber: 31,
+      })
+    );
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Generated output regeneration evaluated",
+      expect.objectContaining({
+        evaluationDeferred: false,
+        job: "regenerate-generated-output",
+        modelInvoked: false,
+        status: "skipped",
+      })
+    );
+    expect(approve).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    {
+      commitSha: "regenerated",
+      headSha: HEAD,
+      ignoredPaths: [],
+      paths: ["gen/api.pb.go"],
+      status: "committed" as const,
+    },
+    {
+      headSha: HEAD,
+      ignoredPaths: [],
+      paths: ["gen/api.pb.go"],
+      status: "would-commit" as const,
+    },
+    {
+      headSha: HEAD,
+      ignoredPaths: [],
+      paths: ["gen/api.pb.go"],
+      status: "head-moved" as const,
+    },
+  ])("leaves a head the regeneration $status to the push", async (result) => {
+    const { approve, autoMerge, log, run } = setup({
+      regeneration: () => Promise.resolve(result),
+      sandbox: regeneration,
+    });
+
+    await run();
+
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Generated output regeneration evaluated",
+      expect.objectContaining({
+        evaluationDeferred: true,
+        paths: ["gen/api.pb.go"],
+        status: result.status,
+      })
+    );
+    expect(approve).not.toHaveBeenCalled();
+    expect(autoMerge).not.toHaveBeenCalled();
+  });
+
+  it("does not regenerate a head the lock file sync commits to", async () => {
+    const { regenerate, run } = setup({
+      sandbox: regeneration,
+      sync: () =>
+        Promise.resolve({
+          headSha: HEAD,
+          lockFiles: [".devcontainer/devcontainer-lock.json"],
+          status: "head-moved" as const,
+        }),
+    });
+
+    await run();
+
+    expect(regenerate).not.toHaveBeenCalled();
+  });
+
+  it("warns of a failed regeneration and still evaluates", async () => {
+    const { approve, log, run } = setup({
+      regeneration: () =>
+        Promise.resolve({
+          exitCode: 1,
+          headSha: HEAD,
+          output: "buf: plugin not found",
+          status: "failed" as const,
+          step: "command" as const,
+        }),
+      sandbox: regeneration,
+    });
+
+    await run();
+
+    expect(log).toHaveBeenCalledWith(
+      "warn",
+      "Generated output regeneration evaluated",
+      expect.objectContaining({
+        evaluationDeferred: false,
+        output: "buf: plugin not found",
+        step: "command",
+      })
+    );
+    expect(approve).toHaveBeenCalledOnce();
+  });
+
+  it("logs a regeneration that threw and still evaluates", async () => {
+    const { approve, log, run } = setup({
+      regeneration: () => Promise.reject(new Error("Sandbox quota exceeded")),
+      sandbox: regeneration,
+    });
+
+    await run();
+
+    expect(log).toHaveBeenCalledWith(
+      "error",
+      "Generated output regeneration failed",
+      expect.objectContaining({ error: "Sandbox quota exceeded" })
+    );
+    expect(approve).toHaveBeenCalledOnce();
   });
 
   it("approves, then decides on auto-merge as configured", async () => {
@@ -305,6 +463,9 @@ describe(evaluateRenovateUpdate, () => {
   });
 });
 
+const sandbox: SandboxRunner = () =>
+  Promise.reject(new Error("The evaluation is replaced"));
+
 describe(evaluateRenovateUpdatesEverywhere, () => {
   it("evaluates the open Renovate pull requests from the branch", async () => {
     const requests: string[] = [];
@@ -367,6 +528,7 @@ describe(evaluateRenovateUpdatesEverywhere, () => {
       evaluate,
       headRef: "renovate/turbo-monorepo",
       log,
+      sandbox,
       settings,
     });
 
@@ -378,6 +540,7 @@ describe(evaluateRenovateUpdatesEverywhere, () => {
       owner: "publira",
       precedentScanCache: expect.any(Object),
       pullNumber: 31,
+      regeneration: { createReadToken: expect.any(Function), sandbox },
       repo: "agents",
       reviewer: BOT,
       settings,

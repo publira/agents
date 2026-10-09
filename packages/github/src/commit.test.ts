@@ -268,6 +268,45 @@ describe(addCommitToBranch, () => {
     });
   });
 
+  it("writes bytes, modes, and deletions", async () => {
+    const github = fakeGitHub({
+      ...routes,
+      [`POST ${repository}/git/blobs`]: { sha: "image-blob" },
+    });
+
+    await addCommitToBranch(createGitHubClient({ fetch: github.fetch }), {
+      ...addOptions,
+      files: {
+        "gen/image.png": Uint8Array.of(0xff),
+        "gen/obsolete.pb.go": null,
+        "gen/run.sh": "#!/bin/sh\n",
+      },
+      modes: { "gen/run.sh": "100755" },
+    });
+
+    expect(
+      github.requests[github.routes.indexOf(`POST ${repository}/git/trees`)]
+        ?.body
+    ).toStrictEqual({
+      base_tree: "head-tree",
+      tree: [
+        {
+          mode: "100644",
+          path: "gen/image.png",
+          sha: "image-blob",
+          type: "blob",
+        },
+        { mode: "100644", path: "gen/obsolete.pb.go", sha: null, type: "blob" },
+        {
+          content: "#!/bin/sh\n",
+          mode: "100755",
+          path: "gen/run.sh",
+          type: "blob",
+        },
+      ],
+    });
+  });
+
   it("leaves a branch that moved", async () => {
     const github = fakeGitHub({
       ...routes,

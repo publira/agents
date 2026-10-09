@@ -87,6 +87,8 @@ interface Scenario {
   pullFiles?: readonly string[];
   /** The files each commit changes, by SHA. */
   commitFiles?: Readonly<Record<string, readonly string[]>>;
+  /** The base branch's `.github/maintenance-bot/regenerate.yml`. */
+  regenerationConfig?: string;
 }
 
 const PERMISSION_ROUTE =
@@ -135,6 +137,7 @@ const fakeGitHub = ({
   permissionRefusal,
   pullFiles = ["package.json"],
   commitFiles = {},
+  regenerationConfig,
 }: Scenario = {}) => {
   const writes: { route: string; body: unknown }[] = [];
   const routes: string[] = [];
@@ -151,6 +154,19 @@ const fakeGitHub = ({
   // The files of the pull request and of its head, which the commit check
   // reads for the bot's commits.
   const respondWithFiles = (route: string, url: URL) => {
+    if (
+      route ===
+      "GET /repos/publira/agents/contents/.github/maintenance-bot/regenerate.yml"
+    ) {
+      return regenerationConfig === undefined ||
+        url.searchParams.get("ref") !== "base"
+        ? Response.json({ message: "Not Found" }, { status: 404 })
+        : {
+            content: Buffer.from(regenerationConfig).toString("base64"),
+            encoding: "base64",
+            type: "file",
+          };
+    }
     if (route === "GET /repos/publira/agents/pulls/31/files") {
       return pullFiles.map((filename) => ({ filename }));
     }
@@ -191,6 +207,7 @@ const fakeGitHub = ({
                 full_name: "publira/agents",
                 owner: { login: "publira", type: "Organization" },
               },
+              sha: "base",
             },
             body: renovateBody(turbo),
             draft: false,
@@ -412,8 +429,59 @@ describe(approveEquivalentRenovateUpdate, () => {
 
     expect(failedCondition(await run(github))).toStrictEqual({
       condition: "commits",
-      detail: `commit ${HEAD.slice(0, 7)} changes more than the Dev Container lock files beside the configurations the pull request changes`,
+      detail: `commit ${HEAD.slice(0, 7)} changes more than either the Dev Container lock files beside the configurations the pull request changes or the generated output the repository declares`,
       passed: false,
+    });
+  });
+
+  describe("with the bot's commit of regenerated output", () => {
+    const regenerationCommit = {
+      author: { login: BOT },
+      commit: { verification: { verified: true } },
+      committer: { login: BOT },
+      sha: HEAD,
+    };
+    const scenario = {
+      commitFiles: { [HEAD]: ["server/internal/proto/gen/api.pb.go"] },
+      commits: [renovateCommit("renovate"), regenerationCommit],
+      pullFiles: ["buf.gen.yaml", "server/internal/proto/gen/api.pb.go"],
+    };
+
+    it("accepts it within the paths the base branch declares", async () => {
+      const result = await run(
+        fakeGitHub({
+          ...scenario,
+          regenerationConfig:
+            "triggers: [buf.gen.yaml]\ncommand: task gen\npaths: [server/internal/proto/gen/**]\n",
+        })
+      );
+
+      expect(result).toMatchObject({ status: "approved" });
+      expect(
+        result.status === "approved"
+          ? result.conditions.find(({ condition }) => condition === "commits")
+          : undefined
+      ).toStrictEqual({
+        condition: "commits",
+        detail:
+          "Renovate made 1 commit(s), and the maintenance bot 1 regenerating the generated output, all signed by GitHub",
+        passed: true,
+      });
+    });
+
+    it.each([
+      ["no declaration", undefined],
+      [
+        "other paths declared",
+        "triggers: [buf.gen.yaml]\ncommand: task gen\npaths: [server/internal/db/gen/**]\n",
+      ],
+      ["an invalid declaration", "command: task gen\n"],
+    ])("refuses it with %s", async (_, regenerationConfig) => {
+      expect(
+        failedCondition(
+          await run(fakeGitHub({ ...scenario, regenerationConfig }))
+        )
+      ).toMatchObject({ condition: "commits", passed: false });
     });
   });
 

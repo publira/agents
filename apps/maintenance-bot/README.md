@@ -15,7 +15,7 @@ The bot acts on repositories as a GitHub App, installed on the repositories it m
 - **Webhook URL**: `https://maintenance-bot.publira.dev/github/webhooks`, the production domain, with a random **webhook secret**. Use the custom domain, not a `*.vercel.app` one, which someone else could claim once the project gives it up. Install the App only once the production deployment has the credentials below; until then the route answers `503`. GitHub does not retry a failed delivery, and a delivery can be redelivered by hand only within three days.
 - **Repository permissions**:
   - Metadata: read. Required by every App. Also tells whether the reviewer of a precedent can write to its repository, which is what makes them a maintainer: a review's author association reads `CONTRIBUTOR` to the App for a member whose organization membership is private.
-  - Contents: read and write. Reads files, creates the branches and commits of maintenance pull requests, commits the synced Dev Container lock files to Renovate pull requests, and merges the Renovate pull requests the bot auto-merges.
+  - Contents: read and write. Reads files, creates the branches and commits of maintenance pull requests, commits the synced Dev Container lock files and the regenerated output to Renovate pull requests, and merges the Renovate pull requests the bot auto-merges.
   - Pull requests: read and write. Opens pull requests, submits reviews, enables auto-merge or queues a pull request, and adds or removes the `ai-assisted` label.
   - Issues: read and write. Reads an issue's parent and sub-issues, closes an issue whose sub-issues are all closed, and comments on it.
   - Checks: read, and Commit statuses: read. Tell whether a pull request's CI passed.
@@ -23,7 +23,7 @@ The bot acts on repositories as a GitHub App, installed on the repositories it m
 - **Events**: only those the bot handles; see `src/webhooks/handlers.ts`. GitHub sends installation events regardless. They are now:
   - Issues and Sub-issues: close an issue as completed when all of its sub-issues are closed.
   - Pull request: label a pull request `ai-assisted` when its commits disclose a coding agent.
-  - Check suite, Pull request, and Status: commit the regenerated Dev Container lock file to a Renovate pull request that bumps a Feature, approve a Renovate pull request when a maintainer approved and merged the same update in another Publira repository, and auto-merge it when that is on.
+  - Check suite, Pull request, and Status: commit the regenerated Dev Container lock file to a Renovate pull request that bumps a Feature, commit the regenerated output to one that updates a code generator, approve a Renovate pull request when a maintainer approved and merged the same update in another Publira repository, and auto-merge it when that is on.
 - **Where can this App be installed**: only on this account. Install it on selected repositories, not all of them.
 
 The bot reads the App's credentials from three environment variables:
@@ -51,7 +51,7 @@ The bot acts only on the repositories the App is installed on. To start on a new
 
 Every write is idempotent. A job checks what is already in place before it writes, so a webhook delivered twice, a redelivery, or the next scheduled run changes nothing that is already done. The requests to GitHub and the npm registry time out, and the reads among them are tried again after a server error, a rate limit, or a failed connection; writes are not, since a failed write may still have been applied. A job that still cannot tell the state of a repository, its CI, or a pull request does nothing, and its next run tries again.
 
-The model is asked only to remove expired `minimumReleaseAgeExclude` entries whose comments the fixed rules cannot sort out. It sees only that block of `pnpm-workspace.yaml`, and it is not asked when no entry has expired. No model takes part in approving, merging, syncing lock files, updating agent skills, closing issues, or labelling pull requests. The agent uses no sandbox: it has no shell or file tools, and `agent/sandbox.ts` keeps eve from creating a Vercel Sandbox. Only the agent skills update runs in one, of its own, because it runs a third-party command; see below.
+The model is asked only to remove expired `minimumReleaseAgeExclude` entries whose comments the fixed rules cannot sort out. It sees only that block of `pnpm-workspace.yaml`, and it is not asked when no entry has expired. No model takes part in approving, merging, syncing lock files, regenerating output, updating agent skills, closing issues, or labelling pull requests. The agent uses no sandbox: it has no shell or file tools, and `agent/sandbox.ts` keeps eve from creating a Vercel Sandbox. Only the regeneration of generated output and the agent skills update run in one, of their own, because they run third-party commands; see below.
 
 ### Logs
 
@@ -62,6 +62,7 @@ The bot writes one JSON object per line to the Vercel project's runtime logs, wi
 - `close-completed-parent-issue`: the parent `issue` and the closed or removed `subIssue` that led to it, the `status`, the `reason` an issue was left open, the number of `subIssues`, and the `comment` with `commentCreated`. `modelInvoked` is always `false`.
 - `label-agent-assisted-pull-request`: the `status`, the number of `commits` it read, and the `reason` it left the label as it is. `modelInvoked` is always `false`.
 - `sync-devcontainer-lock-file`: the `status`, the `headSha` it read, the `lockFiles` it compared or committed, the `reason` it left the pull request alone, the `commit`, and whether approval and auto-merge wait for the commit's push (`evaluationDeferred`). `modelInvoked` is always `false`.
+- `regenerate-generated-output`: the `status`, the `headSha` it read, the generated `paths` it committed or would, the `ignoredPaths` the command changed outside them, the `reason` it left the pull request alone, the `commit`, and whether approval and auto-merge wait for the commit's push (`evaluationDeferred`). When the sandbox could not fetch the head, install the generators, or run the command, the `step`, the `exitCode`, and the end of the command's `output`. `modelInvoked` is always `false`.
 - `remove-expired-release-age-exclusions`: the `status`, the `expired` entries, whether the rules or a model chose the lines (`editedBy`), whether a model was asked in this run (`modelInvoked`, with the `model`), and the `pullRequest` with `pullRequestCreated`.
 - `update-agent-skills`: the `status`, the default branch's commit the update ran on (`baseSha`), the `skills` it added, updated, or removed, the `paths` it commits and the `ignoredPaths` it leaves out, whether it committed (`committed`), and the `pullRequest` with `pullRequestCreated`. When the sandbox could not clone the repository or update its skills, the `step`, the `exitCode`, and the end of the command's `output`. `modelInvoked` is always `false`.
 
@@ -80,6 +81,40 @@ When it is on, the bot enables GitHub's auto-merge for the head it approved, and
 Renovate's devcontainer manager bumps a Feature's reference in `devcontainer.json` but leaves `devcontainer-lock.json` on the old version, which the Dev Container CLI then rewrites on every build. Each time the bot evaluates a Renovate pull request for approval, whether from a webhook or the hourly sweep, it first compares each `devcontainer.json` it changes (`.devcontainer/devcontainer.json`, `.devcontainer/<name>/devcontainer.json`, or `.devcontainer.json`) with the merge base. For each Feature whose tag changed, it replaces the entry in the lock file beside it with what `devcontainer upgrade` writes: the new reference, the version the Feature's metadata declares, and the digest of its manifest, read anonymously from its registry. The other entries, their order, and the formatting stay, and the bot commits only when the file differs from the branch's, on top of the head and only as a fast-forward. A head that the bot commits to, or would in a dry run, is neither approved nor merged; the commit's push is evaluated instead.
 
 The bot leaves the pull request alone, and logs why, when a Feature was added or removed rather than bumped, its dependencies changed, its registry cannot be read, or the lock file is not as the CLI writes it. Renovate may discard the commit when it rewrites the branch, which the organization's preset lets it do, and the next push brings it back. Approval accepts the bot's signed commit on top of Renovate's, as long as it changes only the lock files beside the configurations the pull request changes.
+
+### Generated output
+
+Renovate updates a code generator's version, such as a pinned `buf` plugin or a tool version in a workflow, but cannot run the generator, so a release that changes the generated code leaves the pull request failing the repository's check of that code. The bot regenerates the output on such a pull request in a repository that declares how in `.github/maintenance-bot/regenerate.yml` on the pull request's base branch; it leaves every other repository alone. publira/publira's declaration:
+
+```yaml
+# The files whose change by Renovate calls for a regeneration.
+triggers:
+  - buf.gen.yaml
+  - .github/workflows/ci.yml
+# The workflow whose top-level `env` block, read at the pull request's head,
+# is passed to `setup` and `command`: the versions CI verifies the output with.
+workflowEnv: .github/workflows/ci.yml
+# Install the generators. `~/.local/bin` is on the PATH.
+setup:
+  - curl -fsSL --retry 5 "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_linux_amd64.tar.gz" | tar -xz -C "$HOME/.local/bin" task
+  - curl -fsSL --retry 5 "https://github.com/sqlc-dev/sqlc/releases/download/v${SQLC_VERSION}/sqlc_${SQLC_VERSION}_linux_amd64.tar.gz" | tar -xz -C "$HOME/.local/bin" sqlc
+  - curl -fsSL --retry 5 -o "$HOME/.local/bin/buf" "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-Linux-x86_64" && chmod +x "$HOME/.local/bin/buf"
+# Regenerate, at the repository's root.
+command: task gen
+# The generated output: the only paths the bot commits.
+paths:
+  - server/internal/proto/gen/**
+  - server/internal/db/gen/**
+  - packages/api-client/src/gen/**
+```
+
+A pattern is a path from the root, or a directory and everything under it with a trailing `/**`. `setup` and `workflowEnv` are optional; the paths cannot be under `.github/workflows/`, which the App cannot write. The bot reads the declaration from the base branch, so a pull request cannot widen what the bot commits, and an invalid one leaves the pull request alone with the reason in the log.
+
+The bot regenerates when Renovate opens a pull request that changes a trigger, reopens it, or pushes to it, and in the hourly sweep; a check or a status that completes leaves the head as that evaluation found it. It runs before approval, after the Dev Container lock file sync. The setup and the command run the pull request's own code, so they run in a Vercel Sandbox of its own, deleted afterwards, as Bash scripts with `CI=true` and the workflow's `env` values. The sandbox fetches the head alone: anonymously for a public repository, and for a private one with a token that can only read that repository's contents. It holds no other credential, and the bot writes the commit from the app runtime.
+
+The bot commits the changes under the generated paths, with their file modes, on top of the head and only as a fast-forward, with the subject `chore(gen): regenerate for the updated generator versions`, and logs any other path the command changed. It writes nothing when the output is current, and leaves a head that is its own regeneration commit alone without starting a sandbox. When the fetch, a setup command, or the command fails, it leaves the pull request alone and logs why; the repository's CI still rejects stale output. A head that the bot commits to, or would in a dry run, is neither approved nor merged; the commit's push is evaluated instead. Renovate may discard the commit when it rewrites the branch, and the next evaluation puts it back. Approval accepts the bot's signed commit as long as it changes only the paths the base branch declares.
+
+Each sandbox lives at most 240 seconds, its fetch at most 60, each setup command at most 120, and the command at most 120, within the 300 seconds the Vercel Function of a webhook delivery or the sweep runs. Fetching publira/publira's head, installing its three generators, and running `task gen` took about 10 seconds in Amazon Linux 2023, the Vercel Sandbox's system. The sweep evaluates a repository's pull requests one at a time, so each open pull request that calls for a regeneration adds its sandbox's time to the sweep's run.
 
 ### Agent skills updates
 

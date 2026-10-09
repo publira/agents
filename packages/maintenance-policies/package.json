@@ -17,6 +17,7 @@
     "typecheck": "tsc"
   },
   "dependencies": {
+    "yaml": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
