@@ -102,6 +102,7 @@ describe(createAgentAssistedPullRequestHandlers, () => {
       expect.objectContaining({
         error: "Forbidden",
         job: "label-agent-assisted-pull-request",
+        modelInvoked: false,
         status: 403,
       })
     );

@@ -12,8 +12,13 @@ export const disclosesAgentAssistance = (message: string): boolean =>
 export interface AgentAssistanceLabelInput {
   /** Whether the pull request is a draft, which is labelled once ready. */
   draft: boolean;
-  /** The messages of all of its commits. */
+  /** The messages of its commits, as far as GitHub lists them. */
   commitMessages: readonly string[];
+  /**
+   * How many commits it has. GitHub lists at most 250 of a pull request's
+   * commits, so the messages can fall short of this.
+   */
+  commitCount: number;
   /** The names of the labels it carries now. */
   labels: readonly string[];
   /** Whether the repository defines {@link AI_ASSISTED_LABEL}. */
@@ -35,11 +40,14 @@ const leave = (reason: string): AgentAssistanceLabelVerdict => ({
  * exactly when one of its commits has an `Assisted-by:` trailer. The trailers
  * are the only source of truth, so a pull request that loses its agent
  * commits to a force-push loses the label with them, and the label is never
- * created in a repository that does not define it.
+ * created in a repository that does not define it. The label stays on a pull
+ * request whose commits GitHub does not list in full, since a trailer may be
+ * in one it leaves out.
  */
 export const evaluateAgentAssistanceLabel = ({
   draft,
   commitMessages,
+  commitCount,
   labels,
   labelDefined,
 }: AgentAssistanceLabelInput): AgentAssistanceLabelVerdict => {
@@ -58,7 +66,11 @@ export const evaluateAgentAssistanceLabel = ({
     );
   }
   if (!assisted) {
-    return { action: "remove" };
+    return commitMessages.length < commitCount
+      ? leave(
+          `GitHub lists only ${commitMessages.length} of its ${commitCount} commits`
+        )
+      : { action: "remove" };
   }
   if (!labelDefined) {
     return leave(

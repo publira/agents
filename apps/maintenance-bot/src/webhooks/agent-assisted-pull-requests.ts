@@ -77,11 +77,10 @@ export const createAgentAssistedPullRequestHandlers = ({
         summarizeLabelAgentAssistedPullRequestResult(result)
       );
     } catch (error) {
-      jobLog(
-        "error",
-        "Agent assistance label evaluation failed",
-        loggableFailure.safeParse(error).data
-      );
+      jobLog("error", "Agent assistance label evaluation failed", {
+        ...loggableFailure.safeParse(error).data,
+        modelInvoked: false,
+      });
     }
   },
 });

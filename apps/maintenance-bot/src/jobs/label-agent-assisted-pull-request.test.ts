@@ -17,6 +17,8 @@ const UNASSISTED = "fix: handle a missing label";
 interface Scenario {
   draft?: boolean;
   messages?: readonly string[];
+  /** How many commits it has; GitHub lists at most 250. */
+  commitCount?: number;
   labels?: readonly string[];
   labelDefined?: boolean;
   /** Whether the label is still on the pull request when it is removed. */
@@ -27,6 +29,7 @@ interface Scenario {
 const fakeGitHub = ({
   draft = false,
   messages = [UNASSISTED, ASSISTED],
+  commitCount = messages.length,
   labels = [],
   labelDefined = true,
   removable = true,
@@ -51,6 +54,7 @@ const fakeGitHub = ({
       switch (route) {
         case `GET ${PULL}`: {
           return Response.json({
+            commits: commitCount,
             draft,
             labels: labels.map((name) => ({ name })),
             number: 70,
@@ -136,6 +140,23 @@ describe(labelAgentAssistedPullRequest, () => {
       reason: "the label is already gone",
       status: "left",
     });
+  });
+
+  it("keeps the label when GitHub does not list every commit", async () => {
+    const github = fakeGitHub({
+      commitCount: 300,
+      labels: ["ai-assisted"],
+      messages: [UNASSISTED],
+    });
+
+    await expect(
+      labelAgentAssistedPullRequest({ ...options, octokit: github.octokit })
+    ).resolves.toStrictEqual({
+      commits: 1,
+      reason: "GitHub lists only 1 of its 300 commits",
+      status: "left",
+    });
+    expect(github.writes).toStrictEqual([]);
   });
 
   it.each([

@@ -48,6 +48,7 @@ export const labelAgentAssistedPullRequest = async ({
     hasRepositoryLabel(octokit, { name: AI_ASSISTED_LABEL, owner, repo }),
   ]);
   const verdict = evaluateAgentAssistanceLabel({
+    commitCount: data.commits,
     commitMessages: commits.map(({ commit }) => commit.message),
     draft: data.draft === true,
     labelDefined,

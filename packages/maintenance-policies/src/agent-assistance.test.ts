@@ -32,6 +32,7 @@ describe(disclosesAgentAssistance, () => {
 
 describe(evaluateAgentAssistanceLabel, () => {
   const input = {
+    commitCount: 2,
     commitMessages: [unassisted, assisted],
     draft: false,
     labelDefined: true,
@@ -48,6 +49,7 @@ describe(evaluateAgentAssistanceLabel, () => {
     expect(
       evaluateAgentAssistanceLabel({
         ...input,
+        commitCount: 1,
         commitMessages: [unassisted],
         labels: ["dependencies", AI_ASSISTED_LABEL],
       })
@@ -65,6 +67,15 @@ describe(evaluateAgentAssistanceLabel, () => {
       "a pull request without an agent or the label",
       { commitMessages: [unassisted] },
       "no commit discloses an agent, and it is not labelled",
+    ],
+    [
+      "the label of a pull request whose commits GitHub lists in part",
+      {
+        commitCount: 300,
+        commitMessages: Array.from({ length: 250 }, () => unassisted),
+        labels: [AI_ASSISTED_LABEL],
+      },
+      "GitHub lists only 250 of its 300 commits",
     ],
     [
       "a pull request in a repository without the label",
