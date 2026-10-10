@@ -73,6 +73,7 @@ export const readLintSetup = (source: string): LintSetupVerdict => {
 
 // The files a lint fix has no reason to change, by name in any directory.
 const REFUSED_FILE_NAMES = new Set([
+  "npm-shrinkwrap.json",
   "package-lock.json",
   "package.json",
   "pnpm-lock.yaml",

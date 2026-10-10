@@ -68,6 +68,7 @@ describe(isLintFixRefusedPath, () => {
   it.each([
     "pnpm-lock.yaml",
     "package-lock.json",
+    "npm-shrinkwrap.json",
     "package.json",
     "packages/github/package.json",
     "apps/web/pnpm-lock.yaml",
