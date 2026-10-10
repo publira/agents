@@ -4,13 +4,12 @@ Conventions for the maintenance bot, on top of the repository's [AGENTS.md](../.
 
 ## Overview
 
-The maintenance bot is an eve app deployed to Vercel. It hosts GitHub-facing maintenance jobs and uses eve where agentic behavior helps, while deterministic jobs run without invoking a model. `agent/` is the eve agent (model, instructions, channels, tools); `src/jobs/` holds the deterministic jobs, and `src/cli/` runs most of them from a terminal.
+The maintenance bot is an eve app deployed to Vercel. It hosts GitHub-facing maintenance jobs and uses eve where agentic behavior helps, while deterministic jobs run without invoking a model. `agent/` is the eve agent (model, instructions, channels, tools); `src/jobs/` holds the deterministic jobs.
 
 ## Deterministic jobs and the agent
 
-A job is a plain async function in `src/jobs/`. It takes its clients (an Octokit, registry options, the current time) as arguments, so tests pass fakes and nothing in it starts an eve session or calls a model. Three things can call it:
+A job is a plain async function in `src/jobs/`. It takes its clients (an Octokit, registry options, the current time) as arguments, so tests pass fakes and nothing in it starts an eve session or calls a model. Two things can call it:
 
-- a CLI entry in `src/cli/`, exposed as a script in the app's `package.json`;
 - an eve tool in `agent/tools/`, when the model should decide when to run it;
 - an eve schedule handler (`defineSchedule` with `run`), which can call the job directly instead of sending a prompt to the agent.
 
@@ -24,31 +23,21 @@ Jobs log one JSON line per decision through `src/log.ts`. Name the `job` and bin
 
 ## Commands
 
-Run these from the repository root, once the packages are built:
+Run this from the repository root, once the packages are built:
 
 - `pnpm --filter @publira/maintenance-bot dev`: start the bot locally with `eve dev`, which opens eve's terminal UI. It needs a model connection, which eve asks for on first start; `--no-ui` starts the server alone.
-- `pnpm --filter @publira/maintenance-bot check-release-age-exclusions <owner/repo>`: run that job from the terminal without eve. It reads the repository as the GitHub App when `.env.local` holds a development App's credentials; otherwise requests are anonymous, and `GH_TOKEN` set to a token of your own raises the GitHub API rate limit.
-- `pnpm --filter @publira/maintenance-bot remove-expired-release-age-exclusions <owner/repo> --dry-run`: print the `pnpm-workspace.yaml` the cleanup job would propose, reading as `check-release-age-exclusions` does. Without `--dry-run` it pushes the branch and opens the pull request, which needs the App's credentials.
-- `pnpm --filter @publira/maintenance-bot approve-equivalent-renovate-update <owner/repo> <number> --dry-run`: print each condition the Renovate approval job checks on that pull request, and whether it would approve it. The dry run reads GitHub's GraphQL API, so it needs the App's credentials in `.env.local` or `GH_TOKEN`. Without `--dry-run` it submits the review, which needs the App's credentials.
-- `RENOVATE_AUTO_MERGE=true pnpm --filter @publira/maintenance-bot auto-merge-renovate-update <owner/repo> <number> --dry-run`: print whether the bot would have GitHub merge that Renovate pull request, or why not. Without `RENOVATE_AUTO_MERGE=true` it decides nothing, as the deployment does. It always needs the App's credentials, because the decision rests on the App's own approval. Without `--dry-run` it enables auto-merge, queues the pull request, or merges it.
-- `pnpm --filter @publira/maintenance-bot close-completed-parent-issue <owner/repo> <number> --dry-run`: print whether the bot would close that issue because all of its sub-issues are closed, or why not, reading as `check-release-age-exclusions` does. Without `--dry-run` it closes the issue and comments on it, which needs the App's credentials.
-- `pnpm --filter @publira/maintenance-bot sync-devcontainer-lock-file <owner/repo> <number> --dry-run`: print the Dev Container lock files the bot would commit to that Renovate pull request, or why it would leave it alone, reading as `check-release-age-exclusions` does. Without `--dry-run` it commits to the pull request's branch, which needs the App's credentials.
-- `pnpm --filter @publira/maintenance-bot label-agent-assisted-pull-request <owner/repo> <number> --dry-run`: print whether the bot would add the `ai-assisted` label to that pull request or take it off, or why it would leave it, reading as `check-release-age-exclusions` does. Without `--dry-run` it changes the label, which needs the App's credentials.
-- `pnpm --filter @publira/maintenance-bot list-app-repositories`: list the repositories the App in `.env.local` is installed on, which checks its credentials.
 
 ## eve
 
 eve is in preview and changes quickly. Read the docs bundled with the installed version in `node_modules/eve/docs/` (start with `README.md`) before authoring tools, channels, schedules, or deployment settings, rather than relying on memory. `pnpm exec eve info` in this directory shows what eve discovered.
 
-The agent's model is an AI Gateway model ID in `agent/agent.ts`. On Vercel the deployment reaches the gateway through the project's OIDC token; locally, `eve dev` asks for a connection. A job that needs a model for one narrow step calls it with the AI SDK outside an agent session, as `src/exclusion-editor.ts` does; keep its model ID in step with the agent's. A command-line run that reaches that step needs `AI_GATEWAY_API_KEY` in `.env.local`.
+The agent's model is an AI Gateway model ID in `agent/agent.ts`. On Vercel the deployment reaches the gateway through the project's OIDC token; locally, `eve dev` asks for a connection. A job that needs a model for one narrow step calls it with the AI SDK outside an agent session, as `src/exclusion-editor.ts` does; keep its model ID in step with the agent's.
 
 The `eve` channel accepts Vercel OIDC and, under `eve dev`, localhost. Add an authenticator before exposing a route to anyone else.
 
 The agent uses no sandbox. `agent/agent.ts` sets `defaultTools: false`, which leaves the agent only its own tools, and `agent/sandbox.ts` replaces eve's default sandbox, which is a Vercel Sandbox on Vercel, with a provider that prepares nothing and refuses to start. Add a sandbox only for a feature that needs one, and say why in the pull request.
 
 A job that has to run a third-party tool, such as the skills update running `npx skills update` or the regeneration running a repository's own generators, does so in a Vercel Sandbox it creates through `src/sandbox-runner.ts`, not in eve's: eve opens a sandbox only for an agent session, and a schedule handler or a webhook handler that calls a job starts none. The job takes the runner as an argument, so tests run its commands on a local repository instead, and reads back what changed through `src/sandbox-git.ts`. The sandbox gets no credential of the App beyond a token that can only read the one repository, and only for a private repository; the job writes the commit and the pull request from the app runtime.
-
-Neither sandboxed job has a command-line entry: starting a Vercel Sandbox needs the project's OIDC token, which a local run lacks. The deployment with `DRY_RUN=true` evaluates them instead, and the tests run their commands.
 
 ## Deployment
 
@@ -60,7 +49,7 @@ A Vercel build has eve prepare its sandbox templates, which needs the project's 
 
 The bot authenticates as the Publira GitHub App. `@publira/github` signs the App's JWT and requests installation tokens (`createGitHubApp`); `src/github-app.ts` reads its credentials from `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET`. Without them the bot still starts, its tools read public repositories anonymously, and the webhook route answers 503. The README lists the App's permissions and how to configure each environment.
 
-Do not give the deployed bot a personal access token or a `GITHUB_TOKEN` variable: it would act as a person, with that person's access, instead of as the App. `GH_TOKEN` in the CLI is for local runs only. Do not log a token, a key, the webhook secret, or a whole payload; pass the log the fields it needs one by one.
+Do not give the deployed bot a personal access token or a `GITHUB_TOKEN` variable: it would act as a person, with that person's access, instead of as the App. Do not log a token, a key, the webhook secret, or a whole payload; pass the log the fields it needs one by one.
 
 Request a new App permission only for a concrete API call that needs it, and say which in the pull request. Jobs cannot change `.github/workflows/`, which would need the Workflows permission.
 

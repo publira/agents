@@ -6,17 +6,9 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "approve-equivalent-renovate-update": "node --env-file-if-exists=.env.local src/cli/approve-equivalent-renovate-update.ts",
-    "auto-merge-renovate-update": "node --env-file-if-exists=.env.local src/cli/auto-merge-renovate-update.ts",
     "build": "eve build",
-    "check-release-age-exclusions": "node --env-file-if-exists=.env.local src/cli/check-release-age-exclusions.ts",
-    "close-completed-parent-issue": "node --env-file-if-exists=.env.local src/cli/close-completed-parent-issue.ts",
     "dev": "eve dev",
-    "label-agent-assisted-pull-request": "node --env-file-if-exists=.env.local src/cli/label-agent-assisted-pull-request.ts",
-    "list-app-repositories": "node --env-file-if-exists=.env.local src/cli/list-app-repositories.ts",
-    "remove-expired-release-age-exclusions": "node --env-file-if-exists=.env.local src/cli/remove-expired-release-age-exclusions.ts",
     "start": "eve start",
-    "sync-devcontainer-lock-file": "node --env-file-if-exists=.env.local src/cli/sync-devcontainer-lock-file.ts",
     "test": "vitest run",
     "typecheck": "tsc"
   },

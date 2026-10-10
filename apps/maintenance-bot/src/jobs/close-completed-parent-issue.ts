@@ -35,8 +35,8 @@ export interface CloseCompletedParentIssueOptions {
   repo: string;
   /** The issue to close, the parent of the sub-issues. */
   issueNumber: number;
-  /** The App's bot login, which comments. Only a dry run goes without. */
-  author: string | undefined;
+  /** The App's bot login, which comments. */
+  author: string;
   /** Decides without changing anything. */
   dryRun?: boolean;
 }
@@ -71,9 +71,7 @@ export const closeCompletedParentIssue = async ({
       : [];
   const verdict = evaluateParentIssue({
     closedByBot:
-      author !== undefined &&
-      data.closed_by?.login === author &&
-      data.state_reason === "completed",
+      data.closed_by?.login === author && data.state_reason === "completed",
     state: data.state,
     subIssues,
   });
@@ -84,11 +82,6 @@ export const closeCompletedParentIssue = async ({
   if (verdict.action === "close" && dryRun) {
     return { status: "would-close", subIssues: subIssues.length };
   }
-  // Only a bot with a login closes an issue, so a comment verdict has one.
-  if (author === undefined) {
-    throw new Error("Closing an issue needs the login that comments on it");
-  }
-
   // The comment counts from the close it explains.
   const comment = (closedAt: string | null, updatedAt: string) => ({
     author,

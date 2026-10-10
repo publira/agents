@@ -28,7 +28,7 @@ Each package builds `src/index.ts` into `dist/` with [tsdown](https://tsdown.dev
 
 tsdown emits the declarations with TypeScript 7, whose API is still experimental, so every build warns about it. The warning is expected.
 
-The maintenance bot's command-line entries run its TypeScript sources directly with Node.js type stripping, so the code stays within erasable syntax (`erasableSyntaxOnly`) and relative imports name the `.ts` file. The packages keep to the same rules.
+The code stays within erasable syntax (`erasableSyntaxOnly`), and relative imports name the `.ts` file (`allowImportingTsExtensions`); `@publira/tsconfig` sets both for every package.
 
 Each package has its own `tsconfig.json`, extending `@publira/tsconfig/base.json`, its own `tsdown.config.ts`, and its own `vitest.config.ts`. Versions that several packages share, such as `typescript`, `tsdown`, `vitest`, `zod`, and `@types/node`, live in the `catalog` of `pnpm-workspace.yaml`, and `catalogMode: strict` keeps the packages on them.
 

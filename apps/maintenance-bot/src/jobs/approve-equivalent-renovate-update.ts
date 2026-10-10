@@ -126,11 +126,8 @@ export interface ApproveEquivalentRenovateUpdateOptions {
   owner: string;
   repo: string;
   pullNumber: number;
-  /**
-   * The login the review is submitted under. A dry run needs none, but
-   * without it the bot's own commits count as foreign.
-   */
-  reviewer?: string;
+  /** The login the review is submitted under. */
+  reviewer: string;
   /** Evaluates the pull request without submitting a review. */
   dryRun?: boolean;
   /** Shares the scan for precedents with the other evaluations of a run. */
@@ -540,7 +537,7 @@ interface PullRequestContext {
   pullNumber: number;
   pullRequest: PullRequestData;
   /** The bot's login, whose lock file commits are accepted. */
-  reviewer: string | undefined;
+  reviewer: string;
   precedentScanCache: PrecedentScanCache | undefined;
 }
 
@@ -652,7 +649,7 @@ const readBotCommitScope = async (
   botShas: readonly string[]
 ) => {
   const { octokit, owner, repo, pullNumber, reviewer } = context;
-  if (reviewer === undefined || botShas.length === 0) {
+  if (botShas.length === 0) {
     return { files: new Map<string, string[]>(), scope: undefined };
   }
   const [changed, files, generatedPaths] = await Promise.all([
@@ -690,9 +687,7 @@ const checkCommits = async (context: PullRequestContext): Promise<Verdict> => {
   const { files, scope } = await readBotCommitScope(
     context,
     commits
-      .filter(
-        ({ author }) => reviewer !== undefined && author?.login === reviewer
-      )
+      .filter(({ author }) => author?.login === reviewer)
       .map(({ sha }) => sha)
   );
   const verdict = evaluateRenovateCommits(
@@ -864,7 +859,7 @@ export const approveEquivalentRenovateUpdate = async ({
   const headSha = pullRequest.head.sha;
 
   // Most deliveries for a pull request come after the bot approved it.
-  if (!dryRun && reviewer !== undefined && isRenovate(pullRequest.user)) {
+  if (!dryRun && isRenovate(pullRequest.user)) {
     const reviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
       ...location,
       per_page: 100,
@@ -908,10 +903,6 @@ export const approveEquivalentRenovateUpdate = async ({
   if (dryRun) {
     return { body, conditions, headSha, precedent, status: "would-approve" };
   }
-  if (reviewer === undefined) {
-    throw new Error("Approving a pull request needs the reviewer's login");
-  }
-
   const review = await ensureReview(octokit, {
     body,
     commitId: headSha,
