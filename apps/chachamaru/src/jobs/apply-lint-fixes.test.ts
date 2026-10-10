@@ -796,7 +796,7 @@ describe(applyLintFixes, () => {
   });
 });
 
-const MODEL = "anthropic/claude-sonnet-5.5";
+const MODEL = "anthropic/claude-haiku-5.5";
 
 // The content of src/index.ts that passes the check.
 const FIXED_SCRIPT = "export const read = () => 1;\n";
@@ -1123,7 +1123,7 @@ describe(summarizeLintFixResult, () => {
         findings: {
           checkPassed: true,
           comment: { created: true, id: 7 },
-          model: "anthropic/claude-sonnet-5.5",
+          model: "anthropic/claude-haiku-5.5",
           paths: ["README.md", "src/index.ts"],
           reason: "the model added comments that turn findings off",
           refusedPaths: [],
@@ -1140,7 +1140,7 @@ describe(summarizeLintFixResult, () => {
       comment: 7,
       commentCreated: true,
       commit: "fixed",
-      model: "anthropic/claude-sonnet-5.5",
+      model: "anthropic/claude-haiku-5.5",
       modelCheckPassed: true,
       modelInvoked: true,
       modelPaths: ["README.md", "src/index.ts"],

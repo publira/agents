@@ -6,11 +6,7 @@ import type {
   ExclusionEditor,
   ExclusionEditRequest,
 } from "./jobs/remove-expired-release-age-exclusions.ts";
-
-// The agent's model, as agent/agent.ts selects it. On Vercel, AI Gateway
-// authenticates the deployment through its OIDC token; elsewhere it needs
-// AI_GATEWAY_API_KEY.
-const DEFAULT_MODEL = "anthropic/claude-sonnet-5.5";
+import { AGENT_MODEL } from "./models.ts";
 
 // How long the call may take, its retries included. A cleanup that runs out
 // of time fails, and the next day's run tries it again.
@@ -52,7 +48,7 @@ const outputSchema = z.object({
  * only the `minimumReleaseAgeExclude` block, not the rest of the file.
  */
 export const createModelExclusionEditor =
-  (model: LanguageModel = DEFAULT_MODEL): ExclusionEditor =>
+  (model: LanguageModel = AGENT_MODEL): ExclusionEditor =>
   async (request) => {
     const { output, response } = await generateText({
       abortSignal: AbortSignal.timeout(TIMEOUT_MS),

@@ -5,12 +5,8 @@ import type { LanguageModel } from "ai";
 import { z } from "zod";
 
 import { codeBlock } from "./code-block.ts";
+import { LINT_FINDINGS_MODEL } from "./models.ts";
 import type { Sandbox } from "./sandbox-runner.ts";
-
-// The agent's model, as agent/agent.ts selects it. On Vercel, AI Gateway
-// authenticates the deployment through its OIDC token; elsewhere it needs
-// AI_GATEWAY_API_KEY.
-const DEFAULT_MODEL = "anthropic/claude-sonnet-5.5";
 
 // How long the model may keep starting steps, its tool calls included. The
 // sandbox lives 240 seconds, and the fetch, the install, the checks, and the
@@ -162,7 +158,7 @@ const sandboxTools = ({ sandbox, worktree }: LintFindingsFixRequest) => {
  * release notes, the commit messages, or the comments.
  */
 export const createModelLintFindingsFixer =
-  (model: LanguageModel = DEFAULT_MODEL): LintFindingsFixer =>
+  (model: LanguageModel = LINT_FINDINGS_MODEL): LintFindingsFixer =>
   async (request) => {
     const deadline = Date.now() + WORK_MS;
     const { finishReason, response } = await generateText({

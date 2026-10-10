@@ -74,14 +74,14 @@ describe(createModelLintFindingsFixer, () => {
         const step = steps.shift();
         return Promise.resolve(step ?? reply);
       },
-      modelId: "anthropic/claude-sonnet-5.5",
+      modelId: "anthropic/claude-haiku-5.5",
     });
     const sandbox = fakeSandbox();
 
     await expect(
       createModelLintFindingsFixer(model)(request(sandbox))
     ).resolves.toStrictEqual({
-      model: "anthropic/claude-sonnet-5.5",
+      model: "anthropic/claude-haiku-5.5",
       stopped: false,
     });
 
