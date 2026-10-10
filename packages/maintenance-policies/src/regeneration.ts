@@ -5,7 +5,14 @@ import { z } from "zod";
  * Where a repository declares how its generated output is regenerated. A
  * repository without it is left alone.
  */
-export const REGENERATION_CONFIG_PATH =
+export const REGENERATION_CONFIG_PATH = ".chachamaru/regenerate.yml";
+
+/**
+ * Where the declaration was before the bot was renamed to Chachamaru. It is
+ * read when a repository has none at {@link REGENERATION_CONFIG_PATH}, until
+ * every repository has moved its declaration.
+ */
+export const LEGACY_REGENERATION_CONFIG_PATH =
   ".github/maintenance-bot/regenerate.yml";
 
 // The App cannot write here: that needs the Workflows permission.
@@ -82,16 +89,20 @@ export type RegenerationConfigParseResult =
   | { result: "valid"; config: RegenerationConfig }
   | { result: "invalid"; reason: string };
 
-/** Reads {@link REGENERATION_CONFIG_PATH}. */
+/**
+ * Reads a declaration, by default {@link REGENERATION_CONFIG_PATH}; `path`
+ * names the file it was read from in the reason it is invalid.
+ */
 export const parseRegenerationConfig = (
-  source: string
+  source: string,
+  path: string = REGENERATION_CONFIG_PATH
 ): RegenerationConfigParseResult => {
   let value: unknown;
   try {
     value = parse(source);
   } catch (error) {
     return {
-      reason: `${REGENERATION_CONFIG_PATH} is not YAML: ${error instanceof Error ? error.message : String(error)}`,
+      reason: `${path} is not YAML: ${error instanceof Error ? error.message : String(error)}`,
       result: "invalid",
     };
   }
@@ -100,7 +111,7 @@ export const parseRegenerationConfig = (
   return parsed.success
     ? { config: parsed.data, result: "valid" }
     : {
-        reason: `${REGENERATION_CONFIG_PATH}: ${z.prettifyError(parsed.error).replaceAll("\n", " ")}`,
+        reason: `${path}: ${z.prettifyError(parsed.error).replaceAll("\n", " ")}`,
         result: "invalid",
       };
 };

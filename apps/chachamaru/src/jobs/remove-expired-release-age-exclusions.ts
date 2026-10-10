@@ -22,13 +22,13 @@ const MANIFEST_PATH = "pnpm-workspace.yaml";
 
 /** The branch the cleanup pull request comes from. */
 export const CLEANUP_BRANCH =
-  "maintenance-bot/remove-expired-release-age-exclusions";
+  "chachamaru/remove-expired-release-age-exclusions";
 
 const TITLE = "chore(deps): remove expired minimumReleaseAgeExclude entries";
 
 // The name the bot discloses model help under, as the Assisted-by trailers
 // of Publira repositories do.
-const AGENT_NAME = "publira-maintenance-bot";
+const AGENT_NAME = "Chachamaru";
 
 export interface ExclusionEditRequest {
   /** The `minimumReleaseAgeExclude` block; line 1 is the first. */
@@ -156,7 +156,7 @@ const pullRequestBody = (
       : "- The rules could not tell which comments belong to these entries, so a model chose the lines to delete. It can only delete lines, and it did not decide which entries expired.",
     "- The edited file parses, these entries are gone, and every other entry and setting, `minimumReleaseAge` included, keeps its value.",
     "",
-    "The maintenance bot opened this pull request. It updates the branch when the cleanup changes.",
+    "Chachamaru opened this pull request. It updates the branch when the cleanup changes.",
     ...assistedBy(model),
   ].join("\n");
 

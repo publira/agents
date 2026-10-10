@@ -4,12 +4,12 @@
   customManagers: [
     {
       customType: "regex",
-      // The maintenance bot runs some command-line tools in a sandbox rather
-      // than install them, so they are pinned as constants in its sources,
+      // Chachamaru runs some command-line tools in a sandbox rather than
+      // install them, so they are pinned as constants in its sources,
       // annotated with a `// renovate:` comment on the line above, in the
       // format of the organization preset's annotations.
-      description: "Update annotated tool versions in the maintenance bot's sources",
-      managerFilePatterns: ["/^apps/maintenance-bot/src/.+\\.ts$/"],
+      description: "Update annotated tool versions in Chachamaru's sources",
+      managerFilePatterns: ["/^apps/chachamaru/src/.+\\.ts$/"],
       matchStrings: [
         '//\\s*renovate:\\s*datasource=(?<datasource>[a-z.-]+)\\s+depName=(?<depName>\\S+?)(?:\\s+packageName=(?<packageName>\\S+?))?(?:\\s+versioning=(?<versioning>\\S+?))?\\s+(?:export\\s+)?const\\s+[A-Z][A-Z0-9_]*_VERSION\\s*=\\s*"(?<currentValue>[^"]+)"',
       ],

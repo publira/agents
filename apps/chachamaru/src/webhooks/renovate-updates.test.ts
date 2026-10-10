@@ -10,7 +10,7 @@ import type { Log } from "../log.ts";
 import type { SandboxRunner } from "../sandbox-runner.ts";
 import { createRenovateUpdateHandlers } from "./renovate-updates.ts";
 
-const BOT = "publira-maintenance[bot]";
+const BOT = "chachamaru-bot[bot]";
 
 type Json =
   | boolean

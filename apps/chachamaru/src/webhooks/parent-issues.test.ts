@@ -7,7 +7,7 @@ import type { Log } from "../log.ts";
 import type { Settings } from "../settings.ts";
 import { createParentIssueHandlers } from "./parent-issues.ts";
 
-const BOT = "publira-maintenance[bot]";
+const BOT = "chachamaru-bot[bot]";
 
 type Json =
   | boolean

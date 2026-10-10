@@ -23,7 +23,7 @@ describe(getPullRequestMergeState, () => {
             pullRequest: {
               autoMergeRequest: {
                 enabledAt: "2026-10-04T06:00:01Z",
-                enabledBy: { __typename: "Bot", login: "publira-maintenance" },
+                enabledBy: { __typename: "Bot", login: "chachamaru-bot" },
               },
               baseRefName: "main",
               headRefOid: "head",
@@ -47,7 +47,7 @@ describe(getPullRequestMergeState, () => {
     ).resolves.toStrictEqual({
       autoMerge: {
         enabledAt: new Date("2026-10-04T06:00:01Z"),
-        enabledBy: "publira-maintenance[bot]",
+        enabledBy: "chachamaru-bot[bot]",
       },
       baseRef: "main",
       headSha: "head",

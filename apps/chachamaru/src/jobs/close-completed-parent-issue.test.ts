@@ -7,7 +7,7 @@ import {
   summarizeCloseCompletedParentIssueResult,
 } from "./close-completed-parent-issue.ts";
 
-const BOT = "publira-maintenance[bot]";
+const BOT = "chachamaru-bot[bot]";
 const ISSUE = "/repos/publira/publira/issues/3408";
 const CLOSED_AT = "2026-10-05T03:00:00Z";
 

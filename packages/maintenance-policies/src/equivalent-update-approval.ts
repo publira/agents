@@ -32,7 +32,7 @@ export interface PullRequestCommit {
 
 /** What tells the bot's own commits apart. */
 export interface BotCommitScope {
-  /** The maintenance bot's login, which authors them. */
+  /** The bot's login, which authors them. */
   botLogin: string;
   /** The files the pull request changes. */
   changedFiles: readonly string[];

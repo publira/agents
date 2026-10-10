@@ -5,7 +5,6 @@ import {
   getRepositoryPermission,
   getRequiredStatusChecks,
   minimizeOutdatedReviews,
-  readOptionalRepositoryFile,
 } from "@publira/github";
 import type { Octokit } from "@publira/github";
 import {
@@ -16,9 +15,7 @@ import {
   formatRenovateUpdate,
   isMaintainerPermission,
   isRenovate,
-  parseRegenerationConfig,
   parseRenovateUpdates,
-  REGENERATION_CONFIG_PATH,
   RENOVATE_LOGIN,
 } from "@publira/maintenance-policies";
 import type {
@@ -31,6 +28,7 @@ import { z } from "zod";
 
 import { loggableFailure } from "../log.ts";
 import type { LogFields } from "../log.ts";
+import { readRegenerationConfig } from "../regeneration-config.ts";
 
 /**
  * What the job checks, in order:
@@ -153,7 +151,7 @@ const describeCommits = (verdict: RenovateCommitsVerdict): string => {
       ];
       return botCommits.length === 0
         ? `Renovate made all ${count} commit(s), signed by GitHub`
-        : `Renovate made ${count - lockFileCommits - regenerationCommits} commit(s), and the maintenance bot ${botCommits.join(" and ")}, all signed by GitHub`;
+        : `Renovate made ${count - lockFileCommits - regenerationCommits} commit(s), and Chachamaru ${botCommits.join(" and ")}, all signed by GitHub`;
     }
     case "no-commits": {
       return "the pull request has no commits";
@@ -512,7 +510,7 @@ const reviewBody = (
     ...(managersDiffer
       ? [`${name} made it through another manager:`, "", ...precedentListed, ""]
       : []),
-    "The maintenance bot checked, by fixed rules and without a model, that:",
+    "Chachamaru checked, by fixed rules and without a model, that:",
     "",
     "- Renovate opened this pull request and wrote its update metadata.",
     `- Commits: ${detail("commits")}.`,
@@ -628,17 +626,12 @@ const readGeneratedPaths = async ({
   repo,
   pullRequest,
 }: PullRequestContext) => {
-  const source = await readOptionalRepositoryFile(octokit, {
+  const parsed = await readRegenerationConfig(octokit, {
     owner,
-    path: REGENERATION_CONFIG_PATH,
     ref: pullRequest.base.sha,
     repo,
   });
-  if (source === undefined) {
-    return [];
-  }
-  const parsed = parseRegenerationConfig(source);
-  return parsed.result === "valid" ? parsed.config.paths : [];
+  return parsed?.result === "valid" ? parsed.config.paths : [];
 };
 
 // The files each of the bot's commits changes, and those the pull request
@@ -922,7 +915,7 @@ export const approveEquivalentRenovateUpdate = async ({
     try {
       await octokit.rest.pulls.dismissReview({
         ...location,
-        message: `The head moved to ${after.head.sha} while this approval of ${headSha} was submitted. The maintenance bot evaluates the new head on its own.`,
+        message: `The head moved to ${after.head.sha} while this approval of ${headSha} was submitted. Chachamaru evaluates the new head on its own.`,
         review_id: review.id,
       });
     } catch (error) {

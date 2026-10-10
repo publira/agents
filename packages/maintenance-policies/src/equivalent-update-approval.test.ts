@@ -116,7 +116,7 @@ describe(evaluateRenovateCommits, () => {
   });
 
   describe("with the bot's lock file commits", () => {
-    const BOT = "publira-maintenance-bot[bot]";
+    const BOT = "chachamaru-bot[bot]";
     const scope = {
       botLogin: BOT,
       changedFiles: [
@@ -446,7 +446,7 @@ describe(findPrecedentApprovers, () => {
   it.each([
     [
       "a bot's approval",
-      { user: { login: "publira-maintenance[bot]", type: "Bot" } },
+      { user: { login: "chachamaru-bot[bot]", type: "Bot" } },
     ],
     ["an approval by a deleted account", { user: null }],
     ["an approval of an earlier head", { commitId: "earlier" }],

@@ -9,7 +9,7 @@ This repository is a `pnpm` workspace for Publira's maintenance automation: the 
 `pnpm-workspace.yaml` declares two package groups:
 
 - `apps/*`: deployable applications.
-  - `maintenance-bot/`: the maintenance bot, an eve app deployed to Vercel that hosts GitHub-facing maintenance jobs.
+  - `chachamaru/`: Chachamaru, the maintenance bot, an eve app deployed to Vercel that hosts GitHub-facing maintenance jobs.
 - `packages/*`: shared libraries the apps import from the workspace without publishing them.
   - `devcontainer/`: reading Dev Container configurations, editing their lock files, and resolving Features in OCI registries.
   - `github/`: GitHub API access through Octokit.
@@ -54,7 +54,7 @@ pnpm holds back versions published less than a day ago (`minimumReleaseAge`). `p
 - `pnpm test`: run every package's Vitest tests.
 - `pnpm check`: run the Ultracite lint and format checks.
 - `pnpm fix`: apply the Ultracite fixes.
-- `pnpm build`: build the packages with tsdown and each app, the maintenance bot with `eve build`.
+- `pnpm build`: build the packages with tsdown and each app, Chachamaru with `eve build`.
 
 An app's own commands are in its `AGENTS.md`.
 

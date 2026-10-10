@@ -33,7 +33,7 @@ import type { Sandbox, SandboxRunner } from "../sandbox-runner.ts";
 export const SKILLS_VERSION = "1.7.1";
 
 /** The branch the update pull request comes from. */
-export const SKILLS_UPDATE_BRANCH = "maintenance-bot/update-agent-skills";
+export const SKILLS_UPDATE_BRANCH = "chachamaru/update-agent-skills";
 
 const TITLE = "chore(skills): update agent skills";
 
@@ -223,7 +223,7 @@ const pullRequestBody = (
     "",
     "A skill is instructions that coding agents follow in this repository. Read the changes to them before merging, as you would a change to `AGENTS.md`: an update can change what an agent does, which commands it runs, and which sources it trusts.",
     "",
-    `The maintenance bot ran the update in an isolated sandbox and committed only its changes under \`.agents/skills/\`, \`.claude/skills/\`, and \`${SKILLS_LOCK_FILE}\`. It neither approves nor merges this pull request, and it updates the branch when the skills change upstream again.`,
+    `Chachamaru ran the update in an isolated sandbox and committed only its changes under \`.agents/skills/\`, \`.claude/skills/\`, and \`${SKILLS_LOCK_FILE}\`. It neither approves nor merges this pull request, and it updates the branch when the skills change upstream again.`,
   ].join("\n");
 
 const decode = (blob: Buffer | undefined) => blob?.toString("utf-8");

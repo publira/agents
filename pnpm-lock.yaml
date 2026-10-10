@@ -212,7 +212,7 @@ importers:
         specifier: 7.12.4
         version: 7.12.4(oxfmt@0.72.0)(oxlint@1.87.0)
 
-  apps/maintenance-bot:
+  apps/chachamaru:
     dependencies:
       '@publira/devcontainer':
         specifier: workspace:*
