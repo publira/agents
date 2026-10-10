@@ -1014,18 +1014,18 @@ export const summarizeApprovalResult = (
     condition: failed?.condition,
     detail: failed?.detail,
     headSha: result.headSha,
+    minimizeError: minimizeFailure?.error,
+    minimizeErrorStatus: minimizeFailure?.status,
+    minimizedReviews:
+      outdated !== undefined && "minimized" in outdated
+        ? outdated.minimized
+        : undefined,
     modelInvoked: false,
     precedent:
       precedent === undefined
         ? undefined
         : `${precedent.owner}/${precedent.repo}#${precedent.number}`,
     precedentApprovedBy: precedent?.approvedBy,
-    minimizedReviews:
-      outdated !== undefined && "minimized" in outdated
-        ? outdated.minimized
-        : undefined,
-    minimizeError: minimizeFailure?.error,
-    minimizeErrorStatus: minimizeFailure?.status,
     review: review?.id,
     reviewCreated: review?.created,
     status: result.status,

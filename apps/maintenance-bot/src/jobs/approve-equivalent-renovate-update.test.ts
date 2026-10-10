@@ -95,6 +95,11 @@ interface Scenario {
   regenerationConfig?: string;
 }
 
+interface GraphqlBody {
+  query: string;
+  variables: Readonly<Record<string, unknown>>;
+}
+
 const PERMISSION_ROUTE =
   /^GET \/repos\/publira\/website\/collaborators\/(?<login>[^/]+)\/permission$/u;
 
@@ -156,6 +161,37 @@ const fakeGitHub = ({
     return login === undefined
       ? undefined
       : permissionResponse(permissions[login] ?? "read", permissionRefusal);
+  };
+
+  // The bot's reviews as GraphQL lists them, and their minimization.
+  const respondWithReviewNodes = (route: string, body: GraphqlBody) => {
+    if (route !== "POST /graphql") {
+      return;
+    }
+    if (body.query.includes("minimizeComment")) {
+      if (minimizeRefused) {
+        return {
+          data: null,
+          errors: [{ message: "Resource not accessible by integration" }],
+        };
+      }
+      minimized.push(String(body.variables.id));
+      return { data: { minimizeComment: { clientMutationId: null } } };
+    }
+    if (body.query.includes("reviews(")) {
+      return {
+        data: {
+          repository: {
+            pullRequest: {
+              reviews: {
+                nodes: reviewNodes,
+                pageInfo: { endCursor: null, hasNextPage: false },
+              },
+            },
+          },
+        },
+      };
+    }
   };
 
   // The files of the pull request and of its head, which the commit check
@@ -272,30 +308,6 @@ const fakeGitHub = ({
           return precedentReviews;
         }
         case "POST /graphql": {
-          if (body.query.includes("minimizeComment")) {
-            if (minimizeRefused) {
-              return {
-                data: null,
-                errors: [{ message: "Resource not accessible by integration" }],
-              };
-            }
-            minimized.push(body.variables.id);
-            return { data: { minimizeComment: { clientMutationId: null } } };
-          }
-          if (body.query.includes("reviews(")) {
-            return {
-              data: {
-                repository: {
-                  pullRequest: {
-                    reviews: {
-                      nodes: reviewNodes,
-                      pageInfo: { endCursor: null, hasNextPage: false },
-                    },
-                  },
-                },
-              },
-            };
-          }
           const { number, repo } = body.variables;
           return {
             data: {
@@ -332,6 +344,7 @@ const fakeGitHub = ({
 
     const result =
       respondWithPermission(route) ??
+      respondWithReviewNodes(route, body) ??
       respondWithFiles(route, url) ??
       respond() ??
       Response.json({ message: "Not Found" }, { status: 404 });
@@ -539,13 +552,13 @@ describe(approveEquivalentRenovateUpdate, () => {
 
     expect(result).toMatchObject({
       headSha: HEAD,
+      outdatedReviews: { minimized: 0 },
       precedent: {
         approvedBy: "ykzts",
         number: 120,
         owner: "publira",
         repo: "website",
       },
-      outdatedReviews: { minimized: 0 },
       review: { created: true, id: 99 },
       status: "approved",
     });

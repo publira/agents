@@ -355,6 +355,7 @@ describe(evaluateRenovateUpdate, () => {
         Promise.resolve({
           conditions: [],
           headSha: HEAD,
+          outdatedReviews: { minimized: 1 },
           precedent: {
             approvedBy: "ykzts",
             mergedAt: new Date("2026-10-01T00:00:00Z"),
@@ -364,7 +365,6 @@ describe(evaluateRenovateUpdate, () => {
             updates: [],
             url: "https://github.com/publira/publira/pull/12",
           },
-          outdatedReviews: { minimized: 1 },
           review: { created: true, id: 80 },
           status: "approved" as const,
         }),
