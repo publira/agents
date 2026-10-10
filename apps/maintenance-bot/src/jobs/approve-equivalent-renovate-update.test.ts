@@ -71,6 +71,10 @@ interface Scenario {
   ownReviewsLater?: readonly JsonObject[];
   /** Whether the review was dismissed already, so dismissing it fails. */
   alreadyDismissed?: boolean;
+  /** Every review of the pull request, as GitHub's GraphQL API lists them. */
+  reviewNodes?: readonly JsonObject[];
+  /** Whether GitHub refuses to minimize a review. */
+  minimizeRefused?: boolean;
   commits?: readonly JsonObject[];
   checkRuns?: readonly JsonObject[];
   statuses?: readonly JsonObject[];
@@ -89,6 +93,12 @@ interface Scenario {
   commitFiles?: Readonly<Record<string, readonly string[]>>;
   /** The base branch's `.github/maintenance-bot/regenerate.yml`. */
   regenerationConfig?: string;
+}
+
+interface GraphqlBody {
+  query: string;
+  /** The node ID of the review to minimize. */
+  variables: { id?: string };
 }
 
 const PERMISSION_ROUTE =
@@ -120,6 +130,8 @@ const fakeGitHub = ({
   ownReviews = [],
   ownReviewsLater = ownReviews,
   alreadyDismissed = false,
+  reviewNodes = [],
+  minimizeRefused = false,
   commits = [renovateCommit(HEAD)],
   checkRuns = [
     {
@@ -141,6 +153,7 @@ const fakeGitHub = ({
 }: Scenario = {}) => {
   const writes: { route: string; body: unknown }[] = [];
   const routes: string[] = [];
+  const minimized: string[] = [];
   let reads = 0;
   let reviewReads = 0;
 
@@ -149,6 +162,37 @@ const fakeGitHub = ({
     return login === undefined
       ? undefined
       : permissionResponse(permissions[login] ?? "read", permissionRefusal);
+  };
+
+  // The bot's reviews as GraphQL lists them, and their minimization.
+  const respondWithReviewNodes = (route: string, body: GraphqlBody) => {
+    if (route !== "POST /graphql") {
+      return;
+    }
+    if (body.query.includes("minimizeComment")) {
+      if (minimizeRefused) {
+        return {
+          data: null,
+          errors: [{ message: "Resource not accessible by integration" }],
+        };
+      }
+      minimized.push(String(body.variables.id));
+      return { data: { minimizeComment: { clientMutationId: null } } };
+    }
+    if (body.query.includes("reviews(")) {
+      return {
+        data: {
+          repository: {
+            pullRequest: {
+              reviews: {
+                nodes: reviewNodes,
+                pageInfo: { endCursor: null, hasNextPage: false },
+              },
+            },
+          },
+        },
+      };
+    }
   };
 
   // The files of the pull request and of its head, which the commit check
@@ -301,6 +345,7 @@ const fakeGitHub = ({
 
     const result =
       respondWithPermission(route) ??
+      respondWithReviewNodes(route, body) ??
       respondWithFiles(route, url) ??
       respond() ??
       Response.json({ message: "Not Found" }, { status: 404 });
@@ -312,6 +357,8 @@ const fakeGitHub = ({
   });
 
   return {
+    /** The node IDs of the reviews minimized, in order. */
+    minimized,
     octokit: createGitHubClient({ fetch: fetchImpl }),
     routes,
     writes,
@@ -330,6 +377,21 @@ const run = (
     reviewer: BOT,
     ...options,
   });
+
+// A review as GitHub's GraphQL API lists it, by the bot unless `author` says.
+// The approval the job submits is review 99.
+const reviewNode = (
+  id: string,
+  databaseId: number,
+  fields: JsonObject = {}
+): JsonObject => ({
+  author: { __typename: "Bot", login: "publira-maintenance" },
+  fullDatabaseId: String(databaseId),
+  id,
+  isMinimized: false,
+  state: "APPROVED",
+  ...fields,
+});
 
 const failedCondition = (
   result: Awaited<ReturnType<typeof approveEquivalentRenovateUpdate>>
@@ -492,6 +554,7 @@ describe(approveEquivalentRenovateUpdate, () => {
 
     expect(result).toMatchObject({
       headSha: HEAD,
+      outdatedReviews: { minimized: 0 },
       precedent: {
         approvedBy: "ykzts",
         number: 120,
@@ -507,6 +570,46 @@ describe(approveEquivalentRenovateUpdate, () => {
     ]);
     expect(github.writes[0]?.body).toMatchObject({ commit_id: HEAD });
     expect(github.writes[1]?.body).toMatchObject({ event: "APPROVE" });
+  });
+
+  it("minimizes its reviews submitted before its approval of the head", async () => {
+    const github = fakeGitHub({
+      reviewNodes: [
+        reviewNode("PRR_dismissed", 10, { state: "DISMISSED" }),
+        reviewNode("PRR_maintainer", 11, {
+          author: { __typename: "User", login: "ykzts" },
+        }),
+        reviewNode("PRR_hidden", 12, { isMinimized: true }),
+        reviewNode("PRR_head", 99),
+        // A concurrent run's approval of a newer head.
+        reviewNode("PRR_newer", 120),
+      ],
+    });
+
+    const result = await run(github);
+
+    expect(result).toMatchObject({
+      outdatedReviews: { minimized: 1 },
+      status: "approved",
+    });
+    expect(github.minimized).toStrictEqual(["PRR_dismissed"]);
+  });
+
+  it("keeps the approval when minimizing the earlier reviews fails", async () => {
+    const github = fakeGitHub({
+      minimizeRefused: true,
+      reviewNodes: [reviewNode("PRR_dismissed", 10)],
+    });
+
+    const result = await run(github);
+
+    expect(result).toMatchObject({
+      outdatedReviews: {
+        error: expect.stringContaining("Resource not accessible"),
+      },
+      review: { created: true, id: 99 },
+      status: "approved",
+    });
   });
 
   it("names the precedent and the updates in the review", async () => {
@@ -689,6 +792,7 @@ describe(approveEquivalentRenovateUpdate, () => {
       review: { id: 99 },
       status: "withdrawn",
     });
+    expect(github.minimized).toStrictEqual([]);
     expect(github.writes.at(-1)?.route).toBe(
       "PUT /repos/publira/agents/pulls/31/reviews/99/dismissals"
     );
@@ -708,6 +812,24 @@ describe(approveEquivalentRenovateUpdate, () => {
     expect(github.writes.map(({ route }) => route)).toStrictEqual([
       "PUT /repos/publira/agents/pulls/31/reviews/99/dismissals",
     ]);
+  });
+
+  it("leaves the earlier reviews to the run that submitted the approval", async () => {
+    const github = fakeGitHub({
+      ownReviewsLater: [
+        { commit_id: HEAD, id: 99, state: "APPROVED", user: { login: BOT } },
+      ],
+      reviewNodes: [reviewNode("PRR_dismissed", 10)],
+    });
+
+    const result = await run(github);
+
+    expect(result).toMatchObject({
+      review: { created: false, id: 99 },
+      status: "approved",
+    });
+    expect(result).not.toHaveProperty("outdatedReviews");
+    expect(github.minimized).toStrictEqual([]);
   });
 
   it("accepts an approval someone dismissed first", async () => {
@@ -743,7 +865,9 @@ describe(approveEquivalentRenovateUpdate, () => {
   });
 
   it("explains a dry run without writing", async () => {
-    const github = fakeGitHub();
+    const github = fakeGitHub({
+      reviewNodes: [reviewNode("PRR_dismissed", 10)],
+    });
 
     const result = await run(github, { dryRun: true });
 
@@ -763,6 +887,7 @@ describe(approveEquivalentRenovateUpdate, () => {
       ["head", true],
     ]);
     expect(github.writes).toStrictEqual([]);
+    expect(github.minimized).toStrictEqual([]);
   });
 
   it("stops at once when it already approved the head", async () => {

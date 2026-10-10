@@ -80,9 +80,10 @@ export { parseRepositoryName } from "./repository-name.ts";
 export type {
   EnsureReviewOptions,
   EnsureReviewResult,
+  MinimizeOutdatedReviewsOptions,
   ReviewEvent,
 } from "./review.ts";
-export { ensureReview } from "./review.ts";
+export { ensureReview, minimizeOutdatedReviews } from "./review.ts";
 export type { CommitFilesLocation, TreeFile } from "./tree.ts";
 export { listCommitFiles } from "./tree.ts";
 export type {

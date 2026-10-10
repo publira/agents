@@ -1,5 +1,8 @@
 import type { Octokit } from "@octokit/rest";
+import { z } from "zod";
 
+import { graphqlActor, restLogin } from "./actor.ts";
+import type { PullRequestLocation } from "./pull-request-editor.ts";
 import { requestFailure } from "./request-error.ts";
 
 export type ReviewEvent = "APPROVE" | "COMMENT" | "REQUEST_CHANGES";
@@ -163,4 +166,114 @@ export const ensureReview = async (
   }
 
   return { created: true, id: pending.id };
+};
+
+export interface MinimizeOutdatedReviewsOptions extends PullRequestLocation {
+  /**
+   * The review the reviewer just submitted. Only its earlier reviews are
+   * minimized, so a later review, such as of a newer head, stays as it is.
+   */
+  reviewId: number;
+  /** The login whose reviews are minimized, such as the App's bot login. */
+  reviewer: string;
+}
+
+const reviewsResponse = z.object({
+  repository: z.object({
+    pullRequest: z.object({
+      reviews: z.object({
+        nodes: z.array(
+          z.object({
+            author: graphqlActor.nullable(),
+            fullDatabaseId: z.string().nullable(),
+            id: z.string(),
+            isMinimized: z.boolean(),
+            state: z.string(),
+          })
+        ),
+        pageInfo: z.object({
+          endCursor: z.string().nullable(),
+          hasNextPage: z.boolean(),
+        }),
+      }),
+    }),
+  }),
+});
+
+type ReviewNode = z.infer<
+  typeof reviewsResponse
+>["repository"]["pullRequest"]["reviews"]["nodes"][number];
+
+const listReviewNodes = async (
+  octokit: Octokit,
+  location: PullRequestLocation,
+  after: string | null = null
+): Promise<ReviewNode[]> => {
+  const { owner, repo, pullNumber } = location;
+  const response = await octokit.graphql(
+    `query ($owner: String!, $repo: String!, $number: Int!, $after: String) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $number) {
+          reviews(first: 100, after: $after) {
+            nodes {
+              id
+              fullDatabaseId
+              state
+              isMinimized
+              author { __typename login }
+            }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+      }
+    }`,
+    { after, number: pullNumber, owner, repo }
+  );
+  const { nodes, pageInfo } =
+    reviewsResponse.parse(response).repository.pullRequest.reviews;
+
+  return pageInfo.hasNextPage
+    ? [
+        ...nodes,
+        ...(await listReviewNodes(octokit, location, pageInfo.endCursor)),
+      ]
+    : nodes;
+};
+
+/**
+ * Minimizes, as outdated, the reviewer's reviews of a pull request submitted
+ * before the given one, so that the timeline shows that review in full. A
+ * minimized review keeps its state and stays readable when expanded. Reviews
+ * already minimized, later ones, and those of other users are left as they
+ * are. Returns how many it minimized.
+ */
+export const minimizeOutdatedReviews = async (
+  octokit: Octokit,
+  options: MinimizeOutdatedReviewsOptions
+): Promise<number> => {
+  const reviews = await listReviewNodes(octokit, options);
+  const outdated = reviews.filter(
+    ({ author, fullDatabaseId, isMinimized, state }) =>
+      author !== null &&
+      restLogin(author) === options.reviewer &&
+      state !== "PENDING" &&
+      // Review IDs grow with each review a pull request gets.
+      fullDatabaseId !== null &&
+      BigInt(fullDatabaseId) < BigInt(options.reviewId) &&
+      !isMinimized
+  );
+
+  for (const { id } of outdated) {
+    // oxlint-disable-next-line no-await-in-loop -- GitHub asks for writes one at a time
+    await octokit.graphql(
+      `mutation ($id: ID!) {
+        minimizeComment(input: { subjectId: $id, classifier: OUTDATED }) {
+          clientMutationId
+        }
+      }`,
+      { id }
+    );
+  }
+
+  return outdated.length;
 };

@@ -355,6 +355,7 @@ describe(evaluateRenovateUpdate, () => {
         Promise.resolve({
           conditions: [],
           headSha: HEAD,
+          outdatedReviews: { minimized: 1 },
           precedent: {
             approvedBy: "ykzts",
             mergedAt: new Date("2026-10-01T00:00:00Z"),
@@ -375,10 +376,47 @@ describe(evaluateRenovateUpdate, () => {
       "info",
       "Renovate update evaluated",
       expect.objectContaining({
+        minimizedReviews: 1,
         precedent: "publira/publira#12",
         precedentApprovedBy: "ykzts",
         review: 80,
         reviewCreated: true,
+        status: "approved",
+      })
+    );
+  });
+
+  it("warns when the earlier reviews could not be minimized", async () => {
+    const { log, run } = setup({
+      approval: () =>
+        Promise.resolve({
+          conditions: [],
+          headSha: HEAD,
+          outdatedReviews: {
+            error: "Resource not accessible by integration",
+          },
+          precedent: {
+            approvedBy: "ykzts",
+            mergedAt: new Date("2026-10-01T00:00:00Z"),
+            number: 12,
+            owner: "publira",
+            repo: "publira",
+            updates: [],
+            url: "https://github.com/publira/publira/pull/12",
+          },
+          review: { created: true, id: 80 },
+          status: "approved" as const,
+        }),
+    });
+
+    await run();
+
+    expect(log).toHaveBeenCalledWith(
+      "warn",
+      "Renovate update evaluated",
+      expect.objectContaining({
+        minimizeError: "Resource not accessible by integration",
+        review: 80,
         status: "approved",
       })
     );

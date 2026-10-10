@@ -4,6 +4,7 @@ import {
   getPullRequestBodyEditor,
   getRepositoryPermission,
   getRequiredStatusChecks,
+  minimizeOutdatedReviews,
   readOptionalRepositoryFile,
 } from "@publira/github";
 import type { Octokit } from "@publira/github";
@@ -28,6 +29,7 @@ import type {
 } from "@publira/maintenance-policies";
 import { z } from "zod";
 
+import { loggableFailure } from "../log.ts";
 import type { LogFields } from "../log.ts";
 
 /**
@@ -76,6 +78,14 @@ export interface Precedent {
   updates: RenovateUpdate[];
 }
 
+/**
+ * How many of the bot's reviews submitted before its approval it minimized
+ * as outdated, or why it could not.
+ */
+export type OutdatedReviews =
+  | { minimized: number }
+  | { error: string; status?: number };
+
 export type ApproveEquivalentRenovateUpdateResult =
   | { status: "skipped"; headSha: string; conditions: ConditionResult[] }
   | {
@@ -98,6 +108,8 @@ export type ApproveEquivalentRenovateUpdateResult =
       precedent: Precedent;
       /** `created` is `false` when a concurrent run submitted it. */
       review: { id: number; created: boolean };
+      /** Unset when a concurrent run submitted the review. */
+      outdatedReviews?: OutdatedReviews;
     }
   | {
       /** The head moved while the approval was submitted, which was dismissed. */
@@ -830,6 +842,9 @@ const evaluateConditions = async (
  * The head is read again just before the review is submitted, and the review
  * is for that commit only. If the head moved during the submission, the
  * approval is dismissed. Running it again on the same head submits nothing.
+ * Once it submitted the approval of a head, it minimizes its own reviews
+ * submitted before it as outdated, so that only the latest shows in full;
+ * a failure to do so leaves the approval as it is.
  */
 export const approveEquivalentRenovateUpdate = async ({
   octokit,
@@ -935,7 +950,36 @@ export const approveEquivalentRenovateUpdate = async ({
     };
   }
 
-  return { conditions, headSha, precedent, review, status: "approved" };
+  if (!review.created) {
+    return { conditions, headSha, precedent, review, status: "approved" };
+  }
+
+  let outdatedReviews: OutdatedReviews;
+  try {
+    outdatedReviews = {
+      minimized: await minimizeOutdatedReviews(octokit, {
+        owner,
+        pullNumber,
+        repo,
+        reviewId: review.id,
+        reviewer,
+      }),
+    };
+  } catch (error) {
+    // The approval stands; the earlier reviews only stay expanded.
+    outdatedReviews = loggableFailure.safeParse(error).data ?? {
+      error: "unknown",
+    };
+  }
+
+  return {
+    conditions,
+    headSha,
+    outdatedReviews,
+    precedent,
+    review,
+    status: "approved",
+  };
 };
 
 /**
@@ -955,6 +999,10 @@ export const summarizeApprovalResult = (
       ? undefined
       : result.precedent;
   let review: { id: number; created?: boolean } | undefined;
+  const outdated =
+    result.status === "approved" ? result.outdatedReviews : undefined;
+  const minimizeFailure =
+    outdated !== undefined && "error" in outdated ? outdated : undefined;
 
   if (result.status === "already-reviewed") {
     review = { created: false, id: result.reviewId };
@@ -966,6 +1014,12 @@ export const summarizeApprovalResult = (
     condition: failed?.condition,
     detail: failed?.detail,
     headSha: result.headSha,
+    minimizeError: minimizeFailure?.error,
+    minimizeErrorStatus: minimizeFailure?.status,
+    minimizedReviews:
+      outdated !== undefined && "minimized" in outdated
+        ? outdated.minimized
+        : undefined,
     modelInvoked: false,
     precedent:
       precedent === undefined
