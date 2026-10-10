@@ -67,11 +67,15 @@ exit 2
 `;
 
 // Stand in for pnpm and npm: record the call, install into node_modules,
-// and run a binary.
+// and run a binary. pnpm's install can also rewrite a file, as a lifecycle
+// script could.
 const PNPM = `#!/bin/sh
 echo "pnpm $*" >> "$HOME/calls"
 case "$1" in
-  install) mkdir -p node_modules; exit "\${INSTALL_EXIT_CODE:-0}";;
+  install)
+    mkdir -p node_modules
+    [ -n "\${INSTALL_WRITES:-}" ] && echo "// installed" >> "$INSTALL_WRITES"
+    exit "\${INSTALL_EXIT_CODE:-0}";;
   exec) shift; exec "$@";;
 esac
 exit 2
@@ -583,9 +587,34 @@ describe(applyLintFixes, () => {
     await expect(run(github, sandbox)).resolves.toStrictEqual({
       headSha: fixture.headSha,
       paths: ["README.md", "package.json"],
+      reason: "the fix changed files it has no reason to change",
       refusedPaths: ["package.json"],
       status: "refused",
     } satisfies ApplyLintFixesResult);
+    expect(github.writes).toStrictEqual([]);
+  });
+
+  it("refuses to commit when the install changed files Git tracks", async () => {
+    const github = fakeGitHub({ fixture });
+    const sandbox = localSandbox({
+      env: { INSTALL_WRITES: "src/index.ts" },
+      origin: fixture.origin,
+      root,
+    });
+
+    await expect(run(github, sandbox)).resolves.toStrictEqual({
+      headSha: fixture.headSha,
+      paths: ["src/index.ts"],
+      reason:
+        "the install or the check changed files Git tracks before the fix ran",
+      refusedPaths: ["src/index.ts"],
+      status: "refused",
+    } satisfies ApplyLintFixesResult);
+    // The fix did not run.
+    expect(sandbox.calls()).toStrictEqual([
+      "pnpm install --frozen-lockfile",
+      "pnpm exec ultracite check",
+    ]);
     expect(github.writes).toStrictEqual([]);
   });
 
@@ -724,6 +753,7 @@ describe(summarizeLintFixResult, () => {
       summarizeLintFixResult({
         headSha: "head",
         paths: ["README.md", "pnpm-lock.yaml"],
+        reason: "the fix changed files it has no reason to change",
         refusedPaths: ["pnpm-lock.yaml"],
         status: "refused",
       })
@@ -735,7 +765,7 @@ describe(summarizeLintFixResult, () => {
       modelInvoked: false,
       output: undefined,
       paths: ["README.md", "pnpm-lock.yaml"],
-      reason: undefined,
+      reason: "the fix changed files it has no reason to change",
       refusedPaths: ["pnpm-lock.yaml"],
       status: "refused",
       step: undefined,

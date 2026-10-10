@@ -555,6 +555,7 @@ describe(fixLintAndLog, () => {
       Promise.resolve({
         headSha: HEAD,
         paths: ["pnpm-lock.yaml"],
+        reason: "the fix changed files it has no reason to change",
         refusedPaths: ["pnpm-lock.yaml"],
         status: "refused" as const,
       })

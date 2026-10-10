@@ -96,9 +96,13 @@ export type ApplyLintFixesResult =
       output: string | undefined;
     }
   | {
-      /** The fix changed a file it has no reason to; nothing is committed. */
+      /**
+       * Something other than the fix changed the files, or the fix changed a
+       * file it has no reason to; nothing is committed.
+       */
       status: "refused";
       headSha: string;
+      reason: string;
       paths: string[];
       refusedPaths: string[];
     }
@@ -121,6 +125,11 @@ interface SandboxRequest {
 type SandboxResult =
   | Omit<Extract<ApplyLintFixesResult, { status: "failed" }>, "headSha">
   | { status: "lint-passed" }
+  | {
+      /** The install or the check changed files Git tracks. */
+      status: "changed-before-fix";
+      paths: string[];
+    }
   | {
       status: "fixed";
       changes: GitFileChange[];
@@ -146,8 +155,9 @@ const failure = (
 
 /**
  * Checks out the head, installs its dependencies, runs `ultracite check`,
- * and, when it fails, `ultracite fix` and the check again, then reads back
- * what the fix changed in the files Git tracks. The sandbox gets no
+ * and, when it fails and left the files Git tracks as they are,
+ * `ultracite fix` and the check again, then reads back what the fix changed
+ * in those files. The sandbox gets no
  * credential but the read token, and that only for the fetch, which does not
  * store it where the install or the lint tools could read it.
  */
@@ -199,6 +209,19 @@ const fixInSandbox = async (
   const before = await run([...exec, "ultracite", "check"], LINT_TIMEOUT_MS);
   if (before.exitCode === 0) {
     return { status: "lint-passed" };
+  }
+
+  // The commit takes whole files, so a change the install made, such as by
+  // a lifecycle script, cannot be told apart from the fix's in a file both
+  // change. The worktree has to be the head's when the fix starts.
+  const changedBefore = await stageChanges(sandbox, WORKTREE, {
+    trackedOnly: true,
+  });
+  if (changedBefore.length > 0) {
+    return {
+      paths: changedBefore.map(({ path }) => path),
+      status: "changed-before-fix",
+    };
   }
 
   const fix = await run([...exec, "ultracite", "fix"], LINT_TIMEOUT_MS);
@@ -375,6 +398,16 @@ export const applyLintFixes = async (
     fixInSandbox(session, { headSha, owner, packageManager, readToken, repo })
   );
 
+  if (fixed.status === "changed-before-fix") {
+    return {
+      headSha,
+      paths: fixed.paths,
+      reason:
+        "the install or the check changed files Git tracks before the fix ran",
+      refusedPaths: fixed.paths,
+      status: "refused",
+    };
+  }
   if (fixed.status !== "fixed") {
     return { ...fixed, headSha };
   }
@@ -396,7 +429,13 @@ export const applyLintFixes = async (
 
   const refusedPaths = paths.filter(isLintFixRefusedPath);
   if (refusedPaths.length > 0) {
-    return { headSha, paths, refusedPaths, status: "refused" };
+    return {
+      headSha,
+      paths,
+      reason: "the fix changed files it has no reason to change",
+      refusedPaths,
+      status: "refused",
+    };
   }
 
   if (dryRun) {
