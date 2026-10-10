@@ -8,6 +8,8 @@ import {
   fixLintAndLog,
 } from "../jobs/evaluate-renovate-update.ts";
 import { SANDBOX_TIMEOUT_MS } from "../jobs/regenerate-generated-output.ts";
+import { createModelLintFindingsFixer } from "../lint-findings-fixer.ts";
+import type { LintFindingsFixer } from "../lint-findings-fixer.ts";
 import { withFields } from "../log.ts";
 import type { Log } from "../log.ts";
 import { createVercelSandboxRunner } from "../sandbox-runner.ts";
@@ -86,6 +88,8 @@ export interface RenovateUpdateHandlerOptions {
    * applies the automatic lint fixes.
    */
   createSandbox: (log: Log) => SandboxRunner;
+  /** Fixes the findings the automatic lint fixes leave. */
+  fixer: LintFindingsFixer;
 }
 
 const createRepositorySandbox = (log: Log) =>
@@ -102,7 +106,7 @@ const createRepositorySandbox = (log: Log) =>
  *   are evaluated.
  * - `check_suite` evaluates the Renovate pull requests of a suite that
  *   passed, and applies the automatic lint fixes to those of a suite that
- *   failed.
+ *   failed, with a model fixing the findings they leave.
  * - `status` evaluates the Renovate pull requests of a commit once one of its
  *   statuses, such as `renovate/stability-days`, succeeds, and applies the
  *   automatic lint fixes to them once one fails.
@@ -118,6 +122,7 @@ export const createRenovateUpdateHandlers = ({
   fixLint = fixLintAndLog,
   readSettings: read = readSettings,
   createSandbox = createRepositorySandbox,
+  fixer = createModelLintFindingsFixer(),
 }: Partial<RenovateUpdateHandlerOptions> = {}): Record<
   "check_suite" | "pull_request" | "status",
   WebhookHandler
@@ -194,6 +199,7 @@ export const createRenovateUpdateHandlers = ({
       // oxlint-disable-next-line no-await-in-loop -- one pull request at a time
       await fixLint({
         dryRun: settings.dryRun,
+        fixer,
         lintFix,
         log,
         octokit,

@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -11,9 +12,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { createGitHubClient } from "@publira/github";
-import { LINT_FIX_COMMIT_SUBJECT } from "@publira/maintenance-policies";
+import {
+  LINT_FINDINGS_FIX_COMMIT_SUBJECT,
+  LINT_FIX_COMMIT_SUBJECT,
+} from "@publira/maintenance-policies";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
+import type { LintFindingsFixer } from "../lint-findings-fixer.ts";
 import type {
   Sandbox,
   SandboxCommand,
@@ -193,8 +199,13 @@ const localSandbox = ({
   const commands: SandboxCommand[] = [];
   const localize = (value: string) =>
     value.replaceAll(SANDBOX_WORKTREE, worktree);
+  let networkDenied = false;
 
   const sandbox: Sandbox = {
+    denyNetwork() {
+      networkDenied = true;
+      return Promise.resolve();
+    },
     run(command) {
       commands.push(command);
       const args = (command.args ?? []).map(localize);
@@ -234,6 +245,10 @@ const localSandbox = ({
         stdout: result.stdout,
       });
     },
+    writeFile(file, content) {
+      write("/", localize(file), content);
+      return Promise.resolve();
+    },
   };
   let started = 0;
   const runner: SandboxRunner = (task) => {
@@ -246,6 +261,7 @@ const localSandbox = ({
     calls: () =>
       readFileSync(path.join(home, "calls"), "utf-8").trim().split("\n"),
     commands,
+    networkDenied: () => networkDenied,
     runner,
     started: () => started,
     worktree,
@@ -263,6 +279,8 @@ interface GitHubOptions {
   headCommit?: { author: string; message: string };
   /** Whether the branch moved, so a fast-forward fails. */
   moved?: boolean;
+  /** The bodies of the bot's comments on the pull request. */
+  comments?: readonly string[];
 }
 
 const file = (content: string) =>
@@ -290,9 +308,16 @@ const fakeGitHub = ({
     message: "chore(deps): update oxc monorepo",
   },
   moved = false,
+  comments: initialComments = [],
 }: GitHubOptions) => {
   const writes: { route: string; body: unknown }[] = [];
   const reads: string[] = [];
+  const comments = initialComments.map((body, index) => ({
+    body,
+    created_at: "2026-10-10T00:00:00Z",
+    id: index + 1,
+    user: { login: BOT },
+  }));
 
   const respond = (...[input, init]: Parameters<typeof fetch>) => {
     const url = new URL(String(input));
@@ -372,6 +397,21 @@ const fakeGitHub = ({
             : Response.json({})
         );
       }
+      case `GET ${repository}/issues/31/comments`: {
+        return Promise.resolve(Response.json(comments));
+      }
+      case `POST ${repository}/issues/31/comments`: {
+        const comment = {
+          body: z
+            .object({ body: z.string() })
+            .parse(JSON.parse(String(init?.body))).body,
+          created_at: "2026-10-10T01:00:00Z",
+          id: 100 + comments.length,
+          user: { login: BOT },
+        };
+        comments.push(comment);
+        return Promise.resolve(Response.json(comment, { status: 201 }));
+      }
       default: {
         return Promise.resolve(notFound());
       }
@@ -404,7 +444,11 @@ const location = {
 const run = (
   github: ReturnType<typeof fakeGitHub>,
   sandbox: ReturnType<typeof localSandbox>,
-  options: { dryRun?: boolean; createReadToken?: () => Promise<string> } = {}
+  options: {
+    dryRun?: boolean;
+    createReadToken?: () => Promise<string>;
+    fixer?: LintFindingsFixer;
+  } = {}
 ) =>
   applyLintFixes({
     ...location,
@@ -542,24 +586,29 @@ describe(applyLintFixes, () => {
     expect(github.writes).toStrictEqual([]);
   });
 
-  it("hands over a head that is its own fix without starting a sandbox", async () => {
-    const github = fakeGitHub({
-      fixture,
-      headCommit: {
-        author: BOT,
-        message: `${LINT_FIX_COMMIT_SUBJECT}\n\nRan.`,
-      },
-    });
-    const sandbox = localSandbox({ origin: fixture.origin, root });
+  it.each([
+    ["automatic fix", LINT_FIX_COMMIT_SUBJECT],
+    ["commit of a model's fix", LINT_FINDINGS_FIX_COMMIT_SUBJECT],
+  ])(
+    "hands over a head that is its own %s without starting a sandbox",
+    async (_, subject) => {
+      const github = fakeGitHub({
+        fixture,
+        headCommit: { author: BOT, message: `${subject}\n\nRan.` },
+      });
+      const sandbox = localSandbox({ origin: fixture.origin, root });
+      const fixer = vi.fn<LintFindingsFixer>();
 
-    await expect(run(github, sandbox)).resolves.toStrictEqual({
-      headSha: fixture.headSha,
-      output: undefined,
-      reason: "a check failed on the bot's own fix",
-      status: "unfixed",
-    } satisfies ApplyLintFixesResult);
-    expect(sandbox.started()).toBe(0);
-  });
+      await expect(run(github, sandbox, { fixer })).resolves.toStrictEqual({
+        headSha: fixture.headSha,
+        output: undefined,
+        reason: "a check failed on the bot's own fix",
+        status: "unfixed",
+      } satisfies ApplyLintFixesResult);
+      expect(sandbox.started()).toBe(0);
+      expect(fixer).not.toHaveBeenCalled();
+    }
+  );
 
   it("writes nothing when the lint check passes", async () => {
     commitToFixture(fixture, { "README.md": "# Comic Viewer\n" });
@@ -747,6 +796,291 @@ describe(applyLintFixes, () => {
   });
 });
 
+const MODEL = "anthropic/claude-sonnet-5.5";
+
+// The content of src/index.ts that passes the check.
+const FIXED_SCRIPT = "export const read = () => 1;\n";
+
+/**
+ * A model that writes `files`, by their paths in the repository, and notes
+ * whether the sandbox still had the network when it started.
+ */
+const modelWriting = (
+  sandbox: ReturnType<typeof localSandbox>,
+  files: Readonly<Record<string, string>>
+) => {
+  const networkDenied: boolean[] = [];
+  const fixer = vi.fn<LintFindingsFixer>(
+    async ({ sandbox: session, worktree }) => {
+      networkDenied.push(sandbox.networkDenied());
+      for (const [name, content] of Object.entries(files)) {
+        // oxlint-disable-next-line no-await-in-loop -- one file at a time
+        await session.writeFile(path.posix.join(worktree, name), content);
+      }
+      return { model: MODEL, stopped: false };
+    }
+  );
+  return { fixer, networkDenied };
+};
+
+describe("applyLintFixes with a model for the findings", () => {
+  let root: string;
+  let fixture: Fixture;
+
+  beforeEach(() => {
+    root = mkdtempSync(path.join(tmpdir(), "apply-lint-fixes-"));
+    fixture = createFixture(root);
+    // The README the automatic fix fixes, and a statement it leaves.
+    commitToFixture(fixture, {
+      "src/index.ts": "export const read = () => {\n  debugger;\n};\n",
+    });
+  });
+
+  afterEach(() => {
+    rmSync(root, { force: true, recursive: true });
+  });
+
+  const marker = () =>
+    `<!-- chachamaru-lint-findings head=${fixture.headSha} -->`;
+
+  it("commits the model's fix with the automatic one, disclosing the model", async () => {
+    const github = fakeGitHub({ fixture });
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+    const { fixer, networkDenied } = modelWriting(sandbox, {
+      "src/index.ts": FIXED_SCRIPT,
+    });
+
+    await expect(run(github, sandbox, { fixer })).resolves.toStrictEqual({
+      checkPassed: true,
+      commitSha: "new-commit",
+      findings: {
+        checkPassed: true,
+        model: MODEL,
+        paths: ["README.md", "src/index.ts"],
+        stopped: false,
+      },
+      headSha: fixture.headSha,
+      output: undefined,
+      paths: ["README.md", "src/index.ts"],
+      status: "committed",
+    } satisfies ApplyLintFixesResult);
+
+    // The model got the check and the automatic fix's diff, and nothing
+    // else, in a sandbox cut off from the network.
+    const [request] = fixer.mock.calls[0] ?? [];
+    expect(request).toMatchObject({
+      command: "pnpm exec ultracite check",
+      output: "debugger statement\n",
+      worktree: SANDBOX_WORKTREE,
+    });
+    expect(request?.diff).toContain("-# Comic Viewer \n+# Comic Viewer\n");
+    expect(networkDenied).toStrictEqual([true]);
+
+    expect(github.writes).toStrictEqual([
+      {
+        body: {
+          base_tree: "head-tree",
+          tree: [
+            {
+              content: "# Comic Viewer\n\nReads comics.\n",
+              mode: "100644",
+              path: "README.md",
+              type: "blob",
+            },
+            {
+              content: FIXED_SCRIPT,
+              mode: "100644",
+              path: "src/index.ts",
+              type: "blob",
+            },
+          ],
+        },
+        route: `POST ${repository}/git/trees`,
+      },
+      {
+        body: {
+          message: [
+            LINT_FINDINGS_FIX_COMMIT_SUBJECT,
+            "",
+            `Ran \`ultracite fix\` with pnpm on ${fixture.headSha}, and a model fixed the findings it left; \`ultracite check\` passed on the result in the sandbox.`,
+            "",
+            `Assisted-by: Chachamaru:${MODEL}`,
+          ].join("\n"),
+          parents: [fixture.headSha],
+          tree: "new-tree",
+        },
+        route: `POST ${repository}/git/commits`,
+      },
+      {
+        body: { force: false, sha: "new-commit" },
+        route: `PATCH ${repository}/git/refs/heads/${BRANCH}`,
+      },
+    ]);
+  });
+
+  it("plans the model's commit in a dry run", async () => {
+    const github = fakeGitHub({ fixture });
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+    const { fixer } = modelWriting(sandbox, { "src/index.ts": FIXED_SCRIPT });
+
+    await expect(
+      run(github, sandbox, { dryRun: true, fixer })
+    ).resolves.toMatchObject({
+      findings: { checkPassed: true, paths: ["README.md", "src/index.ts"] },
+      paths: ["README.md", "src/index.ts"],
+      status: "would-commit",
+    });
+    expect(github.writes).toStrictEqual([]);
+  });
+
+  it("commits the automatic fix alone and comments when the model turns a finding off", async () => {
+    const github = fakeGitHub({ fixture });
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+    const { fixer } = modelWriting(sandbox, {
+      "src/index.ts": `// @ts-expect-error the check\n${FIXED_SCRIPT}`,
+    });
+
+    await expect(run(github, sandbox, { fixer })).resolves.toStrictEqual({
+      checkPassed: false,
+      commitSha: "new-commit",
+      findings: {
+        checkPassed: true,
+        comment: { created: true, id: 100 },
+        model: MODEL,
+        paths: ["README.md", "src/index.ts"],
+        reason: "the model added comments that turn findings off",
+        refusedPaths: [],
+        stopped: false,
+        suppressions: ["src/index.ts:1"],
+      },
+      headSha: fixture.headSha,
+      output: "debugger statement\n",
+      paths: ["README.md"],
+      status: "committed",
+    } satisfies ApplyLintFixesResult);
+
+    expect(github.writes.map(({ route }) => route)).toStrictEqual([
+      `POST ${repository}/git/trees`,
+      `POST ${repository}/git/commits`,
+      `PATCH ${repository}/git/refs/heads/${BRANCH}`,
+      `POST ${repository}/issues/31/comments`,
+    ]);
+    expect(github.writes[1]?.body).toMatchObject({
+      message: `${LINT_FIX_COMMIT_SUBJECT}\n\nRan \`ultracite fix\` with pnpm on ${fixture.headSha}.`,
+    });
+    expect(github.writes[3]?.body).toStrictEqual({
+      body: [
+        marker(),
+        `The automatic lint fixes leave findings on ${fixture.headSha} that a model could not fix for Chachamaru: the model added comments that turn findings off. A maintainer needs to fix them; Chachamaru does not try this commit again.`,
+        "",
+        "The lines that turn findings off:",
+        "",
+        "- src/index.ts:1",
+        "",
+        "The end of `pnpm exec ultracite check` after the automatic fixes:",
+        "",
+        "```",
+        "debugger statement",
+        "```",
+      ].join("\n"),
+    });
+  });
+
+  it("refuses a model's fix that changes the lint configuration", async () => {
+    commitToFixture(fixture, {
+      "oxlint.config.ts": "export default { rules: {} };\n",
+    });
+    const github = fakeGitHub({ fixture });
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+    const { fixer } = modelWriting(sandbox, {
+      "oxlint.config.ts":
+        'export default { rules: { "no-debugger": "off" } };\n',
+      "src/index.ts": FIXED_SCRIPT,
+    });
+
+    await expect(run(github, sandbox, { fixer })).resolves.toMatchObject({
+      findings: {
+        reason:
+          "the model changed a lock file, a package.json, a file under .github, or the lint configuration",
+        refusedPaths: ["oxlint.config.ts"],
+      },
+      paths: ["README.md"],
+      status: "committed",
+    });
+  });
+
+  it("comments when the check still fails after the model", async () => {
+    commitToFixture(fixture, { "README.md": "# Comic Viewer\n" });
+    const github = fakeGitHub({ fixture });
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+    const { fixer } = modelWriting(sandbox, {
+      "src/index.ts":
+        "export const read = () => {\n  debugger;\n  return 1;\n};\n",
+    });
+
+    await expect(run(github, sandbox, { fixer })).resolves.toStrictEqual({
+      findings: {
+        checkPassed: false,
+        comment: { created: true, id: 100 },
+        model: MODEL,
+        paths: ["src/index.ts"],
+        reason: "`ultracite check` still fails after the model's changes",
+        refusedPaths: [],
+        stopped: false,
+        suppressions: [],
+      },
+      headSha: fixture.headSha,
+      output: "debugger statement\n",
+      reason: "the automatic fix changed nothing",
+      status: "unfixed",
+    } satisfies ApplyLintFixesResult);
+    expect(github.writes.map(({ route }) => route)).toStrictEqual([
+      `POST ${repository}/issues/31/comments`,
+    ]);
+  });
+
+  it("checks without the files Git does not track that the model wrote", async () => {
+    const github = fakeGitHub({ fixture });
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+    const { fixer } = modelWriting(sandbox, {
+      "src/helper.ts": "export const helper = () => 1;\n",
+      "src/index.ts": FIXED_SCRIPT,
+    });
+
+    await expect(
+      run(github, sandbox, { dryRun: true, fixer })
+    ).resolves.toMatchObject({
+      paths: ["README.md", "src/index.ts"],
+      status: "would-commit",
+    });
+    expect(
+      existsSync(path.join(sandbox.worktree, "src/helper.ts"))
+    ).toBeFalsy();
+    // What the install and the tools left stays.
+    expect(existsSync(path.join(sandbox.worktree, ".lint-cache"))).toBeTruthy();
+  });
+
+  it("does not ask the model again on a head it tried", async () => {
+    commitToFixture(fixture, { "README.md": "# Comic Viewer\n" });
+    const github = fakeGitHub({
+      comments: [`${marker()}\nAn earlier attempt.`],
+      fixture,
+    });
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+    const { fixer } = modelWriting(sandbox, { "src/index.ts": FIXED_SCRIPT });
+
+    await expect(run(github, sandbox, { fixer })).resolves.toStrictEqual({
+      headSha: fixture.headSha,
+      output: "debugger statement\n",
+      reason: "the automatic fix changed nothing",
+      status: "unfixed",
+    } satisfies ApplyLintFixesResult);
+    expect(fixer).not.toHaveBeenCalled();
+    expect(sandbox.networkDenied()).toBeFalsy();
+    expect(github.writes).toStrictEqual([]);
+  });
+});
+
 describe(summarizeLintFixResult, () => {
   it("logs a refusal without the file contents", () => {
     expect(
@@ -759,16 +1093,62 @@ describe(summarizeLintFixResult, () => {
       })
     ).toStrictEqual({
       checkPassed: undefined,
+      comment: undefined,
+      commentCreated: undefined,
       commit: undefined,
       exitCode: undefined,
       headSha: "head",
+      model: undefined,
+      modelCheckPassed: undefined,
       modelInvoked: false,
+      modelPaths: undefined,
+      modelReason: undefined,
+      modelRefusedPaths: undefined,
+      modelStopped: undefined,
       output: undefined,
       paths: ["README.md", "pnpm-lock.yaml"],
       reason: "the fix changed files it has no reason to change",
       refusedPaths: ["pnpm-lock.yaml"],
       status: "refused",
       step: undefined,
+      suppressions: undefined,
+    });
+  });
+
+  it("logs what the model did and why its fix was refused", () => {
+    expect(
+      summarizeLintFixResult({
+        checkPassed: false,
+        commitSha: "fixed",
+        findings: {
+          checkPassed: true,
+          comment: { created: true, id: 7 },
+          model: "anthropic/claude-sonnet-5.5",
+          paths: ["README.md", "src/index.ts"],
+          reason: "the model added comments that turn findings off",
+          refusedPaths: [],
+          stopped: false,
+          suppressions: ["src/index.ts:1"],
+        },
+        headSha: "head",
+        output: "debugger statement\n",
+        paths: ["README.md"],
+        status: "committed",
+      })
+    ).toMatchObject({
+      checkPassed: false,
+      comment: 7,
+      commentCreated: true,
+      commit: "fixed",
+      model: "anthropic/claude-sonnet-5.5",
+      modelCheckPassed: true,
+      modelInvoked: true,
+      modelPaths: ["README.md", "src/index.ts"],
+      modelReason: "the model added comments that turn findings off",
+      modelRefusedPaths: [],
+      modelStopped: false,
+      paths: ["README.md"],
+      suppressions: ["src/index.ts:1"],
     });
   });
 });

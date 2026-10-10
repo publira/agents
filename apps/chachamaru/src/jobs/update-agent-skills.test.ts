@@ -167,6 +167,8 @@ const localSandbox = ({
     value.replaceAll(SANDBOX_WORKTREE, worktree);
 
   const sandbox: Sandbox = {
+    denyNetwork: () =>
+      Promise.reject(new Error("The skills update keeps the network")),
     run(command) {
       commands.push(command);
       const args = (command.args ?? []).map(localize);
@@ -210,6 +212,10 @@ const localSandbox = ({
         stdout: result.stdout,
       });
     },
+    writeFile: () =>
+      Promise.reject(
+        new Error("The skills update writes no file through the sandbox")
+      ),
   };
   let started = 0;
   const runner: SandboxRunner = (task) => {
@@ -746,7 +752,11 @@ describe(updateAgentSkillsEverywhere, () => {
       job,
       log,
       sandbox: (task) =>
-        task({ run: () => Promise.reject(new Error("unused")) }),
+        task({
+          denyNetwork: () => Promise.reject(new Error("unused")),
+          run: () => Promise.reject(new Error("unused")),
+          writeFile: () => Promise.reject(new Error("unused")),
+        }),
     });
 
     expect(

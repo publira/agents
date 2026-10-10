@@ -5,6 +5,7 @@ import {
 import type { GitHubApp, Octokit } from "@publira/github";
 import { isRenovate } from "@publira/maintenance-policies";
 
+import type { LintFindingsFixer } from "../lint-findings-fixer.ts";
 import { loggableFailure, withFields } from "../log.ts";
 import type { Log } from "../log.ts";
 import type { SandboxRunner } from "../sandbox-runner.ts";
@@ -169,6 +170,8 @@ export interface FixLintOptions {
   dryRun: boolean;
   log: Log;
   lintFix: RepositorySandbox;
+  /** Fixes the findings the automatic fix leaves; see `applyLintFixes`. */
+  fixer?: LintFindingsFixer;
   /** Replaced in tests. */
   fix?: typeof applyLintFixes;
 }
@@ -188,6 +191,7 @@ export const fixLintAndLog = async ({
   dryRun,
   log,
   lintFix,
+  fixer,
   fix = applyLintFixes,
 }: FixLintOptions): Promise<boolean> => {
   const lintFixLog = withFields(log, {
@@ -202,6 +206,7 @@ export const fixLintAndLog = async ({
       ...lintFix,
       botLogin: reviewer,
       dryRun,
+      fixer,
       octokit,
       owner,
       pullNumber,
@@ -369,6 +374,11 @@ export interface EvaluateRenovateUpdatesEverywhereOptions {
    * this sandbox; see `regeneration`.
    */
   sandbox?: SandboxRunner;
+  /**
+   * Fixes the findings the automatic lint fixes leave, in the sandbox; see
+   * `applyLintFixes`.
+   */
+  fixer?: LintFindingsFixer;
   /** Replaced in tests. */
   evaluate?: typeof evaluateRenovateUpdate;
   /** Replaced in tests. */
@@ -419,6 +429,7 @@ export const evaluateRenovateUpdatesEverywhere = async ({
   settings,
   headRef,
   sandbox,
+  fixer,
   evaluate = evaluateRenovateUpdate,
   regenerate = regenerateGeneratedOutput,
   fixLint = applyLintFixes,
@@ -481,6 +492,7 @@ export const evaluateRenovateUpdatesEverywhere = async ({
                   (await fixLintAndLog({
                     ...pullRequest,
                     fix: fixLint,
+                    fixer,
                     lintFix: repositorySandbox,
                     pullNumber,
                   }))

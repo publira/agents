@@ -145,6 +145,8 @@ const localSandbox = ({
     value.replaceAll(SANDBOX_WORKTREE, worktree);
 
   const sandbox: Sandbox = {
+    denyNetwork: () =>
+      Promise.reject(new Error("The regeneration keeps the network")),
     run(command) {
       commands.push(command);
       const args = (command.args ?? []).map(localize);
@@ -178,6 +180,10 @@ const localSandbox = ({
         stdout: result.stdout,
       });
     },
+    writeFile: () =>
+      Promise.reject(
+        new Error("The regeneration writes no file through the sandbox")
+      ),
   };
   let started = 0;
   const runner: SandboxRunner = (task) => {

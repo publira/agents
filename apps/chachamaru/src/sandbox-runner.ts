@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { Sandbox as VercelSandbox } from "@vercel/sandbox";
 
 import { loggableFailure } from "./log.ts";
@@ -22,6 +24,10 @@ export interface SandboxCommandResult {
 /** A Linux machine, isolated from the app runtime, that runs commands. */
 export interface Sandbox {
   run: (command: SandboxCommand) => Promise<SandboxCommandResult>;
+  /** Writes a file, creating its directory; `file` is an absolute path. */
+  writeFile: (file: string, content: string) => Promise<void>;
+  /** Cuts the sandbox off from the network for the rest of its life. */
+  denyNetwork: () => Promise<void>;
 }
 
 /**
@@ -60,6 +66,9 @@ export const createVercelSandboxRunner =
 
     try {
       return await task({
+        async denyNetwork() {
+          await sandbox.update({ networkPolicy: "deny-all" });
+        },
         async run({ cmd, args = [], cwd, env, timeoutMs: commandTimeoutMs }) {
           const command = await sandbox.runCommand({
             args: [...args],
@@ -73,6 +82,10 @@ export const createVercelSandboxRunner =
             command.stderr(),
           ]);
           return { exitCode: command.exitCode, stderr, stdout };
+        },
+        async writeFile(file, content) {
+          await sandbox.fs.mkdir(path.posix.dirname(file), { recursive: true });
+          await sandbox.fs.writeFile(file, content);
         },
       });
     } finally {

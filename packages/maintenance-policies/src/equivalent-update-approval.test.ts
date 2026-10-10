@@ -8,7 +8,10 @@ import {
   isRenovate,
 } from "./equivalent-update-approval.ts";
 import type { PullRequestReview } from "./equivalent-update-approval.ts";
-import { LINT_FIX_COMMIT_SUBJECT } from "./lint-fix.ts";
+import {
+  LINT_FINDINGS_FIX_COMMIT_SUBJECT,
+  LINT_FIX_COMMIT_SUBJECT,
+} from "./lint-fix.ts";
 
 describe(isRenovate, () => {
   it("accepts Renovate's bot account", () => {
@@ -368,6 +371,27 @@ describe(evaluateRenovateCommits, () => {
           problem: "files",
           result: "foreign-commit",
           sha: "b",
+        });
+      });
+
+      it("refuses the commit of a model's fixes, whatever it changes", () => {
+        expect(
+          evaluateRenovateCommits(
+            [
+              renovateCommit("a"),
+              lintFixCommit("b", ["README.md"]),
+              {
+                ...lintFixCommit("c", [".devcontainer/devcontainer-lock.json"]),
+                subject: LINT_FINDINGS_FIX_COMMIT_SUBJECT,
+              },
+            ],
+            "c",
+            scope
+          )
+        ).toStrictEqual({
+          problem: "model",
+          result: "foreign-commit",
+          sha: "c",
         });
       });
 

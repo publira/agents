@@ -194,4 +194,35 @@ describe(ensureIssueComment, () => {
     ]);
     expect(results.map(({ id }) => id)).toStrictEqual([100, 100]);
   });
+
+  describe("with a marker", () => {
+    const marker = "<!-- chachamaru-lint-findings head=abc -->";
+    const marked = {
+      ...options,
+      body: `${marker}\nThe check still fails.`,
+      marker,
+      since: undefined,
+    };
+
+    it("leaves a comment with the marker, whatever its body", async () => {
+      const { github } = commentStore([
+        { body: `${marker}\nAn earlier run's output.` },
+      ]);
+
+      await expect(
+        ensureIssueComment(createGitHubClient({ fetch: github.fetch }), marked)
+      ).resolves.toStrictEqual({ created: false, id: 1 });
+      expect(github.requests[0]?.url.searchParams.has("since")).toBeFalsy();
+    });
+
+    it("posts the comment when none has the marker", async () => {
+      const { github } = commentStore([
+        { body: "<!-- chachamaru-lint-findings head=def -->\nAnother head." },
+      ]);
+
+      await expect(
+        ensureIssueComment(createGitHubClient({ fetch: github.fetch }), marked)
+      ).resolves.toStrictEqual({ created: true, id: 100 });
+    });
+  });
 });
