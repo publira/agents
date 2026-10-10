@@ -221,10 +221,10 @@ describe(ensureReview, () => {
 
 interface ReviewNode {
   id: string;
+  fullDatabaseId: string | null;
   state: string;
   isMinimized: boolean;
   author: { __typename: string; login: string } | null;
-  commit: { oid: string } | null;
 }
 
 const graphqlRequest = z.object({
@@ -233,13 +233,14 @@ const graphqlRequest = z.object({
 });
 
 /**
- * The reviews of pull request 7 as GitHub's GraphQL API lists them, `perPage`
- * at a time, and minimizes them.
+ * The reviews of pull request 7 as GitHub's GraphQL API lists them, oldest
+ * first and `perPage` at a time, and minimizes them. Review `n` has the
+ * database ID `n`.
  */
 const reviewNodeStore = (initial: Partial<ReviewNode>[], perPage = 100) => {
   const store: ReviewNode[] = initial.map((review, index) => ({
     author: { __typename: "Bot", login: "publira-maintenance" },
-    commit: { oid: "old-head" },
+    fullDatabaseId: String(index + 1),
     id: `PRR_${index + 1}`,
     isMinimized: false,
     state: "APPROVED",
@@ -286,19 +287,20 @@ const minimized = (requests: { body: unknown }[]) =>
   });
 
 describe(minimizeOutdatedReviews, () => {
+  // The reviewer just submitted review 3.
   const location = {
-    commitId: "head",
     owner: "publira",
     pullNumber: 7,
     repo: "agents",
+    reviewId: 3,
     reviewer: bot,
   };
 
-  it("minimizes the reviewer's reviews of other commits as outdated", async () => {
+  it("minimizes the reviewer's earlier reviews as outdated", async () => {
     const { github, store } = reviewNodeStore([
       { state: "DISMISSED" },
       { state: "APPROVED" },
-      { commit: { oid: "head" } },
+      { state: "APPROVED" },
     ]);
 
     await expect(
@@ -318,12 +320,39 @@ describe(minimizeOutdatedReviews, () => {
     });
   });
 
+  it("leaves a review submitted after the given one, such as of a newer head", async () => {
+    const { github } = reviewNodeStore([{}, {}, {}, {}]);
+
+    await expect(
+      minimizeOutdatedReviews(
+        createGitHubClient({ fetch: github.fetch }),
+        location
+      )
+    ).resolves.toBe(2);
+    expect(minimized(github.requests)).toStrictEqual(["PRR_1", "PRR_2"]);
+  });
+
+  it("compares review IDs as numbers", async () => {
+    const { github } = reviewNodeStore([
+      { fullDatabaseId: "9" },
+      { fullDatabaseId: "12345678901234567890" },
+    ]);
+
+    await minimizeOutdatedReviews(createGitHubClient({ fetch: github.fetch }), {
+      ...location,
+      reviewId: 10,
+    });
+
+    expect(minimized(github.requests)).toStrictEqual(["PRR_1"]);
+  });
+
   it.each([
     ["another user", { author: { __typename: "User", login: "ykzts" } }],
     ["another bot", { author: { __typename: "Bot", login: "renovate" } }],
     ["a deleted account", { author: null }],
     ["the reviewer, already minimized", { isMinimized: true }],
     ["the reviewer, still pending", { state: "PENDING" }],
+    ["the reviewer, without an ID", { fullDatabaseId: null }],
   ])("leaves a review by %s", async (_label, overrides) => {
     const { github } = reviewNodeStore([overrides]);
 
@@ -337,10 +366,7 @@ describe(minimizeOutdatedReviews, () => {
   });
 
   it("reads every page of the reviews", async () => {
-    const { github } = reviewNodeStore(
-      [{ commit: { oid: "head" } }, {}, {}],
-      2
-    );
+    const { github } = reviewNodeStore([{}, {}, {}], 2);
 
     await expect(
       minimizeOutdatedReviews(
@@ -348,16 +374,16 @@ describe(minimizeOutdatedReviews, () => {
         location
       )
     ).resolves.toBe(2);
-    expect(minimized(github.requests)).toStrictEqual(["PRR_2", "PRR_3"]);
+    expect(minimized(github.requests)).toStrictEqual(["PRR_1", "PRR_2"]);
   });
 
   it("changes nothing when run again", async () => {
-    const { github } = reviewNodeStore([{}, { commit: { oid: "head" } }]);
+    const { github } = reviewNodeStore([{}, {}, {}]);
     const octokit = createGitHubClient({ fetch: github.fetch });
 
     await minimizeOutdatedReviews(octokit, location);
 
     await expect(minimizeOutdatedReviews(octokit, location)).resolves.toBe(0);
-    expect(minimized(github.requests)).toStrictEqual(["PRR_1"]);
+    expect(minimized(github.requests)).toStrictEqual(["PRR_1", "PRR_2"]);
   });
 });

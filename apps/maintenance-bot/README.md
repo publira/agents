@@ -57,7 +57,7 @@ The model is asked only to remove expired `minimumReleaseAgeExclude` entries who
 
 The bot writes one JSON object per line to the Vercel project's runtime logs, without tokens, keys, the webhook secret, or file contents. Each line names the `job` (or the `schedule`), the `installation`, the `owner` and `repo`, the `pullRequest`, `dryRun`, and the webhook `delivery` it comes from, where they apply. Beyond those:
 
-- `approve-equivalent-renovate-update`: the `status`; for a skipped pull request, the failed `condition` and its `detail`; for an approval, the `precedent` pull request, the maintainer whose approval of it counts (`precedentApprovedBy`), the `review` with `reviewCreated`, and, once the bot submitted it, how many of its earlier reviews of other heads it minimized (`minimizedReviews`) or why it could not (`minimizeError`, `minimizeErrorStatus`, logged as a warning). `modelInvoked` is always `false`.
+- `approve-equivalent-renovate-update`: the `status`; for a skipped pull request, the failed `condition` and its `detail`; for an approval, the `precedent` pull request, the maintainer whose approval of it counts (`precedentApprovedBy`), the `review` with `reviewCreated`, and, once the bot submitted it, how many of its earlier reviews it minimized (`minimizedReviews`) or why it could not (`minimizeError`, `minimizeErrorStatus`, logged as a warning). `modelInvoked` is always `false`.
 - `auto-merge-renovate-update`: the decision (`autoMerge`), its reason (`autoMergeReason`), the `mergeMethod`, and what it took back (`autoMergeWithdrew`).
 - `close-completed-parent-issue`: the parent `issue` and the closed or removed `subIssue` that led to it, the `status`, the `reason` an issue was left open, the number of `subIssues`, and the `comment` with `commentCreated`. `modelInvoked` is always `false`.
 - `label-agent-assisted-pull-request`: the `status`, the number of `commits` it read, and the `reason` it left the label as it is. `modelInvoked` is always `false`.
@@ -68,7 +68,7 @@ The bot writes one JSON object per line to the Vercel project's runtime logs, wi
 
 ### Renovate approval
 
-Each time a Renovate pull request moves to a new head, such as when Renovate rebases it, the bot evaluates the head anew and submits a new approval of it, since an approval is bound to the commit it was submitted for. Once it has submitted one, it minimizes its own earlier reviews of other heads as outdated, so the timeline shows the latest approval in full and the earlier ones stay readable when expanded. It leaves other people's reviews as they are. A failure to minimize is logged and leaves the approval standing.
+Each time a Renovate pull request moves to a new head, such as when Renovate rebases it, the bot evaluates the head anew and submits a new approval of it, since an approval is bound to the commit it was submitted for. Once it has submitted one, it minimizes its own reviews submitted before it as outdated, so the timeline shows the latest approval in full and the earlier ones stay readable when expanded. It leaves other people's reviews as they are. A failure to minimize is logged and leaves the approval standing.
 
 ### Renovate auto-merge
 

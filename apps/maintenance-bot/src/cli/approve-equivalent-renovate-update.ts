@@ -79,8 +79,8 @@ if (result.status === "already-reviewed") {
   if (result.status === "approved" && result.outdatedReviews !== undefined) {
     console.log(
       "minimized" in result.outdatedReviews
-        ? `Minimized ${result.outdatedReviews.minimized} earlier review(s) of other heads as outdated.`
-        : `Could not minimize the earlier reviews of other heads: ${result.outdatedReviews.error}`
+        ? `Minimized ${result.outdatedReviews.minimized} earlier review(s) as outdated.`
+        : `Could not minimize the earlier reviews: ${result.outdatedReviews.error}`
     );
   }
 }

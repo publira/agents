@@ -79,8 +79,8 @@ export interface Precedent {
 }
 
 /**
- * How many of the bot's earlier reviews of other heads it minimized as
- * outdated, or why it could not.
+ * How many of the bot's reviews submitted before its approval it minimized
+ * as outdated, or why it could not.
  */
 export type OutdatedReviews =
   | { minimized: number }
@@ -842,8 +842,8 @@ const evaluateConditions = async (
  * The head is read again just before the review is submitted, and the review
  * is for that commit only. If the head moved during the submission, the
  * approval is dismissed. Running it again on the same head submits nothing.
- * Once it submitted the approval of a head, it minimizes its own earlier
- * reviews of other heads as outdated, so that only the latest shows in full;
+ * Once it submitted the approval of a head, it minimizes its own reviews
+ * submitted before it as outdated, so that only the latest shows in full;
  * a failure to do so leaves the approval as it is.
  */
 export const approveEquivalentRenovateUpdate = async ({
@@ -958,10 +958,10 @@ export const approveEquivalentRenovateUpdate = async ({
   try {
     outdatedReviews = {
       minimized: await minimizeOutdatedReviews(octokit, {
-        commitId: headSha,
         owner,
         pullNumber,
         repo,
+        reviewId: review.id,
         reviewer,
       }),
     };

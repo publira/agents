@@ -169,8 +169,11 @@ export const ensureReview = async (
 };
 
 export interface MinimizeOutdatedReviewsOptions extends PullRequestLocation {
-  /** The head commit whose reviews stay as they are. */
-  commitId: string;
+  /**
+   * The review the reviewer just submitted. Only its earlier reviews are
+   * minimized, so a later review, such as of a newer head, stays as it is.
+   */
+  reviewId: number;
   /** The login whose reviews are minimized, such as the App's bot login. */
   reviewer: string;
 }
@@ -182,7 +185,7 @@ const reviewsResponse = z.object({
         nodes: z.array(
           z.object({
             author: graphqlActor.nullable(),
-            commit: z.object({ oid: z.string() }).nullable(),
+            fullDatabaseId: z.string().nullable(),
             id: z.string(),
             isMinimized: z.boolean(),
             state: z.string(),
@@ -214,10 +217,10 @@ const listReviewNodes = async (
           reviews(first: 100, after: $after) {
             nodes {
               id
+              fullDatabaseId
               state
               isMinimized
               author { __typename login }
-              commit { oid }
             }
             pageInfo { hasNextPage endCursor }
           }
@@ -238,11 +241,11 @@ const listReviewNodes = async (
 };
 
 /**
- * Minimizes, as outdated, the reviewer's submitted reviews of a pull request
- * for commits other than the given one, so that the timeline shows the
- * review of the head in full. A minimized review keeps its state and stays
- * readable when expanded. Reviews already minimized, and those of other
- * users, are left as they are. Returns how many it minimized.
+ * Minimizes, as outdated, the reviewer's reviews of a pull request submitted
+ * before the given one, so that the timeline shows that review in full. A
+ * minimized review keeps its state and stays readable when expanded. Reviews
+ * already minimized, later ones, and those of other users are left as they
+ * are. Returns how many it minimized.
  */
 export const minimizeOutdatedReviews = async (
   octokit: Octokit,
@@ -250,11 +253,13 @@ export const minimizeOutdatedReviews = async (
 ): Promise<number> => {
   const reviews = await listReviewNodes(octokit, options);
   const outdated = reviews.filter(
-    ({ author, commit, isMinimized, state }) =>
+    ({ author, fullDatabaseId, isMinimized, state }) =>
       author !== null &&
       restLogin(author) === options.reviewer &&
       state !== "PENDING" &&
-      commit?.oid !== options.commitId &&
+      // Review IDs grow with each review a pull request gets.
+      fullDatabaseId !== null &&
+      BigInt(fullDatabaseId) < BigInt(options.reviewId) &&
       !isMinimized
   );
 

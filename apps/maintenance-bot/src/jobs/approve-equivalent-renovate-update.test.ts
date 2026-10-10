@@ -379,13 +379,14 @@ const run = (
   });
 
 // A review as GitHub's GraphQL API lists it, by the bot unless `author` says.
+// The approval the job submits is review 99.
 const reviewNode = (
   id: string,
-  commit: string,
+  databaseId: number,
   fields: JsonObject = {}
 ): JsonObject => ({
   author: { __typename: "Bot", login: "publira-maintenance" },
-  commit: { oid: commit },
+  fullDatabaseId: String(databaseId),
   id,
   isMinimized: false,
   state: "APPROVED",
@@ -571,15 +572,17 @@ describe(approveEquivalentRenovateUpdate, () => {
     expect(github.writes[1]?.body).toMatchObject({ event: "APPROVE" });
   });
 
-  it("minimizes its earlier reviews of other heads once it approved the head", async () => {
+  it("minimizes its reviews submitted before its approval of the head", async () => {
     const github = fakeGitHub({
       reviewNodes: [
-        reviewNode("PRR_dismissed", "8775efa", { state: "DISMISSED" }),
-        reviewNode("PRR_maintainer", "8775efa", {
+        reviewNode("PRR_dismissed", 10, { state: "DISMISSED" }),
+        reviewNode("PRR_maintainer", 11, {
           author: { __typename: "User", login: "ykzts" },
         }),
-        reviewNode("PRR_hidden", "0c9d676", { isMinimized: true }),
-        reviewNode("PRR_head", HEAD),
+        reviewNode("PRR_hidden", 12, { isMinimized: true }),
+        reviewNode("PRR_head", 99),
+        // A concurrent run's approval of a newer head.
+        reviewNode("PRR_newer", 120),
       ],
     });
 
@@ -595,7 +598,7 @@ describe(approveEquivalentRenovateUpdate, () => {
   it("keeps the approval when minimizing the earlier reviews fails", async () => {
     const github = fakeGitHub({
       minimizeRefused: true,
-      reviewNodes: [reviewNode("PRR_dismissed", "8775efa")],
+      reviewNodes: [reviewNode("PRR_dismissed", 10)],
     });
 
     const result = await run(github);
@@ -816,7 +819,7 @@ describe(approveEquivalentRenovateUpdate, () => {
       ownReviewsLater: [
         { commit_id: HEAD, id: 99, state: "APPROVED", user: { login: BOT } },
       ],
-      reviewNodes: [reviewNode("PRR_dismissed", "8775efa")],
+      reviewNodes: [reviewNode("PRR_dismissed", 10)],
     });
 
     const result = await run(github);
@@ -863,7 +866,7 @@ describe(approveEquivalentRenovateUpdate, () => {
 
   it("explains a dry run without writing", async () => {
     const github = fakeGitHub({
-      reviewNodes: [reviewNode("PRR_dismissed", "8775efa")],
+      reviewNodes: [reviewNode("PRR_dismissed", 10)],
     });
 
     const result = await run(github, { dryRun: true });
