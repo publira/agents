@@ -97,7 +97,8 @@ interface Scenario {
 
 interface GraphqlBody {
   query: string;
-  variables: Readonly<Record<string, unknown>>;
+  /** The node ID of the review to minimize. */
+  variables: { id?: string };
 }
 
 const PERMISSION_ROUTE =
