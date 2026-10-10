@@ -6,7 +6,7 @@ import { dynamic, fakeGitHub } from "./fake-github.ts";
 import { ensureReview, minimizeOutdatedReviews } from "./review.ts";
 
 const reviews = "/repos/publira/agents/pulls/7/reviews";
-const bot = "publira-maintenance[bot]";
+const bot = "chachamaru-bot[bot]";
 
 const options = {
   body: "Same update as publira/publira#3408.",
@@ -239,7 +239,7 @@ const graphqlRequest = z.object({
  */
 const reviewNodeStore = (initial: Partial<ReviewNode>[], perPage = 100) => {
   const store: ReviewNode[] = initial.map((review, index) => ({
-    author: { __typename: "Bot", login: "publira-maintenance" },
+    author: { __typename: "Bot", login: "chachamaru-bot" },
     fullDatabaseId: String(index + 1),
     id: `PRR_${index + 1}`,
     isMinimized: false,

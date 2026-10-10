@@ -10,7 +10,7 @@ import {
 } from "./issue.ts";
 
 const comments = "/repos/publira/agents/issues/51/comments";
-const bot = "publira-maintenance[bot]";
+const bot = "chachamaru-bot[bot]";
 const body = "Closing this Epic because all of its sub-issues are closed.";
 const since = new Date("2026-10-05T03:00:00Z");
 

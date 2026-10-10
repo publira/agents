@@ -8,7 +8,7 @@ const repository = "/repos/publira/agents";
 
 const options = {
   baseSha: "base",
-  branch: "maintenance-bot/cleanup",
+  branch: "chachamaru/cleanup",
   files: { "obsolete.txt": null, "pnpm-workspace.yaml": "packages: []\n" },
   message: "chore: clean up",
   owner: "publira",
@@ -22,11 +22,11 @@ const gitRoutes = (branchCommit?: { tree: string; parents: string[] }) => ({
     parents: branchCommit?.parents.map((sha) => ({ sha })),
     tree: { sha: branchCommit?.tree },
   },
-  [`GET ${repository}/git/ref/heads/maintenance-bot/cleanup`]:
+  [`GET ${repository}/git/ref/heads/chachamaru/cleanup`]:
     branchCommit === undefined
       ? Response.json({ message: "Not Found" }, { status: 404 })
       : { object: { sha: "branch-head" } },
-  [`PATCH ${repository}/git/refs/heads/maintenance-bot/cleanup`]: {},
+  [`PATCH ${repository}/git/refs/heads/chachamaru/cleanup`]: {},
   [`POST ${repository}/git/commits`]: { sha: "new-commit" },
   [`POST ${repository}/git/refs`]: {},
   [`POST ${repository}/git/trees`]: { sha: "new-tree" },
@@ -60,7 +60,7 @@ describe(commitToBranch, () => {
       tree: "new-tree",
     });
     expect(body(`POST ${repository}/git/refs`)).toStrictEqual({
-      ref: "refs/heads/maintenance-bot/cleanup",
+      ref: "refs/heads/chachamaru/cleanup",
       sha: "new-commit",
     });
   });
@@ -198,7 +198,7 @@ describe(commitToBranch, () => {
       commitToBranch(createGitHubClient({ fetch: github.fetch }), options)
     ).resolves.toStrictEqual({ created: true, sha: "new-commit" });
     expect(github.routes.at(-1)).toBe(
-      `PATCH ${repository}/git/refs/heads/maintenance-bot/cleanup`
+      `PATCH ${repository}/git/refs/heads/chachamaru/cleanup`
     );
   });
 

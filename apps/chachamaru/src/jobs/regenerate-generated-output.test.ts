@@ -25,7 +25,7 @@ import {
 } from "./regenerate-generated-output.ts";
 import type { RegenerateGeneratedOutputResult } from "./regenerate-generated-output.ts";
 
-const BOT = "publira-maintenance[bot]";
+const BOT = "chachamaru-bot[bot]";
 const BRANCH = "renovate/buf";
 const repository = "/repos/publira/publira";
 
@@ -256,7 +256,7 @@ const fakeGitHub = ({
           })
         );
       }
-      case `GET ${repository}/contents/.github/maintenance-bot/regenerate.yml`: {
+      case `GET ${repository}/contents/.chachamaru/regenerate.yml`: {
         return Promise.resolve(
           config === null || ref !== fixture.baseSha ? notFound() : file(config)
         );
@@ -452,10 +452,7 @@ describe(regenerateGeneratedOutput, () => {
       "Renovate did not open the pull request",
       { user: { login: "ykzts", type: "User" } },
     ],
-    [
-      "the base branch has no .github/maintenance-bot/regenerate.yml",
-      { config: null },
-    ],
+    ["the base branch has no .chachamaru/regenerate.yml", { config: null }],
     [
       "the pull request changes no file that calls for a regeneration",
       { changed: ["package.json"] },
@@ -486,7 +483,7 @@ describe(regenerateGeneratedOutput, () => {
     const sandbox = localSandbox({ origin: fixture.origin, root });
 
     await expect(run(github, sandbox)).resolves.toMatchObject({
-      reason: expect.stringContaining(".github/maintenance-bot/regenerate.yml"),
+      reason: expect.stringContaining(".chachamaru/regenerate.yml"),
       status: "skipped",
     });
     expect(sandbox.started()).toBe(0);

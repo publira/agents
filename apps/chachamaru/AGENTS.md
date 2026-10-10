@@ -1,10 +1,10 @@
-# Maintenance Bot Agent Guide
+# Chachamaru Agent Guide
 
-Conventions for the maintenance bot, on top of the repository's [AGENTS.md](../../AGENTS.md). Paths are relative to `apps/maintenance-bot/`, and [README.md](README.md) describes the bot for its operators.
+Conventions for Chachamaru, the maintenance bot, on top of the repository's [AGENTS.md](../../AGENTS.md). Paths are relative to `apps/chachamaru/`, and [README.md](README.md) describes the bot for its operators.
 
 ## Overview
 
-The maintenance bot is an eve app deployed to Vercel. It hosts GitHub-facing maintenance jobs and uses eve where agentic behavior helps, while deterministic jobs run without invoking a model. `agent/` is the eve agent (model, instructions, channels, tools); `src/jobs/` holds the deterministic jobs.
+Chachamaru is an eve app deployed to Vercel. It hosts GitHub-facing maintenance jobs and uses eve where agentic behavior helps, while deterministic jobs run without invoking a model. `agent/` is the eve agent (model, instructions, channels, tools); `src/jobs/` holds the deterministic jobs.
 
 ## Deterministic jobs and the agent
 
@@ -25,7 +25,7 @@ Jobs log one JSON line per decision through `src/log.ts`. Name the `job` and bin
 
 Run this from the repository root, once the packages are built:
 
-- `pnpm --filter @publira/maintenance-bot dev`: start the bot locally with `eve dev`, which opens eve's terminal UI. It needs a model connection, which eve asks for on first start; `--no-ui` starts the server alone.
+- `pnpm --filter @publira/chachamaru dev`: start the bot locally with `eve dev`, which opens eve's terminal UI. It needs a model connection, which eve asks for on first start; `--no-ui` starts the server alone.
 
 ## eve
 
@@ -41,7 +41,7 @@ A job that has to run a third-party tool, such as the skills update running `npx
 
 ## Deployment
 
-The Vercel project's Root Directory is `apps/maintenance-bot`.
+The Vercel project's Root Directory is `apps/chachamaru`.
 
 A Vercel build has eve prepare its sandbox templates, which needs the project's OIDC token even for the bot's empty one, so `eve build` with `VERCEL=1` fails outside Vercel unless the directory is linked (`eve link`) and its environment pulled.
 
@@ -57,7 +57,7 @@ Request a new App permission only for a concrete API call that needs it, and say
 
 The approval job (`src/jobs/approve-equivalent-renovate-update.ts`) identifies an update by the comments the organization's Renovate preset writes at the top of each pull request body through `prHeader`, one `<!-- publira-renovate-update ... -->` per update, and never by the visible table or the title. None of Renovate's default output carries every field the job needs: the title has no from-version, the table varies its columns between pull requests and never names the manager, which the review reports, and the `renovate-debug` comment holds no update data. A repository whose Renovate configuration sets its own `prHeader` gets no such comments, and its pull requests are not approved. Change the comment's fields in the preset and in `@publira/maintenance-policies` together; the parser refuses a field it does not know.
 
-The bot's own commits that sync the Dev Container lock files (`src/jobs/sync-devcontainer-lock-file.ts`) and regenerate generated output (`src/jobs/regenerate-generated-output.ts`) do not make a pull request foreign: `evaluateRenovateCommits` accepts a verified commit by the bot that changes only the lock files beside the `devcontainer.json` files the pull request changes, or only the generated paths that `.github/maintenance-bot/regenerate.yml` declares on the base branch. Any other commit by the bot still counts as foreign.
+The bot's own commits that sync the Dev Container lock files (`src/jobs/sync-devcontainer-lock-file.ts`) and regenerate generated output (`src/jobs/regenerate-generated-output.ts`) do not make a pull request foreign: `evaluateRenovateCommits` accepts a verified commit by the bot that changes only the lock files beside the `devcontainer.json` files the pull request changes, or only the generated paths that `.chachamaru/regenerate.yml` declares on the base branch. Any other commit by the bot still counts as foreign.
 
 A precedent has to match every field except the manager. The datasource, the package name, the versions, and the digests identify the release that a maintainer vouched for. The manager only names the kind of file Renovate rewrote, and the same manager already rewrites different files in each repository. The commits and CI of the pull request itself guard what differs. Keep the manager out of the fingerprint unless a concrete case shows two different releases that only the manager tells apart.
 

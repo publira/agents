@@ -20,7 +20,7 @@ import type {
 import type { regenerateGeneratedOutput } from "./regenerate-generated-output.ts";
 import type { syncDevContainerLockFile } from "./sync-devcontainer-lock-file.ts";
 
-const BOT = "publira-maintenance[bot]";
+const BOT = "chachamaru-bot[bot]";
 const HEAD = "4658aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 const renovate = { login: "renovate[bot]", type: "Bot" };
@@ -43,7 +43,7 @@ const setup = ({
   regeneration = () =>
     Promise.resolve({
       headSha: HEAD,
-      reason: "the base branch has no .github/maintenance-bot/regenerate.yml",
+      reason: "the base branch has no .chachamaru/regenerate.yml",
       status: "skipped" as const,
     }),
   sandbox,

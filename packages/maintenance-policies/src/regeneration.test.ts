@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  LEGACY_REGENERATION_CONFIG_PATH,
   matchesAnyPathPattern,
   matchesPathPattern,
   parseRegenerationConfig,
@@ -105,6 +106,21 @@ describe(parseRegenerationConfig, () => {
     ["broken YAML", "command: [make\n"],
   ])("refuses one with %s", (_, source) => {
     expect(parseRegenerationConfig(source)).toMatchObject({
+      reason: expect.stringMatching(/^\.chachamaru\/regenerate\.yml/u),
+      result: "invalid",
+    });
+  });
+
+  it("names the file it read in the reason", () => {
+    expect(
+      parseRegenerationConfig(
+        "command: make\n",
+        LEGACY_REGENERATION_CONFIG_PATH
+      )
+    ).toMatchObject({
+      reason: expect.stringMatching(
+        /^\.github\/maintenance-bot\/regenerate\.yml: /u
+      ),
       result: "invalid",
     });
   });

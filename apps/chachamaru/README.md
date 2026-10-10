@@ -1,10 +1,10 @@
-# Maintenance Bot
+# Chachamaru
 
 An [eve](https://eve.dev/) app deployed to Vercel that hosts the jobs that keep Publira's repositories maintained. Jobs that follow fixed rules run as plain code without a model, and the eve agent takes the work that needs judgment.
 
 ## Development
 
-Build the packages as the [repository README](../../README.md#development) describes, then start the bot locally from the repository root with `pnpm --filter @publira/maintenance-bot dev`. eve asks for a model connection the first time.
+Build the packages as the [repository README](../../README.md#development) describes, then start the bot locally from the repository root with `pnpm --filter @publira/chachamaru dev`. eve asks for a model connection the first time.
 
 [AGENTS.md](AGENTS.md) describes the bot's conventions.
 
@@ -12,6 +12,7 @@ Build the packages as the [repository README](../../README.md#development) descr
 
 The bot acts on repositories as a GitHub App, installed on the repositories it maintains. Register the App with:
 
+- **GitHub App name**: `Chachamaru Bot`. GitHub derives the slug, `chachamaru-bot`, and the bot's login, `chachamaru-bot[bot]`, from the name.
 - **Webhook URL**: `https://maintenance-bot.publira.dev/github/webhooks`, the production domain, with a random **webhook secret**. Use the custom domain, not a `*.vercel.app` one, which someone else could claim once the project gives it up. Install the App only once the production deployment has the credentials below; until then the route answers `503`. GitHub does not retry a failed delivery, and a delivery can be redelivered by hand only within three days.
 - **Repository permissions**:
   - Metadata: read. Required by every App. Also tells whether the reviewer of a precedent can write to its repository, which is what makes them a maintainer: a review's author association reads `CONTRIBUTOR` to the App for a member whose organization membership is private.
@@ -88,7 +89,7 @@ The bot leaves the pull request alone, and logs why, when a Feature was added or
 
 ### Generated output
 
-Renovate updates a code generator's version, such as a pinned `buf` plugin or a tool version in a workflow, but cannot run the generator, so a release that changes the generated code leaves the pull request failing the repository's check of that code. The bot regenerates the output on such a pull request in a repository that declares how in `.github/maintenance-bot/regenerate.yml` on the pull request's base branch; it leaves every other repository alone. publira/publira's declaration:
+Renovate updates a code generator's version, such as a pinned `buf` plugin or a tool version in a workflow, but cannot run the generator, so a release that changes the generated code leaves the pull request failing the repository's check of that code. The bot regenerates the output on such a pull request in a repository that declares how in `.chachamaru/regenerate.yml` on the pull request's base branch; it leaves every other repository alone. A repository that has not moved its declaration from `.github/maintenance-bot/regenerate.yml`, its path before the bot was renamed, is still read there. publira/publira's declaration:
 
 ```yaml
 # The files whose change by Renovate calls for a regeneration.
@@ -126,7 +127,7 @@ Every Monday at 00:00 UTC the bot refreshes the agent skills vendored in each re
 
 The update runs `npx -y skills@<version> update -p -y`, which downloads the skills from their sources and runs third-party code, so it runs in a Vercel Sandbox of its own, which is deleted afterwards. The sandbox clones the default branch shallowly: anonymously for a public repository, and for a private one with an installation token that can only read that repository's contents and expires within an hour. It holds no other credential. The bot reads the changed files back from the sandbox and writes the commit and the pull request itself, from the app runtime. The skills CLI's version is pinned in `src/jobs/update-agent-skills.ts`, and Renovate updates it.
 
-The bot commits only the changes under `.agents/skills/`, `.claude/skills/`, and `skills-lock.json`, with their file modes, so symbolic links and executables stay as they are, and logs any other path the update touched. It commits them to the `maintenance-bot/update-agent-skills` branch on top of the default branch and opens a pull request titled `chore(skills): update agent skills`, which lists the changed skills from the lock file and asks the reviewer to read the instruction changes. It neither approves nor merges the pull request: a skill changes what agents do, so a person reviews it.
+The bot commits only the changes under `.agents/skills/`, `.claude/skills/`, and `skills-lock.json`, with their file modes, so symbolic links and executables stay as they are, and logs any other path the update touched. It commits them to the `chachamaru/update-agent-skills` branch on top of the default branch and opens a pull request titled `chore(skills): update agent skills`, which lists the changed skills from the lock file and asks the reviewer to read the instruction changes. It neither approves nor merges the pull request: a skill changes what agents do, so a person reviews it.
 
 When the update changes nothing, the bot writes nothing. While the open pull request holds the same skill files, it leaves the branch as it is, even once the default branch moved on; when the skills changed upstream again, it moves the branch to a new commit on the current default branch. When the clone or the update fails, it leaves the repository alone and logs why.
 

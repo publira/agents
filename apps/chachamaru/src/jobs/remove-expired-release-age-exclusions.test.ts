@@ -641,7 +641,7 @@ describe(removeExpiredReleaseAgeExclusions, () => {
       });
 
       // The trailer ends both, after a blank line.
-      const trailer = ["", `Assisted-by: publira-maintenance-bot:${MODEL}`];
+      const trailer = ["", `Assisted-by: Chachamaru:${MODEL}`];
       const commit = commitSchema.parse(github.writes[1]?.body);
       const pullRequest = pullRequestSchema.parse(github.writes[3]?.body);
       expect(commit.message.split("\n").slice(-2)).toStrictEqual(trailer);
@@ -656,7 +656,7 @@ describe(removeExpiredReleaseAgeExclusions, () => {
 
     it("leaves an open pull request whose commit names the model", async () => {
       const github = fake({
-        headMessage: `chore(deps): remove expired minimumReleaseAgeExclude entries\n\nAssisted-by: publira-maintenance-bot:${MODEL}`,
+        headMessage: `chore(deps): remove expired minimumReleaseAgeExclude entries\n\nAssisted-by: Chachamaru:${MODEL}`,
         manifest,
         openPullRequest: modelEdited,
       });
@@ -674,7 +674,7 @@ describe(removeExpiredReleaseAgeExclusions, () => {
       expect(update?.route).toBe(`PATCH ${repository}/pulls/120`);
       expect(
         pullRequestSchema.parse(update?.body).body.split("\n").at(-1)
-      ).toBe(`Assisted-by: publira-maintenance-bot:${MODEL}`);
+      ).toBe(`Assisted-by: Chachamaru:${MODEL}`);
     });
 
     it("replaces an open pull request whose commit names no model", async () => {

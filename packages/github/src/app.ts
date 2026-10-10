@@ -6,7 +6,7 @@ import type { RepositoryName } from "./repository-name.ts";
 import { applyRequestPolicy } from "./request-policy.ts";
 import type { RequestPolicy } from "./request-policy.ts";
 
-const userAgent = "publira-maintenance-bot";
+const userAgent = "Chachamaru";
 
 export interface GitHubAppCredentials {
   appId: number | string;
@@ -35,7 +35,7 @@ export interface GitHubApp {
   getInstallationOctokit: (installationId: number) => Promise<Octokit>;
   /** Returns a client for the installation that covers a repository. */
   getRepositoryOctokit: (repository: RepositoryName) => Promise<Octokit>;
-  /** The login the App acts under, such as `publira-maintenance[bot]`. */
+  /** The login the App acts under, such as `chachamaru-bot[bot]`. */
   getBotLogin: () => Promise<string>;
 }
 

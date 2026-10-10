@@ -3,7 +3,7 @@ import { defineSandboxProvider } from "eve/sandbox/provider";
 
 const refuse = () =>
   Promise.reject(
-    new Error("The maintenance bot has no sandbox; its tools run without one")
+    new Error("Chachamaru has no sandbox; its tools run without one")
   );
 
 // The agent has none of eve's sandbox tools (`defaultTools: false`), so no

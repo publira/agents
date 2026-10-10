@@ -6,7 +6,7 @@ import {
   createPrecedentScanCache,
 } from "./approve-equivalent-renovate-update.ts";
 
-const BOT = "publira-maintenance[bot]";
+const BOT = "chachamaru-bot[bot]";
 const ACTIONS = 15_368;
 const HEAD = "4658aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const PRECEDENT_HEAD = "9f1cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -91,7 +91,7 @@ interface Scenario {
   pullFiles?: readonly string[];
   /** The files each commit changes, by SHA. */
   commitFiles?: Readonly<Record<string, readonly string[]>>;
-  /** The base branch's `.github/maintenance-bot/regenerate.yml`. */
+  /** The base branch's `.chachamaru/regenerate.yml`. */
   regenerationConfig?: string;
 }
 
@@ -199,8 +199,7 @@ const fakeGitHub = ({
   // reads for the bot's commits.
   const respondWithFiles = (route: string, url: URL) => {
     if (
-      route ===
-      "GET /repos/publira/agents/contents/.github/maintenance-bot/regenerate.yml"
+      route === "GET /repos/publira/agents/contents/.chachamaru/regenerate.yml"
     ) {
       return regenerationConfig === undefined ||
         url.searchParams.get("ref") !== "base"
@@ -385,7 +384,7 @@ const reviewNode = (
   databaseId: number,
   fields: JsonObject = {}
 ): JsonObject => ({
-  author: { __typename: "Bot", login: "publira-maintenance" },
+  author: { __typename: "Bot", login: "chachamaru-bot" },
   fullDatabaseId: String(databaseId),
   id,
   isMinimized: false,
@@ -427,7 +426,7 @@ describe(approveEquivalentRenovateUpdate, () => {
     ).toStrictEqual({
       condition: "commits",
       detail:
-        "Renovate made 1 commit(s), and the maintenance bot 1 syncing the Dev Container lock files, all signed by GitHub",
+        "Renovate made 1 commit(s), and Chachamaru 1 syncing the Dev Container lock files, all signed by GitHub",
       passed: true,
     });
   });
@@ -526,7 +525,7 @@ describe(approveEquivalentRenovateUpdate, () => {
       ).toStrictEqual({
         condition: "commits",
         detail:
-          "Renovate made 1 commit(s), and the maintenance bot 1 regenerating the generated output, all signed by GitHub",
+          "Renovate made 1 commit(s), and Chachamaru 1 regenerating the generated output, all signed by GitHub",
         passed: true,
       });
     });

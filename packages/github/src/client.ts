@@ -23,7 +23,7 @@ export const createGitHubClient = ({
     new Octokit({
       auth,
       request: fetchImpl === undefined ? undefined : { fetch: fetchImpl },
-      userAgent: "publira-maintenance-bot",
+      userAgent: "Chachamaru",
     }),
     requestPolicy
   );

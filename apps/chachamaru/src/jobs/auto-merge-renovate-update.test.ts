@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { approveEquivalentRenovateUpdate } from "./approve-equivalent-renovate-update.ts";
 import { autoMergeRenovateUpdate } from "./auto-merge-renovate-update.ts";
 
-const BOT = "publira-maintenance[bot]";
+const BOT = "chachamaru-bot[bot]";
 const HEAD = "4658aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const EARLIER_HEAD = "c0ffee0000000000000000000000000000000000";
 const APPROVED_AT = "2026-10-04T06:00:00Z";
@@ -16,7 +16,7 @@ interface JsonObject {
   readonly [key: string]: Json | undefined;
 }
 
-const botActor = { __typename: "Bot", login: "publira-maintenance" };
+const botActor = { __typename: "Bot", login: "chachamaru-bot" };
 
 const ownApproval = (fields: JsonObject = {}) => ({
   commit_id: HEAD,

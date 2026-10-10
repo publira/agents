@@ -32,7 +32,7 @@ const jwtClaims = (authorization: string | null) => {
 
 describe(createGitHubApp, () => {
   it("authenticates as the App with a JWT", async () => {
-    const github = fakeGitHub({ "GET /app": { slug: "publira-maintenance" } });
+    const github = fakeGitHub({ "GET /app": { slug: "chachamaru-bot" } });
     const app = createGitHubApp({
       appId: 123,
       fetch: github.fetch,
@@ -145,15 +145,15 @@ describe(createGitHubApp, () => {
   });
 
   it("derives the bot login from the App's slug once", async () => {
-    const github = fakeGitHub({ "GET /app": { slug: "publira-maintenance" } });
+    const github = fakeGitHub({ "GET /app": { slug: "chachamaru-bot" } });
     const app = createGitHubApp({
       appId: 123,
       fetch: github.fetch,
       privateKey,
     });
 
-    await expect(app.getBotLogin()).resolves.toBe("publira-maintenance[bot]");
-    await expect(app.getBotLogin()).resolves.toBe("publira-maintenance[bot]");
+    await expect(app.getBotLogin()).resolves.toBe("chachamaru-bot[bot]");
+    await expect(app.getBotLogin()).resolves.toBe("chachamaru-bot[bot]");
     expect(github.routes).toStrictEqual(["GET /app"]);
   });
 
@@ -164,7 +164,7 @@ describe(createGitHubApp, () => {
         attempts += 1;
         return attempts === 1
           ? Response.json({ message: "Forbidden" }, { status: 403 })
-          : { slug: "publira-maintenance" };
+          : { slug: "chachamaru-bot" };
       }),
     });
     const app = createGitHubApp({
@@ -174,6 +174,6 @@ describe(createGitHubApp, () => {
     });
 
     await expect(app.getBotLogin()).rejects.toThrow("Forbidden");
-    await expect(app.getBotLogin()).resolves.toBe("publira-maintenance[bot]");
+    await expect(app.getBotLogin()).resolves.toBe("chachamaru-bot[bot]");
   });
 });

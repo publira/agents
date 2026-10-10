@@ -1,5 +1,5 @@
 {
-  "name": "@publira/maintenance-bot",
+  "name": "@publira/chachamaru",
   "version": "1.0.0",
   "private": true,
   "description": "Publira's maintenance jobs, deployed to Vercel with eve.",

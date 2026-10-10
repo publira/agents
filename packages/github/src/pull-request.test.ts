@@ -9,7 +9,7 @@ const pulls = "/repos/publira/agents/pulls";
 const options = {
   base: "main",
   body: "Removes expired entries.",
-  head: "maintenance-bot/cleanup",
+  head: "chachamaru/cleanup",
   owner: "publira",
   repo: "agents",
   title: "chore: clean up",
@@ -37,13 +37,13 @@ describe(ensurePullRequest, () => {
       url: "https://github.com/publira/agents/pull/7",
     });
     const list = github.requests[0]?.url.searchParams;
-    expect(list?.get("head")).toBe("publira:maintenance-bot/cleanup");
+    expect(list?.get("head")).toBe("publira:chachamaru/cleanup");
     expect(list?.get("base")).toBe("main");
     expect(list?.get("state")).toBe("open");
     expect(github.requests[1]?.body).toStrictEqual({
       base: "main",
       body: "Removes expired entries.",
-      head: "maintenance-bot/cleanup",
+      head: "chachamaru/cleanup",
       title: "chore: clean up",
     });
   });
@@ -100,7 +100,7 @@ describe(ensurePullRequest, () => {
     const github = fakeGitHub({
       [`GET ${pulls}`]: [],
       [`POST ${pulls}`]: Response.json(
-        { message: "No commits between main and maintenance-bot/cleanup" },
+        { message: "No commits between main and chachamaru/cleanup" },
         { status: 422 }
       ),
     });
