@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   evaluateRenovateUpdate,
   evaluateRenovateUpdatesEverywhere,
+  fixLintAndLog,
 } from "../jobs/evaluate-renovate-update.ts";
 import { SANDBOX_TIMEOUT_MS } from "../jobs/regenerate-generated-output.ts";
 import { withFields } from "../log.ts";
@@ -21,6 +22,9 @@ const RENOVATE_BRANCH_PREFIX = "renovate/";
 
 // The conclusions of a suite that can be what makes CI pass.
 const PASSING_CONCLUSIONS = new Set(["neutral", "skipped", "success"]);
+
+// The states of a commit status that failed.
+const FAILED_STATES = new Set(["error", "failure"]);
 
 const repositoryEvent = z.object({
   installation: z.object({ id: z.number() }),
@@ -74,13 +78,17 @@ type Payload = z.infer<typeof repositoryEvent>;
 export interface RenovateUpdateHandlerOptions {
   evaluate: typeof evaluateRenovateUpdate;
   evaluateEverywhere: typeof evaluateRenovateUpdatesEverywhere;
+  fixLint: typeof fixLintAndLog;
   /** Reads the settings for each delivery. */
   readSettings: typeof readSettings;
-  /** Creates the sandbox runner that regenerates generated output. */
+  /**
+   * Creates the sandbox runner that regenerates generated output and
+   * applies the automatic lint fixes.
+   */
   createSandbox: (log: Log) => SandboxRunner;
 }
 
-const createRegenerationSandbox = (log: Log) =>
+const createRepositorySandbox = (log: Log) =>
   createVercelSandboxRunner({ log, timeoutMs: SANDBOX_TIMEOUT_MS });
 
 /**
@@ -92,9 +100,12 @@ const createRegenerationSandbox = (log: Log) =>
  *   pushed to. When one merges, it may be the precedent that the open pull
  *   requests from the same branch in other repositories wait for, so those
  *   are evaluated.
- * - `check_suite` evaluates the Renovate pull requests of a suite that passed.
+ * - `check_suite` evaluates the Renovate pull requests of a suite that
+ *   passed, and applies the automatic lint fixes to those of a suite that
+ *   failed.
  * - `status` evaluates the Renovate pull requests of a commit once one of its
- *   statuses, such as `renovate/stability-days`, succeeds.
+ *   statuses, such as `renovate/stability-days`, succeeds, and applies the
+ *   automatic lint fixes to them once one fails.
  *
  * A push to a pull request (`synchronize`) also lets the bot take back the
  * auto-merge it enabled for the earlier head.
@@ -104,43 +115,58 @@ const createRegenerationSandbox = (log: Log) =>
 export const createRenovateUpdateHandlers = ({
   evaluate: evaluateOne = evaluateRenovateUpdate,
   evaluateEverywhere = evaluateRenovateUpdatesEverywhere,
+  fixLint = fixLintAndLog,
   readSettings: read = readSettings,
-  createSandbox = createRegenerationSandbox,
+  createSandbox = createRepositorySandbox,
 }: Partial<RenovateUpdateHandlerOptions> = {}): Record<
   "check_suite" | "pull_request" | "status",
   WebhookHandler
 > => {
-  const evaluate = async (
+  // What the jobs of one delivery share.
+  const prepare = async (
     payload: Payload,
-    pullNumbers: readonly number[],
-    { app, log }: Parameters<WebhookHandler>[1],
-    { regenerate = false } = {}
+    { app, log }: Parameters<WebhookHandler>[1]
   ) => {
-    const owner = payload.repository.owner.login;
     const repo = payload.repository.name;
     const [octokit, reviewer] = await Promise.all([
       app.getInstallationOctokit(payload.installation.id),
       app.getBotLogin(),
     ]);
-    const settings = read(log);
     const installationLog = withFields(log, {
       installation: payload.installation.id,
     });
-    const regeneration = regenerate
-      ? {
-          createReadToken: () =>
-            createRepositoryReadToken(app, {
-              installationId: payload.installation.id,
-              repo,
-            }),
-          sandbox: createSandbox(installationLog),
-        }
-      : undefined;
+    return {
+      log: installationLog,
+      octokit,
+      owner: payload.repository.owner.login,
+      repo,
+      repositorySandbox: () => ({
+        createReadToken: () =>
+          createRepositoryReadToken(app, {
+            installationId: payload.installation.id,
+            repo,
+          }),
+        sandbox: createSandbox(installationLog),
+      }),
+      reviewer,
+      settings: read(log),
+    };
+  };
+
+  const evaluate = async (
+    payload: Payload,
+    pullNumbers: readonly number[],
+    context: Parameters<WebhookHandler>[1],
+    { regenerate = false } = {}
+  ) => {
+    const { log, octokit, owner, repo, repositorySandbox, reviewer, settings } =
+      await prepare(payload, context);
+    const regeneration = regenerate ? repositorySandbox() : undefined;
 
     for (const pullNumber of new Set(pullNumbers)) {
       // oxlint-disable-next-line no-await-in-loop -- one pull request at a time
       await evaluateOne({
-        log: installationLog,
+        log,
         octokit,
         owner,
         pullNumber,
@@ -152,6 +178,33 @@ export const createRenovateUpdateHandlers = ({
     }
   };
 
+  // Applies the automatic lint fixes to pull requests whose head a check
+  // failed on. Approval waits for the checks to pass, so nothing else is
+  // evaluated.
+  const fixLintOf = async (
+    payload: Payload,
+    pullNumbers: readonly number[],
+    context: Parameters<WebhookHandler>[1]
+  ) => {
+    const { log, octokit, owner, repo, repositorySandbox, reviewer, settings } =
+      await prepare(payload, context);
+    const lintFix = repositorySandbox();
+
+    for (const pullNumber of new Set(pullNumbers)) {
+      // oxlint-disable-next-line no-await-in-loop -- one pull request at a time
+      await fixLint({
+        dryRun: settings.dryRun,
+        lintFix,
+        log,
+        octokit,
+        owner,
+        pullNumber,
+        repo,
+        reviewer,
+      });
+    }
+  };
+
   return {
     async check_suite(delivery, context) {
       const payload = checkSuiteEvent.parse(delivery.payload);
@@ -159,17 +212,16 @@ export const createRenovateUpdateHandlers = ({
 
       if (
         action !== "completed" ||
-        !PASSING_CONCLUSIONS.has(suite.conclusion ?? "") ||
+        suite.conclusion === null ||
         !(suite.head_branch ?? "").startsWith(RENOVATE_BRANCH_PREFIX)
       ) {
         return;
       }
 
-      await evaluate(
-        payload,
-        suite.pull_requests.map(({ number }) => number),
-        context
-      );
+      const pullNumbers = suite.pull_requests.map(({ number }) => number);
+      await (PASSING_CONCLUSIONS.has(suite.conclusion)
+        ? evaluate(payload, pullNumbers, context)
+        : fixLintOf(payload, pullNumbers, context));
     },
 
     async pull_request(delivery, context) {
@@ -197,7 +249,7 @@ export const createRenovateUpdateHandlers = ({
       const payload = statusEvent.parse(delivery.payload);
 
       if (
-        payload.state !== "success" ||
+        (payload.state !== "success" && !FAILED_STATES.has(payload.state)) ||
         !payload.branches.some(({ name }) =>
           name.startsWith(RENOVATE_BRANCH_PREFIX)
         )
@@ -215,16 +267,14 @@ export const createRenovateUpdateHandlers = ({
           repo: payload.repository.name,
         });
 
-      await evaluate(
-        payload,
-        pulls
-          .filter(
-            (pull) =>
-              pull.state === "open" && pull.user?.login === RENOVATE_LOGIN
-          )
-          .map(({ number }) => number),
-        context
-      );
+      const pullNumbers = pulls
+        .filter(
+          (pull) => pull.state === "open" && pull.user?.login === RENOVATE_LOGIN
+        )
+        .map(({ number }) => number);
+      await (payload.state === "success"
+        ? evaluate(payload, pullNumbers, context)
+        : fixLintOf(payload, pullNumbers, context));
     },
   };
 };

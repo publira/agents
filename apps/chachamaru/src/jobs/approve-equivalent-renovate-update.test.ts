@@ -1,10 +1,12 @@
 import { createGitHubClient } from "@publira/github";
+import { LINT_FIX_COMMIT_SUBJECT } from "@publira/maintenance-policies";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   approveEquivalentRenovateUpdate,
   createPrecedentScanCache,
 } from "./approve-equivalent-renovate-update.ts";
+import { REGENERATION_COMMIT_SUBJECT } from "./regenerate-generated-output.ts";
 
 const BOT = "chachamaru-bot[bot]";
 const ACTIONS = 15_368;
@@ -41,7 +43,10 @@ const maintainer = { login: "ykzts", type: "User" };
 
 const renovateCommit = (sha: string) => ({
   author: { login: "renovate[bot]" },
-  commit: { verification: { verified: true } },
+  commit: {
+    message: "chore(deps): update dependency turbo to v2.5.8",
+    verification: { verified: true },
+  },
   committer: { login: "web-flow" },
   sha,
 });
@@ -399,11 +404,32 @@ const failedCondition = (
     ? result.conditions.find(({ passed }) => !passed)
     : undefined;
 
+// A pull request whose head is the bot's lint fix of `files`.
+const lintFixCommit = (files: readonly string[]) => ({
+  commitFiles: { [HEAD]: files },
+  commits: [
+    renovateCommit("renovate"),
+    {
+      author: { login: BOT },
+      commit: {
+        message: `${LINT_FIX_COMMIT_SUBJECT}\n\nRan \`ultracite fix\`.`,
+        verification: { verified: true },
+      },
+      committer: { login: BOT },
+      sha: HEAD,
+    },
+  ],
+  pullFiles: ["package.json", "pnpm-lock.yaml", ...files],
+});
+
 describe(approveEquivalentRenovateUpdate, () => {
   it("approves an update the bot synced the Dev Container lock file of", async () => {
     const lockFileCommit = {
       author: { login: BOT },
-      commit: { verification: { verified: true } },
+      commit: {
+        message: "chore(devcontainer): sync the lock file",
+        verification: { verified: true },
+      },
       committer: { login: BOT },
       sha: HEAD,
     };
@@ -442,7 +468,10 @@ describe(approveEquivalentRenovateUpdate, () => {
         renovateCommit("renovate"),
         {
           author: { login: BOT },
-          commit: { verification: { verified: true } },
+          commit: {
+            message: "chore(devcontainer): sync the lock file",
+            verification: { verified: true },
+          },
           committer: { login: BOT },
           sha: HEAD,
         },
@@ -476,7 +505,10 @@ describe(approveEquivalentRenovateUpdate, () => {
         renovateCommit("renovate"),
         {
           author: { login: BOT },
-          commit: { verification: { verified: true } },
+          commit: {
+            message: "chore(devcontainer): sync the lock file",
+            verification: { verified: true },
+          },
           committer: { login: BOT },
           sha: HEAD,
         },
@@ -490,7 +522,7 @@ describe(approveEquivalentRenovateUpdate, () => {
 
     expect(failedCondition(await run(github))).toStrictEqual({
       condition: "commits",
-      detail: `commit ${HEAD.slice(0, 7)} changes more than either the Dev Container lock files beside the configurations the pull request changes or the generated output the repository declares`,
+      detail: `commit ${HEAD.slice(0, 7)} is none of Chachamaru's own commits: of the Dev Container lock files beside the configurations the pull request changes, of the generated output the repository declares, or of automatic lint fixes that leave the lock files, package.json files, and .github alone`,
       passed: false,
     });
   });
@@ -498,7 +530,10 @@ describe(approveEquivalentRenovateUpdate, () => {
   describe("with the bot's commit of regenerated output", () => {
     const regenerationCommit = {
       author: { login: BOT },
-      commit: { verification: { verified: true } },
+      commit: {
+        message: REGENERATION_COMMIT_SUBJECT,
+        verification: { verified: true },
+      },
       committer: { login: BOT },
       sha: HEAD,
     };
@@ -541,6 +576,32 @@ describe(approveEquivalentRenovateUpdate, () => {
       expect(
         failedCondition(
           await run(fakeGitHub({ ...scenario, regenerationConfig }))
+        )
+      ).toMatchObject({ condition: "commits", passed: false });
+    });
+  });
+
+  describe("with the bot's commit of automatic lint fixes", () => {
+    it("accepts it", async () => {
+      const result = await run(fakeGitHub(lintFixCommit(["README.md"])));
+
+      expect(result).toMatchObject({ status: "approved" });
+      expect(
+        result.status === "approved"
+          ? result.conditions.find(({ condition }) => condition === "commits")
+          : undefined
+      ).toStrictEqual({
+        condition: "commits",
+        detail:
+          "Renovate made 1 commit(s), and Chachamaru 1 applying automatic lint fixes, all signed by GitHub",
+        passed: true,
+      });
+    });
+
+    it("refuses it when it changes a lock file", async () => {
+      expect(
+        failedCondition(
+          await run(fakeGitHub(lintFixCommit(["README.md", "pnpm-lock.yaml"])))
         )
       ).toMatchObject({ condition: "commits", passed: false });
     });

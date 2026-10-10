@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   evaluateRenovateUpdate,
   evaluateRenovateUpdatesEverywhere,
+  fixLintAndLog,
 } from "../jobs/evaluate-renovate-update.ts";
 import type { Log } from "../log.ts";
 import type { SandboxRunner } from "../sandbox-runner.ts";
@@ -54,6 +55,7 @@ const setup = ({ autoMerge = false } = {}) => {
   const evaluateEverywhere = vi.fn<typeof evaluateRenovateUpdatesEverywhere>(
     () => Promise.resolve()
   );
+  const fixLint = vi.fn<typeof fixLintAndLog>(() => Promise.resolve(false));
 
   return {
     context: { app, log: vi.fn<Log>() },
@@ -61,10 +63,14 @@ const setup = ({ autoMerge = false } = {}) => {
     evaluateEverywhere,
     /** The pull requests evaluated one by one. */
     evaluated: () => evaluate.mock.calls.map(([options]) => options.pullNumber),
+    fixLint,
+    /** The pull requests the lint fixes were applied to. */
+    fixed: () => fixLint.mock.calls.map(([options]) => options.pullNumber),
     handlers: createRenovateUpdateHandlers({
       createSandbox: () => sandbox,
       evaluate,
       evaluateEverywhere,
+      fixLint,
       readSettings: () => ({
         dryRun: false,
         renovateAutoMerge: autoMerge,
@@ -235,21 +241,49 @@ describe("check_suite", () => {
     expect(evaluate.mock.calls[0]?.[0].regeneration).toBeUndefined();
   });
 
+  it.each(["failure", "timed_out"])(
+    "applies the lint fixes to the pull requests of a suite that ended in %s",
+    async (conclusion) => {
+      const { context, evaluated, fixLint, fixed, handlers } = setup();
+
+      await handlers.check_suite(
+        delivery("check_suite", {
+          action: "completed",
+          check_suite: checkSuite({ conclusion }),
+        }),
+        context
+      );
+
+      expect(fixed()).toStrictEqual([31]);
+      expect(evaluated()).toStrictEqual([]);
+      const [options] = fixLint.mock.calls[0] ?? [];
+      expect(options).toMatchObject({
+        dryRun: false,
+        lintFix: { createReadToken: expect.any(Function), sandbox },
+        owner: "publira",
+        repo: "agents",
+        reviewer: BOT,
+      });
+      options?.log("info", "line");
+      expect(context.log).toHaveBeenCalledWith("info", "line", {
+        installation: 42,
+      });
+    }
+  );
+
   it.each([
-    ["a failed suite", { conclusion: "failure" }],
-    ["another branch", { head_branch: "main" }],
-  ])("ignores %s", async (_, fields) => {
-    const { context, evaluated, handlers } = setup();
+    ["an unfinished suite", "requested", { conclusion: null }],
+    ["another branch", "completed", { head_branch: "main" }],
+  ])("ignores %s", async (_, action, fields) => {
+    const { context, evaluated, fixed, handlers } = setup();
 
     await handlers.check_suite(
-      delivery("check_suite", {
-        action: "completed",
-        check_suite: checkSuite(fields),
-      }),
+      delivery("check_suite", { action, check_suite: checkSuite(fields) }),
       context
     );
 
     expect(evaluated()).toStrictEqual([]);
+    expect(fixed()).toStrictEqual([]);
   });
 });
 
@@ -262,14 +296,31 @@ describe("status", () => {
     expect(evaluated()).toStrictEqual([31]);
   });
 
+  it.each(["error", "failure"])(
+    "applies the lint fixes to the open Renovate pull requests of a commit whose status ended in %s",
+    async (state) => {
+      const { context, evaluated, fixed, handlers } = setup();
+
+      await handlers.status(status({ state }), context);
+
+      expect(fixed()).toStrictEqual([31]);
+      expect(evaluated()).toStrictEqual([]);
+    }
+  );
+
   it.each([
     ["a pending status", { state: "pending" }],
     ["another branch", { branches: [{ name: "main" }] }],
+    [
+      "a failed status of another branch",
+      { branches: [{ name: "main" }], state: "failure" },
+    ],
   ])("ignores %s", async (_, fields) => {
-    const { context, evaluated, handlers } = setup();
+    const { context, evaluated, fixed, handlers } = setup();
 
     await handlers.status(status(fields), context);
 
     expect(evaluated()).toStrictEqual([]);
+    expect(fixed()).toStrictEqual([]);
   });
 });

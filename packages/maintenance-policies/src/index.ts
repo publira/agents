@@ -56,6 +56,12 @@ export {
   isMaintainerPermission,
   isRenovate,
 } from "./equivalent-update-approval.ts";
+export type { LintPackageManager, LintSetupVerdict } from "./lint-fix.ts";
+export {
+  isLintFixRefusedPath,
+  LINT_FIX_COMMIT_SUBJECT,
+  readLintSetup,
+} from "./lint-fix.ts";
 export type {
   ParentIssueInput,
   ParentIssueVerdict,
