@@ -25,6 +25,7 @@ import { codeBlock } from "../code-block.ts";
 import { parseAddedLines } from "../git-output.ts";
 import type { GitFileChange } from "../git-output.ts";
 import type { LintFindingsFixer } from "../lint-findings-fixer.ts";
+import { loggableFailure } from "../log.ts";
 import type { LogFields } from "../log.ts";
 import {
   git,
@@ -46,6 +47,10 @@ const WORKTREE = "/tmp/repository";
 const FETCH_TIMEOUT_MS = 60_000;
 const INSTALL_TIMEOUT_MS = 120_000;
 const LINT_TIMEOUT_MS = 60_000;
+
+// How much of the sandbox's life the model leaves the job, to check its
+// changes and read them back: the check, and the Git commands around it.
+const CHECK_RESERVE_MS = LINT_TIMEOUT_MS + 15_000;
 
 // How much of the check's output and of the automatic fix's diff the model
 // reads, from their ends.
@@ -102,20 +107,25 @@ export interface ApplyLintFixesOptions {
  * asked to fix.
  */
 export interface FindingsFix {
-  /** The model that made the changes. */
-  model: string;
+  /** The model that made the changes; none when its run failed. */
+  model?: string;
   /**
    * Whether the model was stopped, by time or by its number of steps,
-   * before it finished.
+   * before it finished; none when its run failed.
    */
-  stopped: boolean;
-  /** Whether `ultracite check` passes after the model's changes. */
-  checkPassed: boolean;
+  stopped?: boolean;
+  /**
+   * Whether `ultracite check` passes after the model's changes; none when
+   * its run failed, and the check did not run.
+   */
+  checkPassed?: boolean;
   /**
    * The files the model's changes, with the automatic fix's, change against
-   * the head.
+   * the head; none when its run failed.
    */
   paths: string[];
+  /** Why the model's run failed. */
+  error?: string;
   /** Why the changes are not committed, when they are refused. */
   reason?: string;
   /** The files among `paths` that kept them from being committed. */
@@ -190,16 +200,22 @@ interface SandboxRequest {
   fixer: LintFindingsFixer | undefined;
 }
 
-/** What the model changed, and what the check and the policy made of it. */
-interface SandboxFindingsFix {
-  model: string;
-  stopped: boolean;
-  changes: GitFileChange[];
-  /** The blobs of the files it changed, when the policy accepts them. */
-  blobs: Map<string, Buffer>;
-  checkPassed: boolean;
-  verdict: LintFindingsFixVerdict;
-}
+/**
+ * What the model changed, and what the check and the policy made of it, or
+ * why its run failed.
+ */
+type SandboxFindingsFix =
+  | {
+      status: "checked";
+      model: string;
+      stopped: boolean;
+      changes: GitFileChange[];
+      /** The blobs of the files it changed, when the policy accepts them. */
+      blobs: Map<string, Buffer>;
+      checkPassed: boolean;
+      verdict: LintFindingsFixVerdict;
+    }
+  | { status: "failed"; error: string };
 
 type SandboxResult =
   | Omit<Extract<ApplyLintFixesResult, { status: "failed" }>, "headSha">
@@ -282,13 +298,24 @@ const fixFindingsInSandbox = async (
     "HEAD"
   );
 
-  const { model, stopped } = await fixer({
-    command,
-    diff: tail(diff, MODEL_INPUT_LIMIT),
-    output: tail(output, MODEL_INPUT_LIMIT),
-    sandbox,
-    worktree: WORKTREE,
-  });
+  let fix: Awaited<ReturnType<LintFindingsFixer>>;
+  try {
+    fix = await fixer({
+      command,
+      deadline: sandbox.stopsAt - CHECK_RESERVE_MS,
+      diff: tail(diff, MODEL_INPUT_LIMIT),
+      output: tail(output, MODEL_INPUT_LIMIT),
+      sandbox,
+      worktree: WORKTREE,
+    });
+  } catch (error) {
+    // The automatic fix still stands, and the head counts as tried.
+    return {
+      error: loggableFailure.safeParse(error).data?.error ?? "unknown error",
+      status: "failed",
+    };
+  }
+  const { model, stopped } = fix;
 
   // A file Git does not track is not committed, so the check must not see
   // one that the model wrote.
@@ -345,6 +372,7 @@ const fixFindingsInSandbox = async (
     changes,
     checkPassed,
     model,
+    status: "checked",
     stopped,
     verdict,
   };
@@ -565,25 +593,25 @@ const commitOf = (
 });
 
 /** What a model's fix comes to, without the files. */
-const summarizeFindings = ({
-  model,
-  stopped,
-  changes,
-  checkPassed,
-  verdict,
-}: SandboxFindingsFix): FindingsFix => ({
-  checkPassed,
-  model,
-  paths: changes.map(({ path }) => path),
-  stopped,
-  ...(verdict.result === "refused" && {
-    reason: verdict.reason,
-    refusedPaths: verdict.refusedPaths,
-    suppressions: verdict.suppressions.map(
-      ({ path, lineNumber }) => `${path}:${lineNumber}`
-    ),
-  }),
-});
+const summarizeFindings = (fix: SandboxFindingsFix): FindingsFix => {
+  if (fix.status === "failed") {
+    return { error: fix.error, paths: [], reason: "the model's run failed" };
+  }
+  const { model, stopped, changes, checkPassed, verdict } = fix;
+  return {
+    checkPassed,
+    model,
+    paths: changes.map(({ path }) => path),
+    stopped,
+    ...(verdict.result === "refused" && {
+      reason: verdict.reason,
+      refusedPaths: verdict.refusedPaths,
+      suppressions: verdict.suppressions.map(
+        ({ path, lineNumber }) => `${path}:${lineNumber}`
+      ),
+    }),
+  };
+};
 
 const findingsComment = (
   headSha: string,
@@ -631,7 +659,7 @@ interface Settlement {
 /** Commits the model's changes, with the automatic fix's, to the branch. */
 const commitFindingsFix = async (
   { octokit, owner, repo, branch, headSha, packageManager, dryRun }: Settlement,
-  fix: SandboxFindingsFix
+  fix: Extract<SandboxFindingsFix, { status: "checked" }>
 ): Promise<ApplyLintFixesResult> => {
   const findings = summarizeFindings(fix);
   const fixedByModel = {
@@ -653,7 +681,7 @@ const commitFindingsFix = async (
       "",
       `Ran \`ultracite fix\` with ${packageManager} on ${headSha}, and a model fixed the findings it left; \`ultracite check\` passed on the result in the sandbox.`,
       "",
-      `Assisted-by: ${AGENT_NAME}:${findings.model}`,
+      `Assisted-by: ${AGENT_NAME}:${fix.model}`,
     ].join("\n"),
     owner,
     repo,
@@ -887,7 +915,8 @@ export const applyLintFixes = async (
     repo,
   };
   // The model's changes, with the automatic fix's, make the check pass.
-  return fixed.findings?.verdict.result === "accepted"
+  return fixed.findings?.status === "checked" &&
+    fixed.findings.verdict.result === "accepted"
     ? commitFindingsFix(settlement, fixed.findings)
     : commitAutomaticFix(settlement, fixed);
 };
@@ -897,6 +926,7 @@ const findingsFields = (findings: FindingsFix | undefined): LogFields => ({
   commentCreated: findings?.comment?.created,
   model: findings?.model,
   modelCheckPassed: findings?.checkPassed,
+  modelError: findings?.error,
   modelInvoked: findings !== undefined,
   modelPaths: findings?.paths,
   modelReason: findings?.reason,

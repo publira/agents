@@ -28,6 +28,11 @@ export interface Sandbox {
   writeFile: (file: string, content: string) => Promise<void>;
   /** Cuts the sandbox off from the network for the rest of its life. */
   denyNetwork: () => Promise<void>;
+  /**
+   * When the sandbox stops at the latest, in milliseconds since the epoch,
+   * whether or not the task has settled.
+   */
+  stopsAt: number;
 }
 
 /**
@@ -57,6 +62,8 @@ export interface VercelSandboxRunnerOptions {
 export const createVercelSandboxRunner =
   ({ timeoutMs, log }: VercelSandboxRunnerOptions): SandboxRunner =>
   async (task) => {
+    // Counted from before the request, so never later than Vercel's count.
+    const stopsAt = Date.now() + timeoutMs;
     // A sandbox that is not persistent keeps nothing once it stops.
     const sandbox = await VercelSandbox.create({
       persistent: false,
@@ -83,6 +90,7 @@ export const createVercelSandboxRunner =
           ]);
           return { exitCode: command.exitCode, stderr, stdout };
         },
+        stopsAt,
         async writeFile(file, content) {
           await sandbox.fs.mkdir(path.posix.dirname(file), { recursive: true });
           await sandbox.fs.writeFile(file, content);

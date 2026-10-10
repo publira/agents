@@ -245,6 +245,7 @@ const localSandbox = ({
         stdout: result.stdout,
       });
     },
+    stopsAt: Date.now() + 240_000,
     writeFile(file, content) {
       write("/", localize(file), content);
       return Promise.resolve();
@@ -918,6 +919,47 @@ describe("applyLintFixes with a model for the findings", () => {
     ]);
   });
 
+  it("stops the model in time to check its changes before the sandbox stops", async () => {
+    const github = fakeGitHub({ fixture });
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+    const { fixer } = modelWriting(sandbox, { "src/index.ts": FIXED_SCRIPT });
+    const latest = Date.now() + 240_000 - 75_000;
+
+    await run(github, sandbox, { dryRun: true, fixer });
+
+    const [request] = fixer.mock.calls[0] ?? [];
+    expect(request?.deadline).toBeLessThanOrEqual(latest);
+  });
+
+  it("commits the automatic fix and comments when the model's run fails", async () => {
+    const github = fakeGitHub({ fixture });
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+    const fixer = vi.fn<LintFindingsFixer>(() =>
+      Promise.reject(new Error("The gateway is down"))
+    );
+
+    await expect(run(github, sandbox, { fixer })).resolves.toStrictEqual({
+      checkPassed: false,
+      commitSha: "new-commit",
+      findings: {
+        comment: { created: true, id: 100 },
+        error: "The gateway is down",
+        paths: [],
+        reason: "the model's run failed",
+      },
+      headSha: fixture.headSha,
+      output: "debugger statement\n",
+      paths: ["README.md"],
+      status: "committed",
+    } satisfies ApplyLintFixesResult);
+    expect(github.writes.map(({ route }) => route)).toStrictEqual([
+      `POST ${repository}/git/trees`,
+      `POST ${repository}/git/commits`,
+      `PATCH ${repository}/git/refs/heads/${BRANCH}`,
+      `POST ${repository}/issues/31/comments`,
+    ]);
+  });
+
   it("plans the model's commit in a dry run", async () => {
     const github = fakeGitHub({ fixture });
     const sandbox = localSandbox({ origin: fixture.origin, root });
@@ -1100,6 +1142,7 @@ describe(summarizeLintFixResult, () => {
       headSha: "head",
       model: undefined,
       modelCheckPassed: undefined,
+      modelError: undefined,
       modelInvoked: false,
       modelPaths: undefined,
       modelReason: undefined,

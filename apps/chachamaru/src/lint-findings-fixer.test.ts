@@ -1,3 +1,5 @@
+import { once } from "node:events";
+
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
 
@@ -38,6 +40,17 @@ const reply = {
   warnings: [],
 };
 
+// A model call that answers only by failing once it is aborted.
+const untilAborted = async (
+  signal: AbortSignal | undefined
+): Promise<never> => {
+  if (signal === undefined) {
+    throw new Error("The call has no abort signal");
+  }
+  await once(signal, "abort");
+  throw signal.reason;
+};
+
 const fakeSandbox = () => {
   const sandbox: Sandbox = {
     denyNetwork: vi.fn<Sandbox["denyNetwork"]>(),
@@ -48,13 +61,15 @@ const fakeSandbox = () => {
           : { exitCode: 1, stderr: "", stdout: "debugger statement\n" }
       )
     ),
+    stopsAt: Date.now() + 240_000,
     writeFile: vi.fn<Sandbox["writeFile"]>(() => Promise.resolve()),
   };
   return sandbox;
 };
 
-const request = (sandbox: Sandbox) => ({
+const request = (sandbox: Sandbox, deadline = Date.now() + 60_000) => ({
   command: "pnpm exec ultracite check",
+  deadline,
   diff: "",
   output: "src/index.ts: debugger statement\n",
   sandbox,
@@ -156,6 +171,56 @@ describe(createModelLintFindingsFixer, () => {
     expect(JSON.stringify(model.doGenerateCalls[1]?.prompt)).toContain(
       "dist/bundle.js has 200001 characters, too many to read whole"
     );
+  });
+
+  it("keeps what the model did when the deadline cuts a call short", async () => {
+    // The first step writes a file; the second call hangs past the deadline.
+    const steps = [toolCall("write_file", { content: "", path: "a.ts" })];
+    const model = new MockLanguageModelV4({
+      doGenerate: ({ abortSignal }) => {
+        const step = steps.shift();
+        return step === undefined
+          ? untilAborted(abortSignal)
+          : Promise.resolve(step);
+      },
+      modelId: "anthropic/claude-haiku-5.5",
+    });
+    const sandbox = fakeSandbox();
+
+    await expect(
+      createModelLintFindingsFixer(model)(request(sandbox, Date.now() + 100))
+    ).resolves.toStrictEqual({
+      model: "anthropic/claude-haiku-5.5",
+      stopped: true,
+    });
+    expect(sandbox.writeFile).toHaveBeenCalledWith("/tmp/repository/a.ts", "");
+  });
+
+  it("fails when the deadline passes before the model answers", async () => {
+    const model = new MockLanguageModelV4({
+      doGenerate: ({ abortSignal }) => untilAborted(abortSignal),
+    });
+
+    await expect(
+      createModelLintFindingsFixer(model)(
+        request(fakeSandbox(), Date.now() + 50)
+      )
+    ).rejects.toThrow("The operation was aborted due to timeout");
+  });
+
+  it("cuts a command off at the deadline", async () => {
+    const steps = [toolCall("bash", { command: "sleep 600" }), reply];
+    const model = new MockLanguageModelV4({
+      doGenerate: () => Promise.resolve(steps.shift() ?? reply),
+    });
+    const sandbox = fakeSandbox();
+
+    await createModelLintFindingsFixer(model)(
+      request(sandbox, Date.now() + 10_000)
+    );
+
+    const [command] = vi.mocked(sandbox.run).mock.calls[0] ?? [];
+    expect(command?.timeoutMs).toBeLessThanOrEqual(10_000);
   });
 
   it("fails when the model call fails", async () => {

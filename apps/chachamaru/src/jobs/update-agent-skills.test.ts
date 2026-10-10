@@ -212,6 +212,7 @@ const localSandbox = ({
         stdout: result.stdout,
       });
     },
+    stopsAt: Number.POSITIVE_INFINITY,
     writeFile: () =>
       Promise.reject(
         new Error("The skills update writes no file through the sandbox")
@@ -755,6 +756,7 @@ describe(updateAgentSkillsEverywhere, () => {
         task({
           denyNetwork: () => Promise.reject(new Error("unused")),
           run: () => Promise.reject(new Error("unused")),
+          stopsAt: Number.POSITIVE_INFINITY,
           writeFile: () => Promise.reject(new Error("unused")),
         }),
     });

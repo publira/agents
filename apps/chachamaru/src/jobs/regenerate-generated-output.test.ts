@@ -180,6 +180,7 @@ const localSandbox = ({
         stdout: result.stdout,
       });
     },
+    stopsAt: Number.POSITIVE_INFINITY,
     writeFile: () =>
       Promise.reject(
         new Error("The regeneration writes no file through the sandbox")

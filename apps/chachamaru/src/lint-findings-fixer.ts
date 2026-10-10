@@ -8,15 +8,10 @@ import { codeBlock } from "./code-block.ts";
 import { LINT_FINDINGS_MODEL } from "./models.ts";
 import type { Sandbox } from "./sandbox-runner.ts";
 
-// How long the model may keep starting steps, its tool calls included. The
-// sandbox lives 240 seconds, and the fetch, the install, the checks, and the
-// automatic fix take part of them before the model starts, and the check
-// after it. The step under way when this runs out is the last.
+// How long the model may keep starting steps, its tool calls included; the
+// step under way when this runs out is the last. The request's deadline,
+// which leaves the job the time to check the result, can cut it shorter.
 const WORK_MS = 90_000;
-
-// A model call that is still running by then fails the job, which writes
-// nothing; the next evaluation of the pull request tries again.
-const TIMEOUT_MS = 120_000;
 
 // How many steps, each a model call and the tools it calls, the model may
 // take.
@@ -71,6 +66,12 @@ export interface LintFindingsFixRequest {
   output: string;
   /** The diff the automatic fix made against the head; empty for none. */
   diff: string;
+  /**
+   * When the model has to be done, in milliseconds since the epoch, so that
+   * the job still has the time to check the result before the sandbox
+   * stops. A model call or a command still running then is cut off.
+   */
+  deadline: number;
 }
 
 export interface LintFindingsFixResult {
@@ -86,7 +87,8 @@ export interface LintFindingsFixResult {
 /**
  * Has a model change the files of a checked-out repository, in a sandbox,
  * to fix the lint findings the automatic fix leaves. The job checks the
- * result afterwards; nothing the model says is relied on.
+ * result afterwards; nothing the model says is relied on. It rejects when
+ * the model's run fails before any of its steps is done.
  */
 export type LintFindingsFixer = (
   request: LintFindingsFixRequest
@@ -99,8 +101,16 @@ const tail = (output: string) =>
 
 // The tools the model works with, in the sandbox only. A path is relative to
 // the worktree.
-const sandboxTools = ({ sandbox, worktree }: LintFindingsFixRequest) => {
+const sandboxTools = ({
+  sandbox,
+  worktree,
+  deadline,
+}: LintFindingsFixRequest) => {
   const resolve = (file: string) => path.posix.resolve(worktree, file);
+  // A command ends by the deadline at the latest, so none is still running
+  // in the worktree when the job checks it.
+  const commandTimeout = () =>
+    Math.max(0, Math.min(COMMAND_TIMEOUT_MS, deadline - Date.now()));
 
   return {
     bash: tool({
@@ -112,7 +122,7 @@ const sandboxTools = ({ sandbox, worktree }: LintFindingsFixRequest) => {
           cmd: "bash",
           cwd: worktree,
           env: { CI: "true", NO_COLOR: "1" },
-          timeoutMs: COMMAND_TIMEOUT_MS,
+          timeoutMs: commandTimeout(),
         });
         return `Exit code ${result.exitCode}\n${tail(`${result.stdout}${result.stderr}`)}`;
       },
@@ -125,7 +135,7 @@ const sandboxTools = ({ sandbox, worktree }: LintFindingsFixRequest) => {
         const result = await sandbox.run({
           args: ["--", resolve(file)],
           cmd: "cat",
-          timeoutMs: COMMAND_TIMEOUT_MS,
+          timeoutMs: commandTimeout(),
         });
         if (result.exitCode !== 0) {
           return `Cannot read ${file}: ${result.stderr}`;
@@ -160,15 +170,36 @@ const sandboxTools = ({ sandbox, worktree }: LintFindingsFixRequest) => {
 export const createModelLintFindingsFixer =
   (model: LanguageModel = LINT_FINDINGS_MODEL): LintFindingsFixer =>
   async (request) => {
-    const deadline = Date.now() + WORK_MS;
-    const { finishReason, response } = await generateText({
-      abortSignal: AbortSignal.timeout(TIMEOUT_MS),
-      instructions,
-      model,
-      prompt: prompt(request),
-      stopWhen: [stepCountIs(MAX_STEPS), () => Date.now() >= deadline],
-      tools: sandboxTools(request),
-    });
-    // A model stopped by a condition ends on a step that called tools.
-    return { model: response.modelId, stopped: finishReason === "tool-calls" };
+    const lastStep = Math.min(Date.now() + WORK_MS, request.deadline);
+    const abortSignal = AbortSignal.timeout(
+      Math.max(0, request.deadline - Date.now())
+    );
+    // The model that answered the last step done, for a run cut off later.
+    let answered: string | undefined;
+
+    try {
+      const { finishReason, response } = await generateText({
+        abortSignal,
+        instructions,
+        model,
+        onStepEnd: (step) => {
+          answered = step.response.modelId;
+        },
+        prompt: prompt(request),
+        stopWhen: [stepCountIs(MAX_STEPS), () => Date.now() >= lastStep],
+        tools: sandboxTools(request),
+      });
+      // A model stopped by a condition ends on a step that called tools.
+      return {
+        model: response.modelId,
+        stopped: finishReason === "tool-calls",
+      };
+    } catch (error) {
+      // What the model changed before the deadline cut it off is checked
+      // like a finished fix.
+      if (abortSignal.aborted && answered !== undefined) {
+        return { model: answered, stopped: true };
+      }
+      throw error;
+    }
   };
