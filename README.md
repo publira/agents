@@ -8,7 +8,7 @@ Its first application is the [maintenance bot](apps/maintenance-bot/README.md), 
 
 | Path | Contents |
 | --- | --- |
-| `apps/maintenance-bot/` | The [maintenance bot](apps/maintenance-bot/README.md): the eve agent in `agent/`, the deterministic jobs in `src/jobs/`, and their command-line entries in `src/cli/` |
+| `apps/maintenance-bot/` | The [maintenance bot](apps/maintenance-bot/README.md): the eve agent in `agent/`, and the deterministic jobs in `src/jobs/` |
 | `packages/devcontainer/` | Reading Dev Container configurations, editing their lock files, and resolving Features in OCI registries |
 | `packages/github/` | GitHub API access |
 | `packages/maintenance-policies/` | The rules that decide what a job does |

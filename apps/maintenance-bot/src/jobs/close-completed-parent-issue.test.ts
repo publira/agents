@@ -150,7 +150,6 @@ describe(closeCompletedParentIssue, () => {
     await expect(
       closeCompletedParentIssue({
         ...options,
-        author: undefined,
         dryRun: true,
         octokit: github.octokit,
       })

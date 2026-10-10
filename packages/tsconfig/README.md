@@ -15,4 +15,4 @@ Add `@publira/tsconfig` to the package's `devDependencies` as `workspace:*`.
 ## Notes
 
 - A change here reaches every package, so type-check the whole workspace with `pnpm typecheck`.
-- The app's CLI runs its sources under Node.js type stripping, so `erasableSyntaxOnly` and `allowImportingTsExtensions` stay on.
+- `erasableSyntaxOnly` keeps the code within erasable syntax, and `allowImportingTsExtensions` lets relative imports name the `.ts` file.

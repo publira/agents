@@ -68,7 +68,7 @@ export interface AutoMergeRenovateUpdateOptions {
   repo: string;
   pullNumber: number;
   /** The bot's login, which approves and merges. */
-  reviewer: string | undefined;
+  reviewer: string;
   /** Whether auto-merge is on; see `readRenovateAutoMerge`. */
   enabled: boolean;
   /** Decides without changing anything. */
@@ -126,12 +126,9 @@ const describeApproval = (
  */
 const findOwnApproval = async (
   { octokit, owner, repo, pullNumber }: AutoMergeRenovateUpdateOptions,
-  reviewer: string | undefined,
+  reviewer: string,
   headSha: string
 ): Promise<Date | undefined> => {
-  if (reviewer === undefined) {
-    return undefined;
-  }
   const reviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
     owner,
     per_page: 100,
@@ -159,11 +156,8 @@ interface OwnRequest {
 
 const findOwnRequest = (
   state: PullRequestMergeState,
-  reviewer: string | undefined
+  reviewer: string
 ): OwnRequest | undefined => {
-  if (reviewer === undefined) {
-    return undefined;
-  }
   if (state.autoMerge?.enabledBy === reviewer) {
     return {
       kind: "auto-merge",

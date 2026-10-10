@@ -6,7 +6,7 @@ An [eve](https://eve.dev/) app deployed to Vercel that hosts the jobs that keep 
 
 Build the packages as the [repository README](../../README.md#development) describes, then start the bot locally from the repository root with `pnpm --filter @publira/maintenance-bot dev`. eve asks for a model connection the first time.
 
-[AGENTS.md](AGENTS.md) describes the bot's conventions and the command-line entries of its jobs.
+[AGENTS.md](AGENTS.md) describes the bot's conventions.
 
 ## GitHub App
 
@@ -34,7 +34,7 @@ The bot reads the App's credentials from three environment variables:
 | `GITHUB_APP_PRIVATE_KEY` | A private key of the App, in PEM; line breaks may be written as `\n` |
 | `GITHUB_WEBHOOK_SECRET` | The webhook secret |
 
-Set the production App's values in the Vercel project's Production environment only, as sensitive variables. For local development, register a separate development App on a test repository, put its values in `.env.local` in this directory, which Git ignores and `eve dev` and the command-line entries load, and forward its webhooks to the local server through a tunnel. `pnpm --filter @publira/maintenance-bot list-app-repositories` checks the credentials. The tests use generated keys and never reach GitHub.
+Set the production App's values in the Vercel project's Production environment only, as sensitive variables. For local development, register a separate development App on a test repository, put its values in `.env.local` in this directory, which Git ignores and `eve dev` loads, and forward its webhooks to the local server through a tunnel. The tests use generated keys and never reach GitHub.
 
 ## Operation
 
