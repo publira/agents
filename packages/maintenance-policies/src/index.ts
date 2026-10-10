@@ -82,7 +82,6 @@ export type {
   RegenerationConfigParseResult,
 } from "./regeneration.ts";
 export {
-  LEGACY_REGENERATION_CONFIG_PATH,
   matchesAnyPathPattern,
   matchesPathPattern,
   parseRegenerationConfig,

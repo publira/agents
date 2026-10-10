@@ -3,6 +3,7 @@ import type { Octokit } from "@publira/github";
 import {
   isRenovate,
   matchesAnyPathPattern,
+  parseRegenerationConfig,
   readWorkflowEnv,
   REGENERATION_CONFIG_PATH,
 } from "@publira/maintenance-policies";
@@ -10,7 +11,6 @@ import type { RegenerationConfig } from "@publira/maintenance-policies";
 
 import type { GitFileChange } from "../git-output.ts";
 import type { LogFields } from "../log.ts";
-import { readRegenerationConfig } from "../regeneration-config.ts";
 import {
   git,
   readBlobs,
@@ -218,14 +218,16 @@ const readConfig = async (
   { octokit, owner, repo }: RegenerateGeneratedOutputOptions,
   baseSha: string
 ): Promise<RegenerationConfig | Skip> => {
-  const parsed = await readRegenerationConfig(octokit, {
+  const source = await readOptionalRepositoryFile(octokit, {
     owner,
+    path: REGENERATION_CONFIG_PATH,
     ref: baseSha,
     repo,
   });
-  if (parsed === undefined) {
+  if (source === undefined) {
     return { reason: `the base branch has no ${REGENERATION_CONFIG_PATH}` };
   }
+  const parsed = parseRegenerationConfig(source);
   return parsed.result === "valid" ? parsed.config : { reason: parsed.reason };
 };
 
