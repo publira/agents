@@ -88,3 +88,111 @@ const GITHUB_DIRECTORY = ".github/";
 export const isLintFixRefusedPath = (path: string): boolean =>
   path.startsWith(GITHUB_DIRECTORY) ||
   REFUSED_FILE_NAMES.has(path.slice(path.lastIndexOf("/") + 1));
+
+/**
+ * The subject of the bot's commit of the fixes a model made to the findings
+ * the automatic fix leaves.
+ */
+export const LINT_FINDINGS_FIX_COMMIT_SUBJECT =
+  "chore(lint): fix findings for the updated lint tools";
+
+// The lint configuration, by file name in any directory. A model that
+// changes it turns a rule off rather than fixing what the rule finds.
+const LINT_CONFIGURATION_FILE_NAMES = [
+  /^oxlint\.config\./u,
+  /^oxfmt\.config\./u,
+  /^\.oxlintrc/u,
+  /^\.oxfmtrc/u,
+  /^\.prettierignore$/u,
+];
+
+/**
+ * Whether a model's fix of the findings may not change a path: one that
+ * {@link isLintFixRefusedPath} refuses, or the lint configuration.
+ */
+export const isLintFindingsFixRefusedPath = (path: string): boolean => {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  return (
+    isLintFixRefusedPath(path) ||
+    LINT_CONFIGURATION_FILE_NAMES.some((pattern) => pattern.test(name))
+  );
+};
+
+// The comments that turn a finding off instead of fixing it.
+const SUPPRESSIONS = [
+  "eslint-disable",
+  "oxlint-disable",
+  "oxfmt-ignore",
+  "prettier-ignore",
+  "biome-ignore",
+  "@ts-ignore",
+  "@ts-expect-error",
+  "@ts-nocheck",
+];
+
+/** A line a fix adds to a file. */
+export interface AddedLine {
+  path: string;
+  /** Its number in the fixed file, from 1. */
+  lineNumber: number;
+  text: string;
+}
+
+export interface LintFindingsFixInput {
+  /** Whether `ultracite check` passes after the fix. */
+  checkPassed: boolean;
+  /** The files the fix changes against the head. */
+  paths: readonly string[];
+  /** The lines the fix adds against the head. */
+  addedLines: readonly AddedLine[];
+}
+
+export type LintFindingsFixVerdict =
+  | { result: "accepted" }
+  | {
+      result: "refused";
+      reason: string;
+      /** The files the fix may not change. */
+      refusedPaths: string[];
+      /** The added lines that turn a finding off. */
+      suppressions: AddedLine[];
+    };
+
+/**
+ * Decides whether the bot commits a model's fix of the findings the automatic
+ * fix leaves: it changes something, leaves alone the files a lint fix has no
+ * reason to change and the lint configuration, adds no comment that turns a
+ * finding off, and `ultracite check` passes after it.
+ */
+export const evaluateLintFindingsFix = ({
+  checkPassed,
+  paths,
+  addedLines,
+}: LintFindingsFixInput): LintFindingsFixVerdict => {
+  const refusedPaths = paths.filter(isLintFindingsFixRefusedPath);
+  const suppressions = addedLines.filter(({ text }) =>
+    SUPPRESSIONS.some((suppression) => text.includes(suppression))
+  );
+  const refuse = (reason: string): LintFindingsFixVerdict => ({
+    reason,
+    refusedPaths,
+    result: "refused",
+    suppressions,
+  });
+
+  if (paths.length === 0) {
+    return refuse("the model changed nothing");
+  }
+  if (refusedPaths.length > 0) {
+    return refuse(
+      "the model changed a lock file, a package.json, a file under .github, or the lint configuration"
+    );
+  }
+  if (suppressions.length > 0) {
+    return refuse("the model added comments that turn findings off");
+  }
+  if (!checkPassed) {
+    return refuse("`ultracite check` still fails after the model's changes");
+  }
+  return { result: "accepted" };
+};

@@ -9,9 +9,9 @@ const OUTPUT_LIMIT = 2000;
 
 const GIT_TIMEOUT_MS = 30_000;
 
-/** The end of a command's output, short enough to log. */
-export const tail = (output: string): string =>
-  output.length > OUTPUT_LIMIT ? output.slice(-OUTPUT_LIMIT) : output;
+/** The end of a command's output, short enough to log by default. */
+export const tail = (output: string, limit = OUTPUT_LIMIT): string =>
+  output.length > limit ? output.slice(-limit) : output;
 
 /** Runs a command that has to succeed and returns its output. */
 export const runChecked = async (

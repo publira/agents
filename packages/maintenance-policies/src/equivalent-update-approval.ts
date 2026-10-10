@@ -2,7 +2,11 @@ import {
   devContainerLockFilePathOf,
   isDevContainerConfigPath,
 } from "./devcontainer-lock-file.ts";
-import { isLintFixRefusedPath, LINT_FIX_COMMIT_SUBJECT } from "./lint-fix.ts";
+import {
+  isLintFixRefusedPath,
+  LINT_FINDINGS_FIX_COMMIT_SUBJECT,
+  LINT_FIX_COMMIT_SUBJECT,
+} from "./lint-fix.ts";
 import { matchesAnyPathPattern } from "./regeneration.ts";
 import { RENOVATE_LOGIN } from "./renovate-update.ts";
 
@@ -62,7 +66,7 @@ export type RenovateCommitsVerdict =
   | {
       result: "foreign-commit";
       sha: string;
-      problem: "author" | "committer" | "files" | "unverified";
+      problem: "author" | "committer" | "files" | "model" | "unverified";
     };
 
 /**
@@ -80,8 +84,8 @@ const COMMITTERS = new Set([RENOVATE_LOGIN, GITHUB_COMMITTER]);
 
 /**
  * What a commit of the bot does, by its subject and the files it changes:
- * apply lint fixes, sync lock files, regenerate generated output, or
- * something the bot may not do.
+ * apply lint fixes, sync lock files, regenerate generated output, commit a
+ * model's lint fixes, or something the bot may not do.
  */
 const botCommitKind = (
   { files = [], subject }: PullRequestCommit,
@@ -92,7 +96,11 @@ const botCommitKind = (
     allowedLockFiles: ReadonlySet<string>;
     generatedPaths: readonly string[];
   }
-): "lint-fix" | "lock-file" | "regeneration" | undefined => {
+): "lint-fix" | "lock-file" | "model" | "regeneration" | undefined => {
+  // A maintainer reviews the code a model wrote, whatever files it changes.
+  if (subject === LINT_FINDINGS_FIX_COMMIT_SUBJECT) {
+    return "model";
+  }
   if (files.length === 0) {
     return undefined;
   }
@@ -119,7 +127,8 @@ const botCommitKind = (
  * as long as each changes only the lock files beside the Dev Container
  * configurations the pull request changes, or only the generated output the
  * repository declares, or is its commit of automatic lint fixes, which
- * changes no lock file, `package.json`, or file under `.github/`.
+ * changes no lock file, `package.json`, or file under `.github/`. Its commit
+ * of a model's lint fixes is never accepted.
  */
 export const evaluateRenovateCommits = (
   commits: readonly PullRequestCommit[],
@@ -137,14 +146,12 @@ export const evaluateRenovateCommits = (
 
   const allowedLockFiles = lockFilesOf(bot?.changedFiles ?? []);
   const generatedPaths = bot?.generatedPaths ?? [];
-  let lintFixCommits = 0;
-  let lockFileCommits = 0;
-  let regenerationCommits = 0;
+  const botCommits = { "lint-fix": 0, "lock-file": 0, regeneration: 0 };
 
   for (const commit of commits) {
     const byBot = bot !== undefined && commit.authorLogin === bot.botLogin;
     const foreign = (
-      problem: "author" | "committer" | "files" | "unverified"
+      problem: "author" | "committer" | "files" | "model" | "unverified"
     ) => ({ problem, result: "foreign-commit" as const, sha: commit.sha });
 
     if (commit.authorLogin !== RENOVATE_LOGIN && !byBot) {
@@ -164,21 +171,18 @@ export const evaluateRenovateCommits = (
       if (kind === undefined) {
         return foreign("files");
       }
-      if (kind === "lint-fix") {
-        lintFixCommits += 1;
-      } else if (kind === "lock-file") {
-        lockFileCommits += 1;
-      } else {
-        regenerationCommits += 1;
+      if (kind === "model") {
+        return foreign("model");
       }
+      botCommits[kind] += 1;
     }
   }
 
   return {
     count: commits.length,
-    lintFixCommits,
-    lockFileCommits,
-    regenerationCommits,
+    lintFixCommits: botCommits["lint-fix"],
+    lockFileCommits: botCommits["lock-file"],
+    regenerationCommits: botCommits.regeneration,
     result: "accepted",
   };
 };

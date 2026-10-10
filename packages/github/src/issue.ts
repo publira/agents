@@ -60,8 +60,15 @@ export interface EnsureIssueCommentOptions extends IssueLocation {
   /**
    * Only comments posted at or after this time count, such as since the
    * issue was closed, so that a comment from an earlier close does not.
+   * Without it, every comment counts.
    */
-  since: Date;
+  since?: Date;
+  /**
+   * A comment counts as the same when its body contains this, such as a
+   * hidden HTML comment naming what it reports on, rather than only when its
+   * body equals `body`: for a body that differs between runs.
+   */
+  marker?: string;
 }
 
 export interface EnsureIssueCommentResult {
@@ -71,12 +78,20 @@ export interface EnsureIssueCommentResult {
 }
 
 /**
- * Returns the earliest comment the author posted with the body since
- * `since`, or `undefined` when there is none.
+ * Returns the earliest comment the author posted with the body, or with the
+ * marker, since `since`, or `undefined` when there is none.
  */
 export const findIssueComment = async (
   octokit: Octokit,
-  { owner, repo, issueNumber, body, author, since }: EnsureIssueCommentOptions
+  {
+    owner,
+    repo,
+    issueNumber,
+    body,
+    author,
+    since,
+    marker,
+  }: EnsureIssueCommentOptions
 ): Promise<{ id: number } | undefined> => {
   // `since` filters by the time a comment was last updated.
   const comments = await octokit.paginate(octokit.rest.issues.listComments, {
@@ -84,13 +99,16 @@ export const findIssueComment = async (
     owner,
     per_page: 100,
     repo,
-    since: since.toISOString(),
+    since: since?.toISOString(),
   });
   const same = comments.filter(
     (comment) =>
       comment.user?.login === author &&
-      comment.body === body &&
-      new Date(comment.created_at).getTime() >= since.getTime()
+      (marker === undefined
+        ? comment.body === body
+        : (comment.body ?? "").includes(marker)) &&
+      (since === undefined ||
+        new Date(comment.created_at).getTime() >= since.getTime())
   );
   const [earliest] = same.toSorted((a, b) => a.id - b.id);
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  parseAddedLines,
   parseCatFileBatch,
   parseRawDiff,
   parseStagedFiles,
@@ -72,6 +73,52 @@ describe(parseStagedFiles, () => {
     expect(() =>
       parseStagedFiles(`100644 ${sha("a")} 2\tskills-lock.json\0`)
     ).toThrow("Unexpected git ls-files output");
+  });
+});
+
+describe(parseAddedLines, () => {
+  it("reads the added lines with their paths and line numbers", () => {
+    const output = [
+      "diff --git a/src/index.ts b/src/index.ts",
+      "index 1111111..2222222 100644",
+      "--- a/src/index.ts",
+      "+++ b/src/index.ts",
+      "@@ -2 +2,2 @@ export const read = () => {",
+      "-  debugger;",
+      "+  return 1;",
+      "+++counter;",
+      "@@ -9,0 +11 @@",
+      "+// eslint-disable-next-line",
+      "\\ No newline at end of file",
+      "diff --git a/old.ts b/old.ts",
+      "deleted file mode 100644",
+      "--- a/old.ts",
+      "+++ /dev/null",
+      "@@ -1 +0,0 @@",
+      "-export {};",
+      'diff --git "a/docs/tab\\there.md" "b/docs/tab\\there.md"',
+      "new file mode 100644",
+      "--- /dev/null",
+      '+++ "b/docs/tab\\there.md"',
+      "@@ -0,0 +1 @@",
+      "+# Notes",
+      "",
+    ].join("\n");
+
+    expect(parseAddedLines(output)).toStrictEqual([
+      { lineNumber: 2, path: "src/index.ts", text: "  return 1;" },
+      { lineNumber: 3, path: "src/index.ts", text: "++counter;" },
+      {
+        lineNumber: 11,
+        path: "src/index.ts",
+        text: "// eslint-disable-next-line",
+      },
+      { lineNumber: 1, path: "docs/tab\there.md", text: "# Notes" },
+    ]);
+  });
+
+  it("reads no lines from an empty diff", () => {
+    expect(parseAddedLines("")).toStrictEqual([]);
   });
 });
 

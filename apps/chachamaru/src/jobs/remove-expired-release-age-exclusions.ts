@@ -13,6 +13,7 @@ import {
   verifyReleaseAgeExclusionRemoval,
 } from "@publira/pnpm-workspace";
 
+import { AGENT_NAME } from "../agent-name.ts";
 import { loggableFailure, withFields } from "../log.ts";
 import type { Log, LogFields } from "../log.ts";
 import { judgeReleaseAgeExclusions } from "./check-release-age-exclusions.ts";
@@ -25,10 +26,6 @@ export const CLEANUP_BRANCH =
   "chachamaru/remove-expired-release-age-exclusions";
 
 const TITLE = "chore(deps): remove expired minimumReleaseAgeExclude entries";
-
-// The name the bot discloses model help under, as the Assisted-by trailers
-// of Publira repositories do.
-const AGENT_NAME = "Chachamaru";
 
 export interface ExclusionEditRequest {
   /** The `minimumReleaseAgeExclude` block; line 1 is the first. */

@@ -1,6 +1,6 @@
-// Parsers for the machine-readable output of the Git commands the skills
-// update runs in its sandbox.
+// Parsers for the output of the Git commands the sandboxed jobs run.
 import type { FileMode } from "@publira/github";
+import type { AddedLine } from "@publira/maintenance-policies";
 
 /** A file as an index or a tree holds it. */
 export interface GitFile {
@@ -98,6 +98,59 @@ export const parseStagedFiles = (output: string): Map<string, GitFile> => {
   }
 
   return files;
+};
+
+const HUNK_HEADER = /^@@ -\d+(?:,\d+)? \+(?<start>\d+)(?:,\d+)? @@/u;
+
+// A path in a diff header, which Git puts in double quotes, with C escapes,
+// when it has a character such as a tab or a quote. JSON reads the escapes
+// Git writes for those.
+const headerPath = (field: string) => {
+  if (!field.startsWith('"')) {
+    return field;
+  }
+  try {
+    return String(JSON.parse(field));
+  } catch {
+    return field.slice(1, -1);
+  }
+};
+
+/**
+ * Reads the lines that `git diff --unified=0 --no-color --no-renames` adds,
+ * with the path and the line number of each in the new file.
+ */
+export const parseAddedLines = (output: string): AddedLine[] => {
+  const added: AddedLine[] = [];
+  let path: string | undefined;
+  let lineNumber = 0;
+  let inHunk = false;
+
+  for (const line of output.split("\n")) {
+    if (line.startsWith("diff --git ")) {
+      path = undefined;
+      inHunk = false;
+    } else if (!inHunk && line.startsWith("+++ ")) {
+      const target = headerPath(line.slice("+++ ".length));
+      path = target.startsWith("b/") ? target.slice(2) : undefined;
+    } else if (line.startsWith("@@ ")) {
+      const start = HUNK_HEADER.exec(line)?.groups?.start;
+      if (start === undefined) {
+        throw new Error(`Unexpected git diff hunk header: ${line}`);
+      }
+      lineNumber = Number(start);
+      inHunk = true;
+    } else if (inHunk && line.startsWith("+")) {
+      if (path !== undefined) {
+        added.push({ lineNumber, path, text: line.slice(1) });
+      }
+      lineNumber += 1;
+    } else if (inHunk && line.startsWith(" ")) {
+      lineNumber += 1;
+    }
+  }
+
+  return added;
 };
 
 const BATCH_HEADER = /^(?<sha>[\da-f]{40}) (?<type>[a-z]+) (?<size>\d+)$/u;

@@ -172,6 +172,8 @@ const describeCommits = (verdict: RenovateCommitsVerdict): string => {
         committer: "was committed by someone other than its author or GitHub",
         files:
           "is none of Chachamaru's own commits: of the Dev Container lock files beside the configurations the pull request changes, of the generated output the repository declares, or of automatic lint fixes that leave the lock files, package.json files, and .github alone",
+        model:
+          "is Chachamaru's commit of a model's lint fixes, which a maintainer reviews",
         unverified: "has no verified signature",
       };
       return `commit ${shortSha(verdict.sha)} ${problems[verdict.problem]}`;
