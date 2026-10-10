@@ -90,7 +90,7 @@ The bot leaves the pull request alone, and logs why, when a Feature was added or
 
 ### Generated output
 
-Renovate updates a code generator's version, such as a pinned `buf` plugin or a tool version in a workflow, but cannot run the generator, so a release that changes the generated code leaves the pull request failing the repository's check of that code. The bot regenerates the output on such a pull request in a repository that declares how in `.chachamaru/regenerate.yml` on the pull request's base branch; it leaves every other repository alone. A repository that has not moved its declaration from `.github/maintenance-bot/regenerate.yml`, its path before the bot was renamed, is still read there. publira/publira's declaration:
+Renovate updates a code generator's version, such as a pinned `buf` plugin or a tool version in a workflow, but cannot run the generator, so a release that changes the generated code leaves the pull request failing the repository's check of that code. The bot regenerates the output on such a pull request in a repository that declares how in `.chachamaru/regenerate.yml` on the pull request's base branch; it leaves every other repository alone. publira/publira's declaration:
 
 ```yaml
 # The files whose change by Renovate calls for a regeneration.

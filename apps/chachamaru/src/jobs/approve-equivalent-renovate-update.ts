@@ -5,6 +5,7 @@ import {
   getRepositoryPermission,
   getRequiredStatusChecks,
   minimizeOutdatedReviews,
+  readOptionalRepositoryFile,
 } from "@publira/github";
 import type { Octokit } from "@publira/github";
 import {
@@ -15,7 +16,9 @@ import {
   formatRenovateUpdate,
   isMaintainerPermission,
   isRenovate,
+  parseRegenerationConfig,
   parseRenovateUpdates,
+  REGENERATION_CONFIG_PATH,
   RENOVATE_LOGIN,
 } from "@publira/maintenance-policies";
 import type {
@@ -28,7 +31,6 @@ import { z } from "zod";
 
 import { loggableFailure } from "../log.ts";
 import type { LogFields } from "../log.ts";
-import { readRegenerationConfig } from "../regeneration-config.ts";
 
 /**
  * What the job checks, in order:
@@ -631,12 +633,17 @@ const readGeneratedPaths = async ({
   repo,
   pullRequest,
 }: PullRequestContext) => {
-  const parsed = await readRegenerationConfig(octokit, {
+  const source = await readOptionalRepositoryFile(octokit, {
     owner,
+    path: REGENERATION_CONFIG_PATH,
     ref: pullRequest.base.sha,
     repo,
   });
-  return parsed?.result === "valid" ? parsed.config.paths : [];
+  if (source === undefined) {
+    return [];
+  }
+  const parsed = parseRegenerationConfig(source);
+  return parsed.result === "valid" ? parsed.config.paths : [];
 };
 
 // The files each of the bot's commits changes, and those the pull request
