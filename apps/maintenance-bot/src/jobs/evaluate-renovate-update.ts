@@ -237,10 +237,12 @@ export const evaluateRenovateUpdate = async ({
   });
   try {
     const result = await approve({ ...location, reviewer });
+    const summary = summarizeApprovalResult(result);
+    // A failure to minimize the earlier reviews leaves the approval standing.
     approvalLog(
-      "info",
+      summary.minimizeError === undefined ? "info" : "warn",
       "Renovate update evaluated",
-      summarizeApprovalResult(result)
+      summary
     );
   } catch (error) {
     approvalLog(

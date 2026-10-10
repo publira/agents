@@ -16,7 +16,7 @@ The bot acts on repositories as a GitHub App, installed on the repositories it m
 - **Repository permissions**:
   - Metadata: read. Required by every App. Also tells whether the reviewer of a precedent can write to its repository, which is what makes them a maintainer: a review's author association reads `CONTRIBUTOR` to the App for a member whose organization membership is private.
   - Contents: read and write. Reads files, creates the branches and commits of maintenance pull requests, commits the synced Dev Container lock files and the regenerated output to Renovate pull requests, and merges the Renovate pull requests the bot auto-merges.
-  - Pull requests: read and write. Opens pull requests, submits reviews, enables auto-merge or queues a pull request, and adds or removes the `ai-assisted` label.
+  - Pull requests: read and write. Opens pull requests, submits reviews and minimizes the bot's outdated ones, enables auto-merge or queues a pull request, and adds or removes the `ai-assisted` label.
   - Issues: read and write. Reads an issue's parent and sub-issues, closes an issue whose sub-issues are all closed, and comments on it.
   - Checks: read, and Commit statuses: read. Tell whether a pull request's CI passed.
 - **Organization and account permissions**: none.
@@ -44,7 +44,7 @@ Environment variables of the Vercel project turn the bot's writes on and off. Ea
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `DRY_RUN` | `false` | Every job still evaluates and logs what it would do, but writes nothing to GitHub: no review, auto-merge, commit, branch, or pull request. |
+| `DRY_RUN` | `false` | Every job still evaluates and logs what it would do, but writes nothing to GitHub: no review, minimized review, auto-merge, commit, branch, or pull request. |
 | `RENOVATE_AUTO_MERGE` | `false` | Has GitHub merge the Renovate pull requests the bot approved; see below. |
 
 The bot acts only on the repositories the App is installed on. To start on a new feature or more repositories, install the App on a few of them, run with `DRY_RUN=true`, read the logs, and then turn `DRY_RUN` off and widen the installation.
@@ -57,7 +57,7 @@ The model is asked only to remove expired `minimumReleaseAgeExclude` entries who
 
 The bot writes one JSON object per line to the Vercel project's runtime logs, without tokens, keys, the webhook secret, or file contents. Each line names the `job` (or the `schedule`), the `installation`, the `owner` and `repo`, the `pullRequest`, `dryRun`, and the webhook `delivery` it comes from, where they apply. Beyond those:
 
-- `approve-equivalent-renovate-update`: the `status`; for a skipped pull request, the failed `condition` and its `detail`; for an approval, the `precedent` pull request, the maintainer whose approval of it counts (`precedentApprovedBy`), and the `review` with `reviewCreated`. `modelInvoked` is always `false`.
+- `approve-equivalent-renovate-update`: the `status`; for a skipped pull request, the failed `condition` and its `detail`; for an approval, the `precedent` pull request, the maintainer whose approval of it counts (`precedentApprovedBy`), the `review` with `reviewCreated`, and, once the bot submitted it, how many of its earlier reviews of other heads it minimized (`minimizedReviews`) or why it could not (`minimizeError`, `minimizeErrorStatus`, logged as a warning). `modelInvoked` is always `false`.
 - `auto-merge-renovate-update`: the decision (`autoMerge`), its reason (`autoMergeReason`), the `mergeMethod`, and what it took back (`autoMergeWithdrew`).
 - `close-completed-parent-issue`: the parent `issue` and the closed or removed `subIssue` that led to it, the `status`, the `reason` an issue was left open, the number of `subIssues`, and the `comment` with `commentCreated`. `modelInvoked` is always `false`.
 - `label-agent-assisted-pull-request`: the `status`, the number of `commits` it read, and the `reason` it left the label as it is. `modelInvoked` is always `false`.
@@ -65,6 +65,10 @@ The bot writes one JSON object per line to the Vercel project's runtime logs, wi
 - `regenerate-generated-output`: the `status`, the `headSha` it read, the generated `paths` it committed or would, the `ignoredPaths` the command changed outside them, the `reason` it left the pull request alone, the `commit`, and whether approval and auto-merge wait for the commit's push (`evaluationDeferred`). When the sandbox could not fetch the head, install the generators, or run the command, the `step`, the `exitCode`, and the end of the command's `output`. `modelInvoked` is always `false`.
 - `remove-expired-release-age-exclusions`: the `status`, the `expired` entries, whether the rules or a model chose the lines (`editedBy`), whether a model was asked in this run (`modelInvoked`, with the `model`), and the `pullRequest` with `pullRequestCreated`.
 - `update-agent-skills`: the `status`, the default branch's commit the update ran on (`baseSha`), the `skills` it added, updated, or removed, the `paths` it commits and the `ignoredPaths` it leaves out, whether it committed (`committed`), and the `pullRequest` with `pullRequestCreated`. When the sandbox could not clone the repository or update its skills, the `step`, the `exitCode`, and the end of the command's `output`. `modelInvoked` is always `false`.
+
+### Renovate approval
+
+Each time a Renovate pull request moves to a new head, such as when Renovate rebases it, the bot evaluates the head anew and submits a new approval of it, since an approval is bound to the commit it was submitted for. Once it has submitted one, it minimizes its own earlier reviews of other heads as outdated, so the timeline shows the latest approval in full and the earlier ones stay readable when expanded. It leaves other people's reviews as they are. A failure to minimize is logged and leaves the approval standing.
 
 ### Renovate auto-merge
 
