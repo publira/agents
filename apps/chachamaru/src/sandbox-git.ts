@@ -56,12 +56,15 @@ export const readTokenOptions = (readToken: string | undefined): string[] =>
 /**
  * Stages every change in the worktree and lists them against `HEAD`, with
  * their modes and blobs, symbolic links included, without reading the files.
+ * With `trackedOnly`, a file Git does not track yet is left out, such as a
+ * cache a tool wrote.
  */
 export const stageChanges = async (
   sandbox: Sandbox,
-  worktree: string
+  worktree: string,
+  { trackedOnly = false }: { trackedOnly?: boolean } = {}
 ): Promise<GitFileChange[]> => {
-  await git(sandbox, worktree, "add", "--all");
+  await git(sandbox, worktree, "add", trackedOnly ? "--update" : "--all");
   return parseRawDiff(
     await git(
       sandbox,

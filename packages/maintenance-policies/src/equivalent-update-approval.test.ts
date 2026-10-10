@@ -8,6 +8,7 @@ import {
   isRenovate,
 } from "./equivalent-update-approval.ts";
 import type { PullRequestReview } from "./equivalent-update-approval.ts";
+import { LINT_FIX_COMMIT_SUBJECT } from "./lint-fix.ts";
 
 describe(isRenovate, () => {
   it("accepts Renovate's bot account", () => {
@@ -40,6 +41,7 @@ describe(evaluateRenovateCommits, () => {
       evaluateRenovateCommits([renovateCommit("a"), renovateCommit("b")], "b")
     ).toStrictEqual({
       count: 2,
+      lintFixCommits: 0,
       lockFileCommits: 0,
       regenerationCommits: 0,
       result: "accepted",
@@ -54,6 +56,7 @@ describe(evaluateRenovateCommits, () => {
       )
     ).toStrictEqual({
       count: 1,
+      lintFixCommits: 0,
       lockFileCommits: 0,
       regenerationCommits: 0,
       result: "accepted",
@@ -131,6 +134,10 @@ describe(evaluateRenovateCommits, () => {
       sha,
       verified: true,
     });
+    const lintFixCommit = (sha: string, files: readonly string[]) => ({
+      ...lockFileCommit(sha, files),
+      subject: LINT_FIX_COMMIT_SUBJECT,
+    });
 
     it("accepts a signed commit of the lock file beside a changed configuration", () => {
       expect(
@@ -144,6 +151,7 @@ describe(evaluateRenovateCommits, () => {
         )
       ).toStrictEqual({
         count: 2,
+        lintFixCommits: 0,
         lockFileCommits: 1,
         regenerationCommits: 0,
         result: "accepted",
@@ -165,6 +173,7 @@ describe(evaluateRenovateCommits, () => {
         )
       ).toStrictEqual({
         count: 2,
+        lintFixCommits: 0,
         lockFileCommits: 1,
         regenerationCommits: 0,
         result: "accepted",
@@ -250,6 +259,7 @@ describe(evaluateRenovateCommits, () => {
           )
         ).toStrictEqual({
           count: 2,
+          lintFixCommits: 0,
           lockFileCommits: 0,
           regenerationCommits: 1,
           result: "accepted",
@@ -269,6 +279,7 @@ describe(evaluateRenovateCommits, () => {
           )
         ).toStrictEqual({
           count: 3,
+          lintFixCommits: 0,
           lockFileCommits: 1,
           regenerationCommits: 1,
           result: "accepted",
@@ -308,6 +319,64 @@ describe(evaluateRenovateCommits, () => {
             [
               renovateCommit("a"),
               lockFileCommit("b", ["server/internal/proto/gen/api.pb.go"]),
+            ],
+            "b",
+            scope
+          )
+        ).toStrictEqual({
+          problem: "files",
+          result: "foreign-commit",
+          sha: "b",
+        });
+      });
+    });
+
+    describe("of automatic lint fixes", () => {
+      it("accepts a signed commit of the fixed files", () => {
+        expect(
+          evaluateRenovateCommits(
+            [
+              renovateCommit("a"),
+              lintFixCommit("b", ["README.md", "packages/github/src/index.ts"]),
+            ],
+            "b",
+            scope
+          )
+        ).toStrictEqual({
+          count: 2,
+          lintFixCommits: 1,
+          lockFileCommits: 0,
+          regenerationCommits: 0,
+          result: "accepted",
+        });
+      });
+
+      it.each([
+        ["a lock file", ["README.md", "pnpm-lock.yaml"]],
+        ["a nested lock file", ["packages/web/package-lock.json"]],
+        ["a package.json", ["apps/chachamaru/package.json"]],
+        ["a file under .github", [".github/renovate.json5"]],
+        ["no file it reported", []],
+      ])("refuses one that changes %s", (_, files) => {
+        expect(
+          evaluateRenovateCommits(
+            [renovateCommit("a"), lintFixCommit("b", files)],
+            "b",
+            scope
+          )
+        ).toStrictEqual({
+          problem: "files",
+          result: "foreign-commit",
+          sha: "b",
+        });
+      });
+
+      it("refuses the same files under another subject", () => {
+        expect(
+          evaluateRenovateCommits(
+            [
+              renovateCommit("a"),
+              { ...lintFixCommit("b", ["README.md"]), subject: "chore: fix" },
             ],
             "b",
             scope

@@ -40,8 +40,9 @@ import { readRegenerationConfig } from "../regeneration-config.ts";
  *   Renovate preset writes, and the metadata parses.
  * - `description`: nobody but Renovate edited the body since.
  * - `commits`: every commit is Renovate's, but for the bot's own commits of
- *   the Dev Container lock files beside the configurations it changes, and
- *   of the generated output the repository declares.
+ *   the Dev Container lock files beside the configurations it changes, of
+ *   the generated output the repository declares, and of automatic lint
+ *   fixes.
  * - `checks`: every check on the head passed, the required ones included.
  * - `precedent`: a merged pull request of the same owner made the same
  *   updates, and a maintainer approved its merged head: someone who can write
@@ -140,7 +141,8 @@ const requestFailure = z.object({ status: z.number() });
 const describeCommits = (verdict: RenovateCommitsVerdict): string => {
   switch (verdict.result) {
     case "accepted": {
-      const { count, lockFileCommits, regenerationCommits } = verdict;
+      const { count, lintFixCommits, lockFileCommits, regenerationCommits } =
+        verdict;
       const botCommits = [
         ...(lockFileCommits === 0
           ? []
@@ -148,10 +150,13 @@ const describeCommits = (verdict: RenovateCommitsVerdict): string => {
         ...(regenerationCommits === 0
           ? []
           : [`${regenerationCommits} regenerating the generated output`]),
+        ...(lintFixCommits === 0
+          ? []
+          : [`${lintFixCommits} applying automatic lint fixes`]),
       ];
       return botCommits.length === 0
         ? `Renovate made all ${count} commit(s), signed by GitHub`
-        : `Renovate made ${count - lockFileCommits - regenerationCommits} commit(s), and Chachamaru ${botCommits.join(" and ")}, all signed by GitHub`;
+        : `Renovate made ${count - lockFileCommits - regenerationCommits - lintFixCommits} commit(s), and Chachamaru ${botCommits.join(" and ")}, all signed by GitHub`;
     }
     case "no-commits": {
       return "the pull request has no commits";
@@ -164,7 +169,7 @@ const describeCommits = (verdict: RenovateCommitsVerdict): string => {
         author: "was not authored by Renovate",
         committer: "was committed by someone other than its author or GitHub",
         files:
-          "changes more than either the Dev Container lock files beside the configurations the pull request changes or the generated output the repository declares",
+          "is none of Chachamaru's own commits: of the Dev Container lock files beside the configurations the pull request changes, of the generated output the repository declares, or of automatic lint fixes that leave the lock files, package.json files, and .github alone",
         unverified: "has no verified signature",
       };
       return `commit ${shortSha(verdict.sha)} ${problems[verdict.problem]}`;
@@ -689,6 +694,7 @@ const checkCommits = async (context: PullRequestContext): Promise<Verdict> => {
       committerLogin: commit.committer?.login,
       files: files.get(commit.sha),
       sha: commit.sha,
+      subject: commit.commit.message.split("\n", 1)[0],
       verified: commit.commit.verification?.verified === true,
     })),
     pullRequest.head.sha,

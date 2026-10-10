@@ -2,6 +2,7 @@ import {
   devContainerLockFilePathOf,
   isDevContainerConfigPath,
 } from "./devcontainer-lock-file.ts";
+import { isLintFixRefusedPath, LINT_FIX_COMMIT_SUBJECT } from "./lint-fix.ts";
 import { matchesAnyPathPattern } from "./regeneration.ts";
 import { RENOVATE_LOGIN } from "./renovate-update.ts";
 
@@ -28,6 +29,8 @@ export interface PullRequestCommit {
   verified: boolean;
   /** The files the commit changes; read only for the bot's commits. */
   files?: readonly string[];
+  /** The first line of the commit's message. */
+  subject?: string;
 }
 
 /** What tells the bot's own commits apart. */
@@ -51,6 +54,8 @@ export type RenovateCommitsVerdict =
       lockFileCommits: number;
       /** How many of them are the bot's commits of regenerated output. */
       regenerationCommits: number;
+      /** How many of them are the bot's commits of automatic lint fixes. */
+      lintFixCommits: number;
     }
   | { result: "no-commits" }
   | { result: "stale"; headSha: string }
@@ -74,11 +79,12 @@ const lockFilesOf = (changedFiles: readonly string[]) =>
 const COMMITTERS = new Set([RENOVATE_LOGIN, GITHUB_COMMITTER]);
 
 /**
- * What a commit of the bot does, by the files it changes: sync lock files,
- * regenerate generated output, or something the bot may not do.
+ * What a commit of the bot does, by its subject and the files it changes:
+ * apply lint fixes, sync lock files, regenerate generated output, or
+ * something the bot may not do.
  */
 const botCommitKind = (
-  files: readonly string[],
+  { files = [], subject }: PullRequestCommit,
   {
     allowedLockFiles,
     generatedPaths,
@@ -86,9 +92,12 @@ const botCommitKind = (
     allowedLockFiles: ReadonlySet<string>;
     generatedPaths: readonly string[];
   }
-): "lock-file" | "regeneration" | undefined => {
+): "lint-fix" | "lock-file" | "regeneration" | undefined => {
   if (files.length === 0) {
     return undefined;
+  }
+  if (subject === LINT_FIX_COMMIT_SUBJECT) {
+    return files.some(isLintFixRefusedPath) ? undefined : "lint-fix";
   }
   if (files.every((file) => allowedLockFiles.has(file))) {
     return "lock-file";
@@ -109,7 +118,8 @@ const botCommitKind = (
  * With `bot`, the bot's own commits are accepted too, signed like Renovate's,
  * as long as each changes only the lock files beside the Dev Container
  * configurations the pull request changes, or only the generated output the
- * repository declares.
+ * repository declares, or is its commit of automatic lint fixes, which
+ * changes no lock file, `package.json`, or file under `.github/`.
  */
 export const evaluateRenovateCommits = (
   commits: readonly PullRequestCommit[],
@@ -127,6 +137,7 @@ export const evaluateRenovateCommits = (
 
   const allowedLockFiles = lockFilesOf(bot?.changedFiles ?? []);
   const generatedPaths = bot?.generatedPaths ?? [];
+  let lintFixCommits = 0;
   let lockFileCommits = 0;
   let regenerationCommits = 0;
 
@@ -149,14 +160,13 @@ export const evaluateRenovateCommits = (
       return foreign("unverified");
     }
     if (byBot) {
-      const kind = botCommitKind(commit.files ?? [], {
-        allowedLockFiles,
-        generatedPaths,
-      });
+      const kind = botCommitKind(commit, { allowedLockFiles, generatedPaths });
       if (kind === undefined) {
         return foreign("files");
       }
-      if (kind === "lock-file") {
+      if (kind === "lint-fix") {
+        lintFixCommits += 1;
+      } else if (kind === "lock-file") {
         lockFileCommits += 1;
       } else {
         regenerationCommits += 1;
@@ -166,6 +176,7 @@ export const evaluateRenovateCommits = (
 
   return {
     count: commits.length,
+    lintFixCommits,
     lockFileCommits,
     regenerationCommits,
     result: "accepted",

@@ -9,6 +9,8 @@ import { loggableFailure, withFields } from "../log.ts";
 import type { Log } from "../log.ts";
 import type { SandboxRunner } from "../sandbox-runner.ts";
 import type { Settings } from "../settings.ts";
+import { applyLintFixes, summarizeLintFixResult } from "./apply-lint-fixes.ts";
+import type { ApplyLintFixesResult } from "./apply-lint-fixes.ts";
 import {
   approveEquivalentRenovateUpdate,
   createPrecedentScanCache,
@@ -49,10 +51,20 @@ const DEFERRING_REGENERATION_STATUSES = new Set<
   RegenerateGeneratedOutputResult["status"]
 >(["committed", "head-moved", "would-commit"]);
 
-/** What the evaluation regenerates a repository's generated output with. */
-export interface Regeneration {
+// The same for the bot's commit of automatic lint fixes.
+const DEFERRING_LINT_FIX_STATUSES = new Set<ApplyLintFixesResult["status"]>([
+  "committed",
+  "head-moved",
+  "would-commit",
+]);
+
+/**
+ * What a job runs a repository's own commands with, such as its generators
+ * or its lint tools.
+ */
+export interface RepositorySandbox {
   sandbox: SandboxRunner;
-  /** Creates a token that can only read the repository; see the job. */
+  /** Creates a token that can only read the repository; see the jobs. */
   createReadToken: () => Promise<string>;
 }
 
@@ -77,7 +89,7 @@ export interface EvaluateRenovateUpdateOptions {
    * did not change, such as a check's completion, has no new output to
    * regenerate, and the push's evaluation already did.
    */
-  regeneration?: Regeneration;
+  regeneration?: RepositorySandbox;
   precedentScanCache?: PrecedentScanCache;
   /** Replaced in tests. */
   jobs?: Partial<RenovateUpdateJobs>;
@@ -91,7 +103,7 @@ interface RegenerateOptions {
   reviewer: string;
   dryRun: boolean;
   log: Log;
-  regeneration: Regeneration;
+  regeneration: RepositorySandbox;
   regenerate: typeof regenerateGeneratedOutput;
 }
 
@@ -141,6 +153,74 @@ const regenerateAndLog = async ({
     regenerationLog(
       "error",
       "Generated output regeneration failed",
+      loggableFailure.safeParse(error).data
+    );
+    return false;
+  }
+};
+
+export interface FixLintOptions {
+  octokit: Octokit;
+  owner: string;
+  repo: string;
+  pullNumber: number;
+  /** The App's bot login, which authors the commit. */
+  reviewer: string;
+  dryRun: boolean;
+  log: Log;
+  lintFix: RepositorySandbox;
+  /** Replaced in tests. */
+  fix?: typeof applyLintFixes;
+}
+
+/**
+ * Applies the automatic lint fixes to a Renovate pull request whose checks
+ * failed, and logs the outcome or the failure. Tells whether the head moves,
+ * or would in a dry run, so approval and auto-merge wait for the push of the
+ * bot's commit.
+ */
+export const fixLintAndLog = async ({
+  octokit,
+  owner,
+  repo,
+  pullNumber,
+  reviewer,
+  dryRun,
+  log,
+  lintFix,
+  fix = applyLintFixes,
+}: FixLintOptions): Promise<boolean> => {
+  const lintFixLog = withFields(log, {
+    dryRun,
+    job: "apply-lint-fixes",
+    owner,
+    pullRequest: pullNumber,
+    repo,
+  });
+  try {
+    const result = await fix({
+      ...lintFix,
+      botLogin: reviewer,
+      dryRun,
+      octokit,
+      owner,
+      pullNumber,
+      repo,
+    });
+    const deferred = DEFERRING_LINT_FIX_STATUSES.has(result.status);
+    lintFixLog(
+      result.status === "failed" || result.status === "refused"
+        ? "warn"
+        : "info",
+      "Lint fix evaluated",
+      { ...summarizeLintFixResult(result), evaluationDeferred: deferred }
+    );
+    return deferred;
+  } catch (error) {
+    // The files stay as they are, and CI keeps rejecting them.
+    lintFixLog(
+      "error",
+      "Lint fix failed",
       loggableFailure.safeParse(error).data
     );
     return false;
@@ -284,21 +364,26 @@ export interface EvaluateRenovateUpdatesEverywhereOptions {
   settings: RenovateUpdateSettings;
   /** Only the pull requests from this branch, such as after a precedent merged. */
   headRef?: string;
-  /** Regenerates generated output in this sandbox; see `regeneration`. */
+  /**
+   * Regenerates generated output and applies the automatic lint fixes in
+   * this sandbox; see `regeneration`.
+   */
   sandbox?: SandboxRunner;
   /** Replaced in tests. */
   evaluate?: typeof evaluateRenovateUpdate;
   /** Replaced in tests. */
   regenerate?: typeof regenerateGeneratedOutput;
+  /** Replaced in tests. */
+  fixLint?: typeof applyLintFixes;
 }
 
 /**
- * How many regenerations of one repository the sweep runs at once. Each can
- * hold a sandbox for up to 240 seconds, close to the 300 the function running
- * the sweep has, so one after another, a slow one would leave the next too
- * little time, every hour again.
+ * How many pull requests of one repository the sweep runs a sandbox for at
+ * once. Each sandbox can live up to 240 seconds, close to the 300 the
+ * function running the sweep has, so one after another, a slow one would
+ * leave the next too little time, every hour again.
  */
-export const SWEEP_REGENERATION_CONCURRENCY = 4;
+export const SWEEP_SANDBOX_CONCURRENCY = 4;
 
 // Runs a task for each item, at most `limit` at once.
 const forEachConcurrently = async <T>(
@@ -323,9 +408,10 @@ const forEachConcurrently = async <T>(
  * fails is logged, and the others still run.
  *
  * With a sandbox, it first regenerates the generated output of a
- * repository's pull requests, a few at a time, and then evaluates the rest
- * one at a time; a pull request whose head the regeneration moves, or would
- * in a dry run, is left to the push's evaluation.
+ * repository's pull requests, a few at a time, and applies the automatic lint
+ * fixes to those whose checks failed, then evaluates the rest one at a time;
+ * a pull request whose head either moves, or would in a dry run, is left to
+ * the push's evaluation.
  */
 export const evaluateRenovateUpdatesEverywhere = async ({
   app,
@@ -335,6 +421,7 @@ export const evaluateRenovateUpdatesEverywhere = async ({
   sandbox,
   evaluate = evaluateRenovateUpdate,
   regenerate = regenerateGeneratedOutput,
+  fixLint = applyLintFixes,
 }: EvaluateRenovateUpdatesEverywhereOptions): Promise<void> => {
   const [repositories, reviewer] = await Promise.all([
     listAppRepositories(app),
@@ -365,27 +452,38 @@ export const evaluateRenovateUpdatesEverywhere = async ({
           const deferred = new Set<number>();
 
           if (sandbox !== undefined) {
-            const regeneration = {
+            const repositorySandbox = {
               createReadToken: () =>
                 createRepositoryReadToken(app, { installationId, repo }),
               sandbox,
             };
+            const pullRequest = {
+              dryRun: settings.dryRun,
+              log: repositoryLog,
+              octokit,
+              owner,
+              repo,
+              reviewer,
+            };
             await forEachConcurrently(
               renovatePulls,
-              SWEEP_REGENERATION_CONCURRENCY,
+              SWEEP_SANDBOX_CONCURRENCY,
               async (pullNumber) => {
+                // The lint fix reads the checks of the head the regeneration
+                // leaves as it is.
                 if (
-                  await regenerateAndLog({
-                    dryRun: settings.dryRun,
-                    log: repositoryLog,
-                    octokit,
-                    owner,
+                  (await regenerateAndLog({
+                    ...pullRequest,
                     pullNumber,
                     regenerate,
-                    regeneration,
-                    repo,
-                    reviewer,
-                  })
+                    regeneration: repositorySandbox,
+                  })) ||
+                  (await fixLintAndLog({
+                    ...pullRequest,
+                    fix: fixLint,
+                    lintFix: repositorySandbox,
+                    pullNumber,
+                  }))
                 ) {
                   deferred.add(pullNumber);
                 }

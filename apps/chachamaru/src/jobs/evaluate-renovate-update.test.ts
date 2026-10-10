@@ -6,15 +6,17 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Log } from "../log.ts";
 import type { SandboxRunner } from "../sandbox-runner.ts";
+import type { applyLintFixes } from "./apply-lint-fixes.ts";
 import type { approveEquivalentRenovateUpdate } from "./approve-equivalent-renovate-update.ts";
 import type { autoMergeRenovateUpdate } from "./auto-merge-renovate-update.ts";
 import {
   evaluateRenovateUpdate,
   evaluateRenovateUpdatesEverywhere,
-  SWEEP_REGENERATION_CONCURRENCY,
+  fixLintAndLog,
+  SWEEP_SANDBOX_CONCURRENCY,
 } from "./evaluate-renovate-update.ts";
 import type {
-  Regeneration,
+  RepositorySandbox,
   RenovateUpdateSettings,
 } from "./evaluate-renovate-update.ts";
 import type { regenerateGeneratedOutput } from "./regenerate-generated-output.ts";
@@ -53,7 +55,7 @@ const setup = ({
   sync?: typeof syncDevContainerLockFile;
   regeneration?: typeof regenerateGeneratedOutput;
   /** Lets the evaluation regenerate. */
-  sandbox?: Regeneration;
+  sandbox?: RepositorySandbox;
 } = {}) => {
   const syncLockFile = vi.fn<typeof syncDevContainerLockFile>(sync);
   const regenerate = vi.fn<typeof regenerateGeneratedOutput>(regeneration);
@@ -86,7 +88,7 @@ const setup = ({
   };
 };
 
-const regeneration: Regeneration = {
+const regeneration: RepositorySandbox = {
   createReadToken: () => Promise.resolve("read-token"),
   sandbox: () => Promise.reject(new Error("The job is replaced")),
 };
@@ -504,6 +506,85 @@ describe(evaluateRenovateUpdate, () => {
   });
 });
 
+// Applies the lint fixes with `fix` in place of the job.
+const fixWith = async (fix: typeof applyLintFixes) => {
+  const log = vi.fn<Log>();
+  const deferred = await fixLintAndLog({
+    dryRun: true,
+    fix,
+    lintFix: regeneration,
+    log,
+    octokit: createGitHubClient(),
+    owner: "publira",
+    pullNumber: 31,
+    repo: "agents",
+    reviewer: BOT,
+  });
+  return { deferred, log };
+};
+
+describe(fixLintAndLog, () => {
+  it("defers the evaluation to the push of a commit it would make", async () => {
+    const { deferred, log } = await fixWith(() =>
+      Promise.resolve({
+        checkPassed: true,
+        headSha: HEAD,
+        output: undefined,
+        paths: ["README.md"],
+        status: "would-commit" as const,
+      })
+    );
+
+    expect(deferred).toBeTruthy();
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Lint fix evaluated",
+      expect.objectContaining({
+        dryRun: true,
+        evaluationDeferred: true,
+        job: "apply-lint-fixes",
+        paths: ["README.md"],
+        pullRequest: 31,
+        status: "would-commit",
+      })
+    );
+  });
+
+  it("warns of a refused fix", async () => {
+    const { deferred, log } = await fixWith(() =>
+      Promise.resolve({
+        headSha: HEAD,
+        paths: ["pnpm-lock.yaml"],
+        refusedPaths: ["pnpm-lock.yaml"],
+        status: "refused" as const,
+      })
+    );
+
+    expect(deferred).toBeFalsy();
+    expect(log).toHaveBeenCalledWith(
+      "warn",
+      "Lint fix evaluated",
+      expect.objectContaining({
+        evaluationDeferred: false,
+        refusedPaths: ["pnpm-lock.yaml"],
+      })
+    );
+  });
+
+  it("logs a fix that threw", async () => {
+    const { deferred, log } = await fixWith(() =>
+      Promise.reject(new Error("Server Error"))
+    );
+
+    expect(deferred).toBeFalsy();
+    expect(log).toHaveBeenCalledWith(
+      "error",
+      "Lint fix failed",
+      expect.objectContaining({ error: "Server Error" })
+    );
+  });
+});
+
 const sandbox: SandboxRunner = () =>
   Promise.reject(new Error("The evaluation is replaced"));
 
@@ -588,6 +669,25 @@ const sweepWithSandbox = async () => {
   ]);
   const state = { mostRunning: 0, running: 0 };
   const regenerate = regenerateSlowly(state);
+  // Fixes the lint of #35 only.
+  const fixLint = vi.fn<typeof applyLintFixes>(({ pullNumber }) =>
+    Promise.resolve(
+      pullNumber === 35
+        ? {
+            checkPassed: true,
+            commitSha: "fixed",
+            headSha: HEAD,
+            output: undefined,
+            paths: ["README.md"],
+            status: "committed" as const,
+          }
+        : {
+            headSha: HEAD,
+            reason: "no check on the head failed",
+            status: "skipped" as const,
+          }
+    )
+  );
   const evaluate = vi.fn<typeof evaluateRenovateUpdate>(() =>
     Promise.resolve()
   );
@@ -596,16 +696,47 @@ const sweepWithSandbox = async () => {
   await evaluateRenovateUpdatesEverywhere({
     app,
     evaluate,
+    fixLint,
     log,
     regenerate,
     sandbox,
     settings,
   });
 
-  return { evaluate, log, regenerate, state };
+  return { evaluate, fixLint, log, regenerate, state };
 };
 
 describe(evaluateRenovateUpdatesEverywhere, () => {
+  it("applies the lint fixes to the heads the regeneration did not move", async () => {
+    const { fixLint, log } = await sweepWithSandbox();
+
+    expect(
+      fixLint.mock.calls.map(([options]) => options.pullNumber)
+    ).toStrictEqual([31, 32, 34, 35, 36]);
+    expect(fixLint).toHaveBeenCalledWith(
+      expect.objectContaining({
+        botLogin: BOT,
+        createReadToken: expect.any(Function),
+        dryRun: false,
+        owner: "publira",
+        repo: "agents",
+        sandbox,
+      })
+    );
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Lint fix evaluated",
+      expect.objectContaining({
+        commit: "fixed",
+        evaluationDeferred: true,
+        installation: 1,
+        job: "apply-lint-fixes",
+        modelInvoked: false,
+        pullRequest: 35,
+      })
+    );
+  });
+
   it("evaluates the open Renovate pull requests from the branch", async () => {
     const { app, requests } = fakeApp([
       { number: 31, user: renovate },
@@ -647,16 +778,19 @@ describe(evaluateRenovateUpdatesEverywhere, () => {
       Promise.resolve()
     );
     const regenerate = vi.fn<typeof regenerateGeneratedOutput>();
+    const fixLint = vi.fn<typeof applyLintFixes>();
 
     await evaluateRenovateUpdatesEverywhere({
       app,
       evaluate,
+      fixLint,
       log: vi.fn<Log>(),
       regenerate,
       settings,
     });
 
     expect(regenerate).not.toHaveBeenCalled();
+    expect(fixLint).not.toHaveBeenCalled();
     expect(evaluate.mock.calls[0]?.[0].regeneration).toBeUndefined();
   });
 
@@ -676,7 +810,7 @@ describe(evaluateRenovateUpdatesEverywhere, () => {
         sandbox,
       })
     );
-    expect(state.mostRunning).toBe(SWEEP_REGENERATION_CONCURRENCY);
+    expect(state.mostRunning).toBe(SWEEP_SANDBOX_CONCURRENCY);
   });
 
   it("then evaluates the pull requests the regeneration did not move", async () => {
@@ -692,10 +826,11 @@ describe(evaluateRenovateUpdatesEverywhere, () => {
         pullRequest: 33,
       })
     );
-    // The bot's commit moved the head of #33; its push is evaluated.
+    // The bot's commits moved the heads of #33 and #35; their pushes are
+    // evaluated.
     expect(
       evaluate.mock.calls.map(([options]) => options.pullNumber)
-    ).toStrictEqual([31, 32, 34, 35, 36]);
+    ).toStrictEqual([31, 32, 34, 36]);
     expect(
       evaluate.mock.calls.every(
         ([options]) => options.regeneration === undefined
