@@ -30,7 +30,7 @@ import {
 import type { Sandbox, SandboxRunner } from "../sandbox-runner.ts";
 
 // renovate: datasource=npm depName=skills
-export const SKILLS_VERSION = "1.7.1";
+export const SKILLS_VERSION = "1.7.2";
 
 /** The branch the update pull request comes from. */
 export const SKILLS_UPDATE_BRANCH = "chachamaru/update-agent-skills";
