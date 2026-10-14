@@ -236,8 +236,8 @@ importers:
         specifier: 7.0.137
         version: 7.0.137(zod@4.6.5)
       eve:
-        specifier: 0.76.0
-        version: 0.76.0(ai@7.0.137(zod@4.6.5))
+        specifier: 0.76.3
+        version: 0.76.3(ai@7.0.137(zod@4.6.5))
       zod:
         specifier: 'catalog:'
         version: 4.6.5
@@ -1293,8 +1293,8 @@ packages:
   estree-walker@3.0.3:
     resolution: {integrity: sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==}
 
-  eve@0.76.0:
-    resolution: {integrity: sha512-nvM/eKQRr7kSdhZRbwz5EkoYsZqx6D9k+cXU04iCj30wIrldmMsdAPxvubj2RVK2DDaOXjL1XBs9K6Yjxd7l9A==}
+  eve@0.76.3:
+    resolution: {integrity: sha512-HX9DYinxSo/7YjRfhmDPgcfCTDCYzdaG9UF0UcLSwTWWy7QXw4pfQ0YAoIFXHnHKMk2zN7cXr9kichKaOMmBYw==}
     engines: {node: '>=24'}
     hasBin: true
     peerDependencies:
@@ -2844,7 +2844,7 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.9
 
-  eve@0.76.0(ai@7.0.137(zod@4.6.5)):
+  eve@0.76.3(ai@7.0.137(zod@4.6.5)):
     dependencies:
       ai: 7.0.137(zod@4.6.5)
       nitro: 3.0.260903-beta
