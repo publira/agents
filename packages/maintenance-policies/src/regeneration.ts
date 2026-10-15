@@ -13,12 +13,21 @@ const WORKFLOWS_DIRECTORY = ".github/workflows/";
 const DIRECTORY_SUFFIX = "/**";
 
 /**
- * A path relative to the repository's root, or a directory and everything
- * under it, written with a trailing `/**`.
+ * Where {@link REGENERATION_CONFIG_JSON_SCHEMA} is served, from the bot's own
+ * deployment, and the schema's `$id`. `v1` is its major version, raised only
+ * for a change that makes a valid declaration invalid.
  */
+export const REGENERATION_CONFIG_SCHEMA_URL =
+  "https://chachamaru.publira.dev/schemas/regenerate/v1.json";
+
+// The descriptions become the JSON Schema's, which an editor shows on hover.
+// The refinements have no JSON Schema form, so the descriptions state them.
 const pathPattern = z
   .string()
   .min(1)
+  .describe(
+    "A path from the repository's root, or a directory and everything under it with a trailing `/**`. `*` is allowed only in that suffix, and no segment may be empty, `.`, or `..`."
+  )
   .refine(
     (pattern) => {
       const path = pattern.endsWith(DIRECTORY_SUFFIX)
@@ -52,28 +61,63 @@ const reachesWorkflows = (pattern: string) => {
   );
 };
 
-const regenerationConfig = z.strictObject({
-  /** The command that regenerates the output, run by Bash at the root. */
-  command: z.string().min(1),
-  /** The generated output: the only paths the bot commits. */
-  paths: z
-    .array(
-      pathPattern.refine((pattern) => !reachesWorkflows(pattern), {
-        message: `must not match anything under ${WORKFLOWS_DIRECTORY}`,
-      })
-    )
-    .min(1),
-  /** Commands that install the generators, run by Bash before `command`. */
-  setup: z.array(z.string().min(1)).default([]),
-  /** The files whose change by Renovate calls for a regeneration. */
-  triggers: z.array(pathPattern).min(1),
-  /**
-   * A workflow whose top-level `env` block, at the pull request's head, is
-   * passed to `setup` and `command`, so the generators are the versions CI
-   * verifies the output with.
-   */
-  workflowEnv: pathPattern.optional(),
+const regenerationConfig = z
+  .strictObject({
+    command: z
+      .string()
+      .min(1)
+      .describe(
+        "The command that regenerates the output, run by Bash at the repository's root."
+      ),
+    paths: z
+      .array(
+        pathPattern.refine((pattern) => !reachesWorkflows(pattern), {
+          message: `must not match anything under ${WORKFLOWS_DIRECTORY}`,
+        })
+      )
+      .min(1)
+      .describe(
+        `The generated output: the only paths the bot commits. None may match anything under \`${WORKFLOWS_DIRECTORY}\`, which the bot cannot write, so \`.github/**\` is refused too.`
+      ),
+    setup: z
+      .array(z.string().min(1))
+      .default([])
+      .describe(
+        "Commands that install the generators, run by Bash before `command`. `~/.local/bin` is on the PATH."
+      ),
+    triggers: z
+      .array(pathPattern)
+      .min(1)
+      .describe("The files whose change by Renovate calls for a regeneration."),
+    workflowEnv: pathPattern
+      .optional()
+      .describe(
+        "The path from the repository's root of a workflow whose top-level `env` block, at the pull request's head, is passed to `setup` and `command`, so the generators are the versions CI verifies the output with."
+      ),
+  })
+  .meta({
+    description: `How Chachamaru regenerates a repository's generated output on a Renovate pull request, read from \`${REGENERATION_CONFIG_PATH}\` on the base branch.`,
+    title: "Chachamaru regeneration",
+  });
+
+const { $schema, ...jsonSchema } = z.toJSONSchema(regenerationConfig, {
+  // What a repository writes, so `setup`, which has a default, is optional.
+  io: "input",
+  // Editors and validators that predate draft 2020-12 read draft-07, and the
+  // schema uses no keyword whose meaning differs between the two.
+  target: "draft-07",
 });
+
+/**
+ * {@link REGENERATION_CONFIG_PATH}'s JSON Schema, for editors and other
+ * validators. It cannot express the refinements of the path patterns, so
+ * {@link parseRegenerationConfig} remains the authority.
+ */
+export const REGENERATION_CONFIG_JSON_SCHEMA = {
+  $id: REGENERATION_CONFIG_SCHEMA_URL,
+  $schema,
+  ...jsonSchema,
+};
 
 export type RegenerationConfig = z.infer<typeof regenerationConfig>;
 

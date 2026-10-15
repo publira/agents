@@ -1,0 +1,54 @@
+{
+  "$id": "https://chachamaru.publira.dev/schemas/regenerate/v1.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "command": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The command that regenerates the output, run by Bash at the repository's root."
+    },
+    "paths": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "description": "A path from the repository's root, or a directory and everything under it with a trailing `/**`. `*` is allowed only in that suffix, and no segment may be empty, `.`, or `..`."
+      },
+      "description": "The generated output: the only paths the bot commits. None may match anything under `.github/workflows/`, which the bot cannot write, so `.github/**` is refused too."
+    },
+    "setup": {
+      "default": [],
+      "description": "Commands that install the generators, run by Bash before `command`. `~/.local/bin` is on the PATH.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "triggers": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "description": "A path from the repository's root, or a directory and everything under it with a trailing `/**`. `*` is allowed only in that suffix, and no segment may be empty, `.`, or `..`."
+      },
+      "description": "The files whose change by Renovate calls for a regeneration."
+    },
+    "workflowEnv": {
+      "description": "The path from the repository's root of a workflow whose top-level `env` block, at the pull request's head, is passed to `setup` and `command`, so the generators are the versions CI verifies the output with.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "command",
+    "paths",
+    "triggers"
+  ],
+  "additionalProperties": false,
+  "description": "How Chachamaru regenerates a repository's generated output on a Renovate pull request, read from `.chachamaru/regenerate.yml` on the base branch.",
+  "title": "Chachamaru regeneration"
+}

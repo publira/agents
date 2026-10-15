@@ -93,6 +93,7 @@ The bot leaves the pull request alone, and logs why, when a Feature was added or
 Renovate updates a code generator's version, such as a pinned `buf` plugin or a tool version in a workflow, but cannot run the generator, so a release that changes the generated code leaves the pull request failing the repository's check of that code. The bot regenerates the output on such a pull request in a repository that declares how in `.chachamaru/regenerate.yml` on the pull request's base branch; it leaves every other repository alone. publira/publira's declaration:
 
 ```yaml
+# yaml-language-server: $schema=https://chachamaru.publira.dev/schemas/regenerate/v1.json
 # The files whose change by Renovate calls for a regeneration.
 triggers:
   - buf.gen.yaml
@@ -115,6 +116,8 @@ paths:
 ```
 
 A pattern is a path from the root, or a directory and everything under it with a trailing `/**`. `setup` and `workflowEnv` are optional; the paths cannot match anything under `.github/workflows/`, which the App cannot write, so `.github/**` is refused too. The bot reads the declaration from the base branch, so a pull request cannot widen what the bot commits, and an invalid one leaves the pull request alone with the reason in the log.
+
+The bot serves the declaration's JSON Schema at `https://chachamaru.publira.dev/schemas/regenerate/v1.json`, from the deployment that parses the declaration. With the `yaml-language-server` comment at the top, as above, an editor completes and validates the file, and a CI tool such as `check-jsonschema` can check it. JSON Schema cannot express the rules for the patterns or the paths under `.github/workflows/`, so the schema states them in its descriptions, and the bot's parser stays the authority. `v1` is the schema's major version, raised only for a change that makes a valid declaration invalid, such as a removed or renamed field, so a declaration keeps the version it was written for.
 
 The bot regenerates when Renovate opens a pull request that changes a trigger, reopens it, or pushes to it, and in the hourly sweep; a check or a status that completes leaves the head as that evaluation found it. An evaluation runs it after the Dev Container lock file sync and before approval. The sweep first regenerates a repository's Renovate pull requests and applies the [automatic lint fixes](#lint-fixes) to them, up to four pull requests at a time, and then evaluates them one at a time, except a pull request whose head the bot's commit moved, which its push's evaluation takes up. The setup and the command run the pull request's own code, so they run in a Vercel Sandbox of its own, deleted afterwards, as Bash scripts with `CI=true` and the workflow's `env` values. The sandbox fetches the head alone: anonymously for a public repository, and for a private one with a token that can only read that repository's contents. It holds no other credential, and the bot writes the commit from the app runtime.
 
