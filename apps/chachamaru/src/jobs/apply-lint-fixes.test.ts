@@ -23,6 +23,7 @@ import type { LintFindingsFixer } from "../lint-findings-fixer.ts";
 import type {
   Sandbox,
   SandboxCommand,
+  SandboxOptions,
   SandboxRunner,
 } from "../sandbox-runner.ts";
 import { applyLintFixes, summarizeLintFixResult } from "./apply-lint-fixes.ts";
@@ -251,9 +252,9 @@ const localSandbox = ({
       return Promise.resolve();
     },
   };
-  let started = 0;
-  const runner: SandboxRunner = (task) => {
-    started += 1;
+  const requested: (SandboxOptions | undefined)[] = [];
+  const runner: SandboxRunner = (task, options) => {
+    requested.push(options);
     return task(sandbox);
   };
 
@@ -263,8 +264,10 @@ const localSandbox = ({
       readFileSync(path.join(home, "calls"), "utf-8").trim().split("\n"),
     commands,
     networkDenied: () => networkDenied,
+    /** What each sandbox the job started asked for. */
+    requested: () => requested,
     runner,
-    started: () => started,
+    started: () => requested.length,
     worktree,
   };
 };
@@ -534,6 +537,15 @@ describe(applyLintFixes, () => {
         route: `PATCH ${repository}/git/refs/heads/${BRANCH}`,
       },
     ]);
+  });
+
+  it("asks for a sandbox with the memory oxlint maps for its JS plugins", async () => {
+    const github = fakeGitHub({ fixture });
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+
+    await run(github, sandbox, { dryRun: true });
+
+    expect(sandbox.requested()).toStrictEqual([{ vcpus: 4 }]);
   });
 
   it("installs and runs ultracite with npm when the repository names it", async () => {

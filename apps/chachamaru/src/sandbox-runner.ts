@@ -41,8 +41,20 @@ export interface Sandbox {
  * environment variables and credentials included, unless `task` passes it.
  */
 export type SandboxRunner = <T>(
-  task: (sandbox: Sandbox) => Promise<T>
+  task: (sandbox: Sandbox) => Promise<T>,
+  options?: SandboxOptions
 ) => Promise<T>;
+
+/** What a task needs of the sandbox it runs in. */
+export interface SandboxOptions {
+  /**
+   * How many vCPUs the sandbox has; each brings 2 GB of memory. Two unless
+   * the task needs more.
+   */
+  vcpus?: number;
+}
+
+const DEFAULT_VCPUS = 2;
 
 export interface VercelSandboxRunnerOptions {
   /**
@@ -55,19 +67,19 @@ export interface VercelSandboxRunnerOptions {
 
 /**
  * Runs each task in a new Vercel Sandbox, with Vercel's default image and
- * two vCPUs. The SDK authenticates with the Vercel project's OIDC token: on
+ * the vCPUs the task asks for. The SDK authenticates with the Vercel project's OIDC token: on
  * Vercel without setup, and locally from `VERCEL_OIDC_TOKEN`, which
  * `vercel env pull` writes.
  */
 export const createVercelSandboxRunner =
   ({ timeoutMs, log }: VercelSandboxRunnerOptions): SandboxRunner =>
-  async (task) => {
+  async (task, { vcpus = DEFAULT_VCPUS } = {}) => {
     // Counted from before the request, so never later than Vercel's count.
     const stopsAt = Date.now() + timeoutMs;
     // A sandbox that is not persistent keeps nothing once it stops.
     const sandbox = await VercelSandbox.create({
       persistent: false,
-      resources: { vcpus: 2 },
+      resources: { vcpus },
       timeout: timeoutMs,
     });
 

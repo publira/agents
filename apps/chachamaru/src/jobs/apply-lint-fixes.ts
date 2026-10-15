@@ -44,9 +44,20 @@ import type {
 // Where the sandbox checks the pull request out.
 const WORKTREE = "/tmp/repository";
 
+/**
+ * The vCPUs of the sandbox, which bring 2 GB of memory each. oxlint, when
+ * the configuration loads JS plugins, maps 6 GiB for each lint thread in one
+ * request, and a machine with heuristic overcommit and no swap, as a Vercel
+ * Sandbox is, refuses a request larger than its memory: with two vCPUs oxlint
+ * aborts before it lints a file. Four is the fewest that leave it room.
+ */
+const SANDBOX_VCPUS = 4;
+
 const FETCH_TIMEOUT_MS = 60_000;
 const INSTALL_TIMEOUT_MS = 120_000;
-const LINT_TIMEOUT_MS = 60_000;
+// One run of ultracite on publira/publira takes 51 to 64 seconds with four
+// vCPUs.
+const LINT_TIMEOUT_MS = 120_000;
 
 // How much of the sandbox's life the model leaves the job, to check its
 // changes and read them back: the check, and the Git commands around it.
@@ -878,15 +889,17 @@ export const applyLintFixes = async (
   const readToken = pullRequest.base.repo.private
     ? await createReadToken()
     : undefined;
-  const fixed = await sandbox((session) =>
-    fixInSandbox(session, {
-      fixer: tried ? undefined : fixer,
-      headSha,
-      owner,
-      packageManager,
-      readToken,
-      repo,
-    })
+  const fixed = await sandbox(
+    (session) =>
+      fixInSandbox(session, {
+        fixer: tried ? undefined : fixer,
+        headSha,
+        owner,
+        packageManager,
+        readToken,
+        repo,
+      }),
+    { vcpus: SANDBOX_VCPUS }
   );
 
   if (fixed.status === "changed-before-fix") {
