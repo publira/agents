@@ -58,6 +58,7 @@ export {
 } from "./equivalent-update-approval.ts";
 export type {
   AddedLine,
+  KilledLintTool,
   LintFindingsFixInput,
   LintFindingsFixVerdict,
   LintPackageManager,
@@ -69,6 +70,7 @@ export {
   isLintFixRefusedPath,
   LINT_FINDINGS_FIX_COMMIT_SUBJECT,
   LINT_FIX_COMMIT_SUBJECT,
+  readKilledLintTool,
   readLintSetup,
 } from "./lint-fix.ts";
 export type {

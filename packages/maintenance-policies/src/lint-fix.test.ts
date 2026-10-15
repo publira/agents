@@ -4,6 +4,7 @@ import {
   evaluateLintFindingsFix,
   isLintFindingsFixRefusedPath,
   isLintFixRefusedPath,
+  readKilledLintTool,
   readLintSetup,
 } from "./lint-fix.ts";
 
@@ -115,6 +116,61 @@ describe(isLintFindingsFixRefusedPath, () => {
     ".prettierrc",
   ])("allows %s", (path) => {
     expect(isLintFindingsFixRefusedPath(path)).toBeFalsy();
+  });
+});
+
+describe(readKilledLintTool, () => {
+  // What `ultracite check` prints when oxlint aborts: the tool's own
+  // message, then the error ultracite throws, as Node.js prints it.
+  const aborted = [
+    "thread 'tokio-rt-worker' (1215) panicked at crates/oxc_allocator/src/pool/fixed_size.rs:112:67:",
+    "called `Result::unwrap()` on an `Err` value: ()",
+    "note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+    "file:///tmp/repository/node_modules/ultracite/dist/index.js:5392",
+    // The source line of the throw, with the placeholders of the message.
+    [
+      "      throw new Error(`$",
+      "{commandName} was killed by signal $",
+      '{result.signal ?? "unknown"}`);',
+    ].join(""),
+    "            ^",
+    "",
+    "Error: Oxlint was killed by signal SIGABRT",
+    "    at exitOnCommandFailure (file:///tmp/repository/node_modules/ultracite/dist/index.js:5392:13)",
+    "    at file:///tmp/repository/node_modules/ultracite/dist/index.js:5520:5",
+    "",
+    "Node.js v24.22.0",
+    "",
+  ].join("\n");
+
+  it("reads the tool and the signal from ultracite's error", () => {
+    expect(readKilledLintTool(aborted)).toStrictEqual({
+      signal: "SIGABRT",
+      tool: "Oxlint",
+    });
+  });
+
+  it("reads a tool whose name ultracite writes in lowercase", () => {
+    expect(
+      readKilledLintTool("Error: oxfmt was killed by signal unknown\n")
+    ).toStrictEqual({ signal: "unknown", tool: "oxfmt" });
+  });
+
+  it("does not read the source line of the throw as a killed tool", () => {
+    expect(
+      readKilledLintTool(aborted.split("\n").slice(0, 7).join("\n"))
+    ).toBeUndefined();
+  });
+
+  it.each([
+    ["findings", "src/index.ts:3:1 no-debugger\nFound 1 error.\n"],
+    [
+      "a killed tool a file mentions",
+      "docs/faq.md: Oxlint was killed by signal SIGABRT?\n",
+    ],
+    ["nothing", ""],
+  ])("reads no killed tool from %s", (_, output) => {
+    expect(readKilledLintTool(output)).toBeUndefined();
   });
 });
 

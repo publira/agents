@@ -4,7 +4,7 @@ import { parseCatFileBatch, parseRawDiff } from "./git-output.ts";
 import type { GitFileChange } from "./git-output.ts";
 import type { Sandbox, SandboxCommand } from "./sandbox-runner.ts";
 
-// How much of a failed command's output a result keeps, from its end.
+// How much of a failed command's output a result keeps.
 const OUTPUT_LIMIT = 2000;
 
 const GIT_TIMEOUT_MS = 30_000;
@@ -12,6 +12,20 @@ const GIT_TIMEOUT_MS = 30_000;
 /** The end of a command's output, short enough to log by default. */
 export const tail = (output: string, limit = OUTPUT_LIMIT): string =>
   output.length > limit ? output.slice(-limit) : output;
+
+/**
+ * The start and the end of a command's output, half the limit each, with a
+ * line between them that says how much is left out. A failed command's
+ * first message, such as a tool's own before the trace of the one that ran
+ * it, is kept with the last.
+ */
+export const excerpt = (output: string, limit = OUTPUT_LIMIT): string => {
+  if (output.length <= limit) {
+    return output;
+  }
+  const half = Math.floor(limit / 2);
+  return `${output.slice(0, half)}\n[${output.length - 2 * half} characters left out]\n${output.slice(-half)}`;
+};
 
 /** Runs a command that has to succeed and returns its output. */
 export const runChecked = async (

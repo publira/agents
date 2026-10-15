@@ -71,6 +71,36 @@ export const readLintSetup = (source: string): LintSetupVerdict => {
   return { packageManager: name, result: "ultracite" };
 };
 
+/** A tool ultracite ran that a signal killed, as ultracite's output says. */
+export interface KilledLintTool {
+  /** The tool's name as ultracite reports it, such as `Oxlint`. */
+  tool: string;
+  /** The signal's name, such as `SIGABRT`, or `unknown`. */
+  signal: string;
+}
+
+// The line that reports a tool killed by a signal: the message of the error
+// ultracite throws, as Node.js prints an uncaught one. The source line of
+// the throw, which Node.js prints before it with the placeholders of the
+// message, starts with an indent and does not match.
+const KILLED_TOOL_LINE =
+  /^(?:Error: )?(?<tool>[A-Za-z][\w.-]*) was killed by signal (?<signal>SIG[A-Z0-9]+|unknown)\s*$/mu;
+
+/**
+ * Reads from the output of `ultracite check` or `ultracite fix` whether a
+ * tool it ran was killed by a signal, such as oxlint aborting on a panic.
+ * ultracite exits with 1 then, as it does when findings remain, so only the
+ * output tells a crashed tool from findings.
+ */
+export const readKilledLintTool = (
+  output: string
+): KilledLintTool | undefined => {
+  const groups = KILLED_TOOL_LINE.exec(output)?.groups;
+  return groups === undefined
+    ? undefined
+    : { signal: groups.signal ?? "unknown", tool: groups.tool ?? "" };
+};
+
 // The files a lint fix has no reason to change, by name in any directory.
 const REFUSED_FILE_NAMES = new Set([
   "npm-shrinkwrap.json",
