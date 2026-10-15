@@ -1,12 +1,10 @@
 import { createAppAuth } from "@octokit/auth-app";
 import type { StrategyOptions } from "@octokit/auth-app";
-import { Octokit } from "@octokit/rest";
+import type { Octokit } from "@octokit/rest";
 
+import { createOctokit } from "./octokit.ts";
 import type { RepositoryName } from "./repository-name.ts";
-import { applyRequestPolicy } from "./request-policy.ts";
 import type { RequestPolicy } from "./request-policy.ts";
-
-const userAgent = "Chachamaru";
 
 export interface GitHubAppCredentials {
   appId: number | string;
@@ -46,13 +44,8 @@ export const createGitHubApp = ({
   requestPolicy,
 }: GitHubAppOptions): GitHubApp => {
   const request = fetchImpl === undefined ? undefined : { fetch: fetchImpl };
-  const octokit = applyRequestPolicy(
-    new Octokit({
-      auth: { appId, privateKey },
-      authStrategy: createAppAuth,
-      request,
-      userAgent,
-    }),
+  const octokit = createOctokit(
+    { auth: { appId, privateKey }, authStrategy: createAppAuth, request },
     requestPolicy
   );
   let botLogin: Promise<string> | undefined;
@@ -62,13 +55,8 @@ export const createGitHubApp = ({
     octokit.auth({
       // The factory hands the new client this App's token cache.
       factory: (auth: StrategyOptions) =>
-        applyRequestPolicy(
-          new Octokit({
-            auth,
-            authStrategy: createAppAuth,
-            request,
-            userAgent,
-          }),
+        createOctokit(
+          { auth, authStrategy: createAppAuth, request },
           requestPolicy
         ),
       installationId,
