@@ -103,9 +103,6 @@ const regenerationConfig = z
 const { $schema, ...jsonSchema } = z.toJSONSchema(regenerationConfig, {
   // What a repository writes, so `setup`, which has a default, is optional.
   io: "input",
-  // Editors and validators that predate draft 2020-12 read draft-07, and the
-  // schema uses no keyword whose meaning differs between the two.
-  target: "draft-07",
 });
 
 /**

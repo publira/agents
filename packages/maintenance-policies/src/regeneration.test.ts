@@ -1,4 +1,4 @@
-import { Ajv } from "ajv";
+import { Ajv2020 } from "ajv/dist/2020.js";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
@@ -117,7 +117,7 @@ describe(parseRegenerationConfig, () => {
 
 describe("the JSON Schema", () => {
   // Strict mode also refuses a keyword the schema should not carry.
-  const validate = new Ajv({ allErrors: true, strict: true }).compile(
+  const validate = new Ajv2020({ allErrors: true, strict: true }).compile(
     REGENERATION_CONFIG_JSON_SCHEMA
   );
 
