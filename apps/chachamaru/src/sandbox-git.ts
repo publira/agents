@@ -7,7 +7,8 @@ import type { Sandbox, SandboxCommand } from "./sandbox-runner.ts";
 // How much of a failed command's output a result keeps.
 const OUTPUT_LIMIT = 2000;
 
-const GIT_TIMEOUT_MS = 30_000;
+/** How long each Git command here may run. */
+export const GIT_TIMEOUT_MS = 30_000;
 
 /** The end of a command's output, short enough to log by default. */
 export const tail = (output: string, limit = OUTPUT_LIMIT): string =>

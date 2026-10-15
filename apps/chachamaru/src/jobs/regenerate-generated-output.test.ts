@@ -508,12 +508,12 @@ describe(regenerateGeneratedOutput, () => {
     [
       "the default limits",
       CONFIG,
-      { command: 120_000, sandbox: 360_000, setup: 120_000 },
+      { command: 120_000, sandbox: 450_000, setup: 120_000 },
     ],
     [
       "the limits the declaration sets",
       `${CONFIG}setupTimeout: 200\ntimeout: 90\n`,
-      { command: 90_000, sandbox: 410_000, setup: 200_000 },
+      { command: 90_000, sandbox: 500_000, setup: 200_000 },
     ],
   ])("runs the commands with %s", async (_, config, limits) => {
     const github = fakeGitHub({ config, fixture });
@@ -521,8 +521,12 @@ describe(regenerateGeneratedOutput, () => {
 
     await run(github, sandbox, { dryRun: true });
 
-    // The fetch, the setup command, the command, and the read-back.
+    // Every command's limit: the init, the fetch, and the checkout, the
+    // setup command and the command, and the three commands of the read-back.
     expect(sandbox.timeoutMs()).toBe(limits.sandbox);
+    expect(
+      sandbox.commands.reduce((total, { timeoutMs }) => total + timeoutMs, 0)
+    ).toBe(limits.sandbox);
     // The declared scripts, which run with the CI environment.
     expect(
       sandbox.commands

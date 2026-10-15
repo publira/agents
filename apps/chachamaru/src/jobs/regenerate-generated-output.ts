@@ -14,6 +14,7 @@ import type { GitFileChange } from "../git-output.ts";
 import type { LogFields } from "../log.ts";
 import {
   git,
+  GIT_TIMEOUT_MS,
   readBlobs,
   readTokenOptions,
   runChecked,
@@ -31,19 +32,23 @@ const WORKTREE = "/tmp/repository";
 
 const FETCH_TIMEOUT_MS = 60_000;
 
-// How much of the sandbox's life is left after the command, to read back
-// what it changed.
-const READ_BACK_MS = 60_000;
+// How long the Git commands before the setup may run: the init, the fetch,
+// and the checkout.
+const CHECKOUT_MS = GIT_TIMEOUT_MS + FETCH_TIMEOUT_MS + GIT_TIMEOUT_MS;
+
+// How long the Git commands after the command may run, to read back what it
+// changed: staging the changes, listing them, and reading the blobs.
+const READ_BACK_MS = 3 * GIT_TIMEOUT_MS;
 
 /**
- * How long the sandbox may live: the fetch, every setup command and the
- * command for as long as the declaration lets them run, and the read-back.
- * The declaration's maximum keeps it within the 800 seconds the project
- * allows the Vercel Function that the webhook handler and the hourly sweep
- * run in.
+ * How long the sandbox may live: every command in it for as long as it may
+ * run, the setup commands and the command for as long as the declaration
+ * lets them. The declaration's maximum keeps it within the 800 seconds the
+ * project allows the Vercel Function that the webhook handler and the
+ * hourly sweep run in.
  */
 const sandboxTimeoutMs = (config: RegenerationConfig) =>
-  FETCH_TIMEOUT_MS + regenerationSeconds(config) * 1000 + READ_BACK_MS;
+  CHECKOUT_MS + regenerationSeconds(config) * 1000 + READ_BACK_MS;
 
 // Where a setup command installs a generator; it is on the PATH of the
 // setup commands and of the command.
@@ -146,7 +151,7 @@ const regenerateInSandbox = async (
   await runChecked(sandbox, {
     args: ["init", "--quiet", WORKTREE],
     cmd: "git",
-    timeoutMs: FETCH_TIMEOUT_MS,
+    timeoutMs: GIT_TIMEOUT_MS,
   });
   const fetch = await sandbox.run({
     args: [

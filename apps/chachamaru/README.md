@@ -133,7 +133,7 @@ setupTimeout: 180
 timeout: 300
 ```
 
-Together they may take at most 480 seconds, `timeout` plus `setupTimeout` once for each setup command; publira/publira's three setup commands and its command reach that with the defaults. A declaration over it is invalid, and the reason in the log names the field. The sandbox lives as long as they may, with 60 seconds more for the fetch and 60 to read the output back, so at most 600 seconds, within the 800 seconds the project allows the Vercel Function of a webhook delivery or the sweep. Fetching publira/publira's head, installing its three generators, and running `task gen` took about 10 seconds in Amazon Linux 2023, the Vercel Sandbox's system. Running up to four at once keeps a regeneration that takes long, or times out every hour, from leaving the next pull requests too little of the sweep's time.
+Together they may take at most 480 seconds, `timeout` plus `setupTimeout` once for each setup command; publira/publira's three setup commands and its command reach that with the defaults. A declaration over it is invalid, and the reason in the log names the field. The sandbox lives as long as they and the Git commands around them may run, with 120 seconds more to fetch and check out the head and 90 to read the output back, so at most 690 seconds, within the 800 seconds the project allows the Vercel Function of a webhook delivery or the sweep. Fetching publira/publira's head, installing its three generators, and running `task gen` took about 10 seconds in Amazon Linux 2023, the Vercel Sandbox's system. Running up to four at once keeps a regeneration that takes long, or times out every hour, from leaving the next pull requests too little of the sweep's time.
 
 ### Lint fixes
 

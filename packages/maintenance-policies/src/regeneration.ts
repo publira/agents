@@ -69,11 +69,12 @@ export const DEFAULT_REGENERATION_TIMEOUT_SECONDS = 120;
 
 /**
  * How long, in seconds, the setup commands and the command may run
- * together. The sandbox they run in has a minute more on each side, to fetch
- * the head and to read the output back, so it lives at most 600 seconds and
- * leaves 200 of the 800 the project allows the Vercel Function that the
- * webhook handler and the hourly sweep run in to the requests to GitHub
- * around it, the commit included. The sweep regenerates several pull
+ * together. The sandbox they run in gives the Git commands around them 210
+ * seconds more, 120 to fetch and check out the head and 90 to read the
+ * output back, so it lives at most 690 seconds and leaves 110 of the 800 the
+ * project allows the Vercel Function that the webhook handler and the
+ * hourly sweep run in to the requests to GitHub around it, the commit
+ * included. The sweep regenerates several pull
  * requests at once, so each regeneration has to fit on its own.
  */
 export const MAX_REGENERATION_SECONDS = 480;
