@@ -13,6 +13,7 @@ import {
   isRenovate,
   LINT_FINDINGS_FIX_COMMIT_SUBJECT,
   LINT_FIX_COMMIT_SUBJECT,
+  readKilledLintTool,
   readLintSetup,
 } from "@publira/maintenance-policies";
 import type {
@@ -28,6 +29,7 @@ import type { LintFindingsFixer } from "../lint-findings-fixer.ts";
 import { loggableFailure } from "../log.ts";
 import type { LogFields } from "../log.ts";
 import {
+  excerpt,
   git,
   readBlobs,
   readTokenOptions,
@@ -88,8 +90,13 @@ const checkCommand = (packageManager: LintPackageManager) =>
   ].join(" ");
 
 // The exit codes of `ultracite fix` that tell it ran: 1 means findings
-// remain that it does not fix, whether it fixed others or not.
+// remain that it does not fix, whether it fixed others or not. It is also
+// the exit code when a tool ultracite ran was killed, which only the output
+// tells.
 const FIX_RAN_EXIT_CODES = new Set([0, 1]);
+
+/** The commands the sandbox runs, which a failure names. */
+type LintStep = "check" | "fetch" | "fix" | "install";
 
 export interface ApplyLintFixesOptions {
   octokit: Octokit;
@@ -127,7 +134,8 @@ export interface FindingsFix {
   stopped?: boolean;
   /**
    * Whether `ultracite check` passes after the model's changes; none when
-   * its run failed, and the check did not run.
+   * its run failed, and the check did not run, or a tool was killed during
+   * the check.
    */
   checkPassed?: boolean;
   /**
@@ -161,13 +169,24 @@ interface FixedPaths {
 export type ApplyLintFixesResult =
   | { status: "skipped"; headSha: string; reason: string }
   | {
-      /** The sandbox could not fetch the head, install, or run the fix. */
+      /**
+       * The sandbox could not fetch the head or install, or a tool was
+       * killed during the check or the fix, so what it would have found is
+       * unknown.
+       */
       status: "failed";
       headSha: string;
-      step: "fetch" | "fix" | "install";
+      step: LintStep;
       exitCode: number;
-      /** The end of the command's output. */
+      /** The start and the end of the command's output. */
       output: string;
+      /** Which tool was killed, and by which signal, when one was. */
+      reason?: string;
+      /**
+       * What the model did, when a tool was killed during the check after
+       * its changes: the model, whether it was stopped, and its paths.
+       */
+      findings?: FindingsFix;
     }
   | {
       /** `ultracite check` passes: another check failed. */
@@ -226,10 +245,16 @@ type SandboxFindingsFix =
       checkPassed: boolean;
       verdict: LintFindingsFixVerdict;
     }
-  | { status: "failed"; error: string };
+  | { status: "model-failed"; error: string };
+
+/** A command the sandbox could not run to the end; see the result. */
+type Failure = Omit<
+  Extract<ApplyLintFixesResult, { status: "failed" }>,
+  "headSha"
+>;
 
 type SandboxResult =
-  | Omit<Extract<ApplyLintFixesResult, { status: "failed" }>, "headSha">
+  | Failure
   | { status: "lint-passed" }
   | {
       /** The install or the check changed files Git tracks. */
@@ -247,22 +272,35 @@ type SandboxResult =
       findings?: SandboxFindingsFix;
     };
 
-const failure = (
-  step: "fetch" | "fix" | "install",
-  {
-    exitCode,
-    stdout,
-    stderr,
-  }: { exitCode: number; stdout: string; stderr: string }
-) => ({
-  exitCode,
-  output: tail(`${stdout}${stderr}`),
-  status: "failed" as const,
+const outputOf = ({ stdout, stderr }: SandboxCommandResult) =>
+  `${stdout}${stderr}`;
+
+// The output a failed command leaves keeps its start, where a tool's own
+// message is, such as a panic, before the trace of the command that ran it.
+const failure = (step: LintStep, result: SandboxCommandResult): Failure => ({
+  exitCode: result.exitCode,
+  output: excerpt(outputOf(result)),
+  status: "failed",
   step,
 });
 
-const outputOf = ({ stdout, stderr }: SandboxCommandResult) =>
-  `${stdout}${stderr}`;
+/**
+ * The failure of a check or a fix during which ultracite's output says a
+ * tool was killed by a signal: ultracite exits with 1 then, as on findings,
+ * and what the tool would have found is unknown.
+ */
+const killedToolFailure = (
+  step: "check" | "fix",
+  result: SandboxCommandResult
+): Failure | undefined => {
+  const killed = readKilledLintTool(outputOf(result));
+  return killed === undefined
+    ? undefined
+    : {
+        ...failure(step, result),
+        reason: `${killed.tool} was killed by signal ${killed.signal}`,
+      };
+};
 
 // The files Git neither tracks nor ignores.
 const listUntracked = async (sandbox: Sandbox) => {
@@ -290,12 +328,13 @@ interface FindingsRequest {
  * Has the model fix the findings the automatic fix left, on the files as
  * that fix left them and staged them, then checks and reads back the
  * result. The model works in this sandbox through its tools; the job, not
- * the model, runs the check afterwards and reads the diff.
+ * the model, runs the check afterwards and reads the diff. A tool killed
+ * during that check fails the job: the changes cannot be checked.
  */
 const fixFindingsInSandbox = async (
   sandbox: Sandbox,
   { fixer, command, check, output }: FindingsRequest
-): Promise<SandboxFindingsFix> => {
+): Promise<SandboxFindingsFix | Failure> => {
   // Fixing and checking need no network, and the model's calls run in the
   // app runtime, not in the sandbox.
   await sandbox.denyNetwork();
@@ -323,7 +362,7 @@ const fixFindingsInSandbox = async (
     // The automatic fix still stands, and the head counts as tried.
     return {
       error: loggableFailure.safeParse(error).data?.error ?? "unknown error",
-      status: "failed",
+      status: "model-failed",
     };
   }
   const { model, stopped } = fix;
@@ -349,6 +388,14 @@ const fixFindingsInSandbox = async (
 
   const after = await check();
   const changes = await stageChanges(sandbox, WORKTREE, { trackedOnly: true });
+  const killed = killedToolFailure("check", after);
+  if (killed !== undefined) {
+    // The model ran, and the log says so, with what it changed.
+    return {
+      ...killed,
+      findings: { model, paths: changes.map(({ path }) => path), stopped },
+    };
+  }
   const checkPassed = after.exitCode === 0;
   const verdict = evaluateLintFindingsFix({
     addedLines: parseAddedLines(
@@ -394,7 +441,9 @@ const fixFindingsInSandbox = async (
  * and, when it fails and left the files Git tracks as they are,
  * `ultracite fix` and the check again, then reads back what the fix changed
  * in those files. When the check still fails, the fixer gets the findings,
- * in the same sandbox, cut off from the network. The sandbox gets no
+ * in the same sandbox, cut off from the network. A check or a fix during
+ * which a tool was killed fails the job instead, whatever its exit code:
+ * what the tool would have found is unknown. The sandbox gets no
  * credential but the read token, and that only for the fetch, which does not
  * store it where the install or the lint tools could read it.
  */
@@ -446,6 +495,10 @@ const fixInSandbox = async (
   }
 
   const before = await check();
+  const killedBefore = killedToolFailure("check", before);
+  if (killedBefore !== undefined) {
+    return killedBefore;
+  }
   if (before.exitCode === 0) {
     return { status: "lint-passed" };
   }
@@ -464,11 +517,19 @@ const fixInSandbox = async (
   }
 
   const fix = await run([...exec, "ultracite", "fix"], LINT_TIMEOUT_MS);
+  const killedFix = killedToolFailure("fix", fix);
+  if (killedFix !== undefined) {
+    return killedFix;
+  }
   if (!FIX_RAN_EXIT_CODES.has(fix.exitCode)) {
     return failure("fix", fix);
   }
 
   const after = await check();
+  const killedAfter = killedToolFailure("check", after);
+  if (killedAfter !== undefined) {
+    return killedAfter;
+  }
   // A fix rewrites the files it fixes, so a file Git does not track, such
   // as a cache the install or a tool wrote, is none of its doing.
   const changes = await stageChanges(sandbox, WORKTREE, { trackedOnly: true });
@@ -493,15 +554,13 @@ const fixInSandbox = async (
   if (fixed.checkPassed || refused || fixer === undefined) {
     return fixed;
   }
-  return {
-    ...fixed,
-    findings: await fixFindingsInSandbox(sandbox, {
-      check,
-      command: checkCommand(packageManager),
-      fixer,
-      output: outputOf(after),
-    }),
-  };
+  const findings = await fixFindingsInSandbox(sandbox, {
+    check,
+    command: checkCommand(packageManager),
+    fixer,
+    output: outputOf(after),
+  });
+  return findings.status === "failed" ? findings : { ...fixed, findings };
 };
 
 interface Skip {
@@ -605,7 +664,7 @@ const commitOf = (
 
 /** What a model's fix comes to, without the files. */
 const summarizeFindings = (fix: SandboxFindingsFix): FindingsFix => {
-  if (fix.status === "failed") {
+  if (fix.status === "model-failed") {
     return { error: fix.error, paths: [], reason: "the model's run failed" };
   }
   const { model, stopped, changes, checkPassed, verdict } = fix;

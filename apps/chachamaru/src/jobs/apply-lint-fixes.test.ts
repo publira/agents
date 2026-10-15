@@ -52,10 +52,34 @@ const manifest = (packageManager: string) =>
 // tracks that has trailing whitespace, which `fix` removes, and on a
 // `debugger` statement, which `fix` leaves; then `fix` exits with 1, as
 // ultracite does when findings remain. Both write a cache Git does not
-// track.
+// track. \`KILL_ON\` names a command, as \`check\` or its ordinal run, such as
+// \`check:2\`, or \`fix\`, during which oxlint aborts: the command prints
+// oxlint's panic, then the error ultracite throws as Node.js prints it, with
+// a trace longer than the output a result keeps, and exits with 1.
 const ULTRACITE = `#!/bin/sh
 echo cache > .lint-cache
 files=$(git ls-files '*.md' '*.json')
+killed() {
+  echo "thread 'tokio-rt-worker' (1215) panicked at crates/oxc_allocator/src/pool/fixed_size.rs:112:67:" >&2
+  echo "called \\\`Result::unwrap()\\\` on an \\\`Err\\\` value: ()" >&2
+  echo "file:///tmp/repository/node_modules/ultracite/dist/index.js:5392" >&2
+  echo '      throw new Error(\`\${commandName} was killed by signal \${result.signal ?? "unknown"}\`);' >&2
+  echo "" >&2
+  echo "Error: Oxlint was killed by signal SIGABRT" >&2
+  i=0
+  while [ $i -lt 30 ]; do
+    echo "    at exitOnCommandFailure (file:///tmp/repository/node_modules/ultracite/dist/index.js:5392:13)" >&2
+    i=$((i + 1))
+  done
+  echo "" >&2
+  echo "Node.js v24.22.0" >&2
+  exit 1
+}
+runs=$(( $(cat "$HOME/$1-runs" 2>/dev/null || echo 0) + 1 ))
+echo $runs > "$HOME/$1-runs"
+case "\${KILL_ON:-}" in
+  "$1"|"$1:$runs") killed;;
+esac
 case "$1" in
   check)
     status=0
@@ -765,6 +789,43 @@ describe(applyLintFixes, () => {
     }
   );
 
+  it.each([
+    ["check", { KILL_ON: "check" }, 1],
+    ["fix", { KILL_ON: "fix" }, 2],
+    ["check after the fix", { KILL_ON: "check:2" }, 3],
+  ])(
+    "leaves the pull request alone when a tool is killed during the %s",
+    async (_, env, ultraciteRuns) => {
+      const github = fakeGitHub({ fixture });
+      const sandbox = localSandbox({ env, origin: fixture.origin, root });
+      const fixer = vi.fn<LintFindingsFixer>();
+
+      const result = await run(github, sandbox, { fixer });
+      expect(result).toMatchObject({
+        exitCode: 1,
+        headSha: fixture.headSha,
+        // The output keeps the tool's own message before ultracite's trace,
+        // and the end of the trace.
+        output: expect.stringMatching(
+          /^thread 'tokio-rt-worker' \(1215\) panicked at crates\/oxc_allocator[^]*\n\[\d+ characters left out\]\n[^]*\nNode\.js v24\.22\.0\n$/u
+        ),
+        reason: "Oxlint was killed by signal SIGABRT",
+        status: "failed",
+        step: env.KILL_ON.startsWith("check") ? "check" : "fix",
+      });
+      // Within the limit a log line keeps, the marker aside.
+      expect(
+        result.status === "failed" ? result.output.length : 0
+      ).toBeLessThan(2100);
+
+      expect(fixer).not.toHaveBeenCalled();
+      expect(github.writes).toStrictEqual([]);
+      expect(
+        sandbox.calls().filter((call) => call.includes("ultracite"))
+      ).toHaveLength(ultraciteRuns);
+    }
+  );
+
   it("leaves the pull request alone when the fetch fails", async () => {
     const github = fakeGitHub({ fixture });
     const sandbox = localSandbox({
@@ -1061,6 +1122,40 @@ describe("applyLintFixes with a model for the findings", () => {
       paths: ["README.md"],
       status: "committed",
     });
+  });
+
+  it("fails without a commit or a comment when a tool is killed during the check after the model", async () => {
+    const github = fakeGitHub({ fixture });
+    const sandbox = localSandbox({
+      env: { KILL_ON: "check:3" },
+      origin: fixture.origin,
+      root,
+    });
+    const { fixer } = modelWriting(sandbox, { "src/index.ts": FIXED_SCRIPT });
+
+    const result = await run(github, sandbox, { fixer });
+    expect(result).toStrictEqual({
+      exitCode: 1,
+      // The log says the model ran, and what it changed.
+      findings: {
+        model: MODEL,
+        paths: ["README.md", "src/index.ts"],
+        stopped: false,
+      },
+      headSha: fixture.headSha,
+      output: expect.stringContaining("Oxlint was killed by signal SIGABRT"),
+      reason: "Oxlint was killed by signal SIGABRT",
+      status: "failed",
+      step: "check",
+    } satisfies ApplyLintFixesResult);
+    expect(summarizeLintFixResult(result)).toMatchObject({
+      model: MODEL,
+      modelCheckPassed: undefined,
+      modelInvoked: true,
+      modelPaths: ["README.md", "src/index.ts"],
+    });
+    expect(fixer).toHaveBeenCalledOnce();
+    expect(github.writes).toStrictEqual([]);
   });
 
   it("comments when the check still fails after the model", async () => {
