@@ -1,6 +1,6 @@
-import { Octokit } from "@octokit/rest";
+import type { Octokit } from "@octokit/rest";
 
-import { applyRequestPolicy } from "./request-policy.ts";
+import { createOctokit } from "./octokit.ts";
 import type { RequestPolicy } from "./request-policy.ts";
 
 export type { Octokit } from "@octokit/rest";
@@ -19,11 +19,10 @@ export const createGitHubClient = ({
   fetch: fetchImpl,
   requestPolicy,
 }: GitHubClientOptions = {}): Octokit =>
-  applyRequestPolicy(
-    new Octokit({
+  createOctokit(
+    {
       auth,
       request: fetchImpl === undefined ? undefined : { fetch: fetchImpl },
-      userAgent: "Chachamaru",
-    }),
+    },
     requestPolicy
   );

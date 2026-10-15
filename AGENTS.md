@@ -32,7 +32,7 @@ The code stays within erasable syntax (`erasableSyntaxOnly`), and relative impor
 
 Each package has its own `tsconfig.json`, extending `@publira/tsconfig/base.json`, its own `tsdown.config.ts`, and its own `vitest.config.ts`. Versions that several packages share, such as `typescript`, `tsdown`, `vitest`, `zod`, and `@types/node`, live in the `catalog` of `pnpm-workspace.yaml`, and `catalogMode: strict` keeps the packages on them.
 
-The clients of `@publira/github` time out every request and try a failed read again after a server error, a rate limit, or a failed connection (`request-policy.ts`), as `@publira/npm-registry` does for the registry. They never retry a write, which may have been applied before it failed; a job's next run takes it up instead. Do not add retries around them.
+The clients of `@publira/github` time out every request and try a failed read again after a server error, a rate limit, or a failed connection (`request-policy.ts`), as `@publira/npm-registry` does for the registry. They never retry a write, which may have been applied before it failed; a job's next run takes it up instead. Do not add retries around them. The clients log no request of their own, so a 404 that a reader answers with `undefined` leaves no `error` line; a job logs the failures it does not handle, with its own fields.
 
 ## Toolchain
 
