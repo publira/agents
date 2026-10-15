@@ -1133,12 +1133,26 @@ describe("applyLintFixes with a model for the findings", () => {
     });
     const { fixer } = modelWriting(sandbox, { "src/index.ts": FIXED_SCRIPT });
 
-    await expect(run(github, sandbox, { fixer })).resolves.toMatchObject({
+    const result = await run(github, sandbox, { fixer });
+    expect(result).toStrictEqual({
       exitCode: 1,
+      // The log says the model ran, and what it changed.
+      findings: {
+        model: MODEL,
+        paths: ["README.md", "src/index.ts"],
+        stopped: false,
+      },
       headSha: fixture.headSha,
+      output: expect.stringContaining("Oxlint was killed by signal SIGABRT"),
       reason: "Oxlint was killed by signal SIGABRT",
       status: "failed",
       step: "check",
+    } satisfies ApplyLintFixesResult);
+    expect(summarizeLintFixResult(result)).toMatchObject({
+      model: MODEL,
+      modelCheckPassed: undefined,
+      modelInvoked: true,
+      modelPaths: ["README.md", "src/index.ts"],
     });
     expect(fixer).toHaveBeenCalledOnce();
     expect(github.writes).toStrictEqual([]);

@@ -134,7 +134,8 @@ export interface FindingsFix {
   stopped?: boolean;
   /**
    * Whether `ultracite check` passes after the model's changes; none when
-   * its run failed, and the check did not run.
+   * its run failed, and the check did not run, or a tool was killed during
+   * the check.
    */
   checkPassed?: boolean;
   /**
@@ -181,6 +182,11 @@ export type ApplyLintFixesResult =
       output: string;
       /** Which tool was killed, and by which signal, when one was. */
       reason?: string;
+      /**
+       * What the model did, when a tool was killed during the check after
+       * its changes: the model, whether it was stopped, and its paths.
+       */
+      findings?: FindingsFix;
     }
   | {
       /** `ultracite check` passes: another check failed. */
@@ -381,11 +387,15 @@ const fixFindingsInSandbox = async (
   }
 
   const after = await check();
+  const changes = await stageChanges(sandbox, WORKTREE, { trackedOnly: true });
   const killed = killedToolFailure("check", after);
   if (killed !== undefined) {
-    return killed;
+    // The model ran, and the log says so, with what it changed.
+    return {
+      ...killed,
+      findings: { model, paths: changes.map(({ path }) => path), stopped },
+    };
   }
-  const changes = await stageChanges(sandbox, WORKTREE, { trackedOnly: true });
   const checkPassed = after.exitCode === 0;
   const verdict = evaluateLintFindingsFix({
     addedLines: parseAddedLines(
