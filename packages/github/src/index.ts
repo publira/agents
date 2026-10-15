@@ -20,6 +20,7 @@ export {
   getPullRequestMergeState,
   graphqlRequestFailure,
 } from "./auto-merge.ts";
+export { getBranchHeadSha } from "./branch.ts";
 export type {
   BranchLocation,
   CheckRunState,

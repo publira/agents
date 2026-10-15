@@ -3,6 +3,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 import type { Octokit } from "@octokit/rest";
 
+import { getBranchHeadSha } from "./branch.ts";
 import { requestFailure } from "./request-error.ts";
 
 /**
@@ -34,27 +35,6 @@ export interface CommitToBranchResult {
   /** `false` when the branch already held this change on this base. */
   created: boolean;
 }
-
-const getBranchSha = async (
-  octokit: Octokit,
-  owner: string,
-  repo: string,
-  branch: string
-): Promise<string | undefined> => {
-  try {
-    const { data } = await octokit.rest.git.getRef({
-      owner,
-      ref: `heads/${branch}`,
-      repo,
-    });
-    return data.object.sha;
-  } catch (error) {
-    if (requestFailure.safeParse(error).data?.status === 404) {
-      return undefined;
-    }
-    throw error;
-  }
-};
 
 /**
  * How long to wait after each blob upload, before the next write, which is
@@ -153,7 +133,7 @@ export const commitToBranch = async (
     throw new Error(`The change leaves ${owner}/${repo}@${baseSha} as it is`);
   }
 
-  const branchSha = await getBranchSha(octokit, owner, repo, branch);
+  const branchSha = await getBranchHeadSha(octokit, { branch, owner, repo });
 
   if (branchSha !== undefined) {
     const { data: branchCommit } = await octokit.rest.git.getCommit({

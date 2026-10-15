@@ -52,6 +52,8 @@ const fileResponse = (content?: string) =>
       });
 
 interface FakeOptions {
+  /** `false` for an empty repository, whose default branch has no commit. */
+  branchExists?: boolean;
   /** `null` when the repository has no pnpm-workspace.yaml. */
   manifest?: string | null;
   /** The open cleanup pull request's version of the file. */
@@ -74,6 +76,7 @@ interface FakeOptions {
 
 // Answers the GitHub API and the npm registry, and records the writes.
 const fake = ({
+  branchExists = true,
   manifest = workspaceManifest,
   openPullRequest,
   openPullRequestText = { body: "", title: "" },
@@ -108,7 +111,10 @@ const fake = ({
       [`GET ${repository}`, () => Response.json({ default_branch: "main" })],
       [
         `GET ${repository}/branches/main`,
-        () => Response.json({ commit: { sha: "base" } }),
+        () =>
+          branchExists
+            ? Response.json({ commit: { sha: "base" } })
+            : Response.json({ message: "Branch not found" }, { status: 404 }),
       ],
       [
         `GET ${repository}/contents/pnpm-workspace.yaml`,
@@ -187,8 +193,8 @@ const fake = ({
         () => Response.json({ tree: { sha: "base-tree" } }),
       ],
       [
-        `GET ${repository}/git/ref/heads/${CLEANUP_BRANCH}`,
-        () => Response.json({ message: "Not Found" }, { status: 404 }),
+        `GET ${repository}/branches/${CLEANUP_BRANCH}`,
+        () => Response.json({ message: "Branch not found" }, { status: 404 }),
       ],
       [
         `POST ${repository}/git/trees`,
@@ -283,7 +289,7 @@ describe(removeExpiredReleaseAgeExclusions, () => {
     expect(github.writes).toStrictEqual([]);
   });
 
-  it("does nothing in a repository without pnpm-workspace.yaml", async () => {
+  it("skips a repository without pnpm-workspace.yaml", async () => {
     const github = fake({ manifest: null });
 
     await expect(
@@ -291,7 +297,29 @@ describe(removeExpiredReleaseAgeExclusions, () => {
         ...github.options,
         now: AFTER_EXPIRY,
       })
-    ).resolves.toMatchObject({ status: "nothing-expired" });
+    ).resolves.toStrictEqual({
+      reason: "the branch main has no pnpm-workspace.yaml",
+      status: "skipped",
+    });
+    expect(github.writes).toStrictEqual([]);
+  });
+
+  it("skips an empty repository, whose default branch does not exist", async () => {
+    const github = fake({ branchExists: false });
+
+    await expect(
+      removeExpiredReleaseAgeExclusions({
+        ...github.options,
+        now: AFTER_EXPIRY,
+      })
+    ).resolves.toStrictEqual({
+      reason: "the branch main does not exist",
+      status: "skipped",
+    });
+    expect(github.paths).not.toContain(
+      `${repository}/contents/pnpm-workspace.yaml`
+    );
+    expect(github.writes).toStrictEqual([]);
   });
 
   it("opens a pull request that removes the expired block", async () => {
@@ -796,6 +824,7 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
           modelInvoked: false,
           pullRequest: undefined,
           pullRequestCreated: undefined,
+          reason: undefined,
           repo: "publira",
           status: "nothing-expired",
         },
