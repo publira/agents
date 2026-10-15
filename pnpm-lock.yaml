@@ -186,8 +186,8 @@ catalogs:
       specifier: 2.9.1
       version: 2.9.1
     zod:
-      specifier: 4.6.6
-      version: 4.6.6
+      specifier: 4.6.7
+      version: 4.6.7
 
 importers:
 
@@ -237,13 +237,13 @@ importers:
         version: 3.7.0
       ai:
         specifier: 7.0.137
-        version: 7.0.137(zod@4.6.6)
+        version: 7.0.137(zod@4.6.7)
       eve:
         specifier: 0.77.0
-        version: 0.77.0(ai@7.0.137(zod@4.6.6))
+        version: 0.77.0(ai@7.0.137(zod@4.6.7))
       zod:
         specifier: 'catalog:'
-        version: 4.6.6
+        version: 4.6.7
     devDependencies:
       '@publira/tsconfig':
         specifier: workspace:*
@@ -262,7 +262,7 @@ importers:
     dependencies:
       zod:
         specifier: 'catalog:'
-        version: 4.6.6
+        version: 4.6.7
     devDependencies:
       '@publira/tsconfig':
         specifier: workspace:*
@@ -296,7 +296,7 @@ importers:
         version: 6.0.0
       zod:
         specifier: 'catalog:'
-        version: 4.6.6
+        version: 4.6.7
     devDependencies:
       '@publira/tsconfig':
         specifier: workspace:*
@@ -321,7 +321,7 @@ importers:
         version: 2.9.1
       zod:
         specifier: 'catalog:'
-        version: 4.6.6
+        version: 4.6.7
     devDependencies:
       '@publira/tsconfig':
         specifier: workspace:*
@@ -346,7 +346,7 @@ importers:
     dependencies:
       zod:
         specifier: 'catalog:'
-        version: 4.6.6
+        version: 4.6.7
     devDependencies:
       '@publira/tsconfig':
         specifier: workspace:*
@@ -371,7 +371,7 @@ importers:
         version: 2.9.1
       zod:
         specifier: 'catalog:'
-        version: 4.6.6
+        version: 4.6.7
     devDependencies:
       '@publira/tsconfig':
         specifier: workspace:*
@@ -2330,26 +2330,26 @@ packages:
   zod@4.1.11:
     resolution: {integrity: sha512-WPsqwxITS2tzx1bzhIKsEs19ABD5vmCVa4xBo2tq/SrV4RNZtfws1EnCWQXM6yh8bD08a1idvkB5MZSBiZsjwg==}
 
-  zod@4.6.6:
-    resolution: {integrity: sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==}
+  zod@4.6.7:
+    resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
 
 snapshots:
 
-  '@ai-sdk/gateway@4.0.110(zod@4.6.6)':
+  '@ai-sdk/gateway@4.0.110(zod@4.6.7)':
     dependencies:
       '@ai-sdk/provider': 4.0.26
-      '@ai-sdk/provider-utils': 5.0.58(zod@4.6.6)
+      '@ai-sdk/provider-utils': 5.0.58(zod@4.6.7)
       '@vercel/oidc': 3.2.0
-      zod: 4.6.6
+      zod: 4.6.7
 
-  '@ai-sdk/provider-utils@5.0.58(zod@4.6.6)':
+  '@ai-sdk/provider-utils@5.0.58(zod@4.6.7)':
     dependencies:
       '@ai-sdk/provider': 4.0.26
       '@standard-schema/spec': 1.1.0
       '@workflow/serde': 4.1.0
       eventsource-parser: 3.1.1
       undici: 7.30.0
-      zod: 4.6.6
+      zod: 4.6.7
 
   '@ai-sdk/provider@4.0.26':
     dependencies:
@@ -2812,7 +2812,7 @@ snapshots:
       tar-stream: 3.1.7
       undici: 7.30.0
       xdg-app-paths: 5.1.0
-      zod: 4.6.6
+      zod: 4.6.7
     transitivePeerDependencies:
       - bare-abort-controller
       - react-native-b4a
@@ -2872,12 +2872,12 @@ snapshots:
 
   acorn@8.19.0: {}
 
-  ai@7.0.137(zod@4.6.6):
+  ai@7.0.137(zod@4.6.7):
     dependencies:
-      '@ai-sdk/gateway': 4.0.110(zod@4.6.6)
+      '@ai-sdk/gateway': 4.0.110(zod@4.6.7)
       '@ai-sdk/provider': 4.0.26
-      '@ai-sdk/provider-utils': 5.0.58(zod@4.6.6)
-      zod: 4.6.6
+      '@ai-sdk/provider-utils': 5.0.58(zod@4.6.7)
+      zod: 4.6.7
 
   ajv@8.20.0:
     dependencies:
@@ -2970,9 +2970,9 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.9
 
-  eve@0.77.0(ai@7.0.137(zod@4.6.6)):
+  eve@0.77.0(ai@7.0.137(zod@4.6.7)):
     dependencies:
-      ai: 7.0.137(zod@4.6.6)
+      ai: 7.0.137(zod@4.6.7)
       nitro: 3.0.260903-beta
       undici: 8.10.2
 
@@ -3619,7 +3619,7 @@ snapshots:
       string-width: 8.3.0
       which-command: 0.1.0
       yaml: 2.9.1
-      zod: 4.6.6
+      zod: 4.6.7
     optionalDependencies:
       oxfmt: 0.72.0
       oxlint: 1.87.0
@@ -3739,4 +3739,4 @@ snapshots:
 
   zod@4.1.11: {}
 
-  zod@4.6.6: {}
+  zod@4.6.7: {}
