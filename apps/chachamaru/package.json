@@ -20,7 +20,7 @@
     "@publira/pnpm-workspace": "workspace:*",
     "@vercel/sandbox": "catalog:",
     "ai": "7.0.137",
-    "eve": "0.76.3",
+    "eve": "0.77.0",
     "zod": "catalog:"
   },
   "devDependencies": {
