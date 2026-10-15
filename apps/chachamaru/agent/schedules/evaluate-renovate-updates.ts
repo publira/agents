@@ -2,7 +2,6 @@ import { defineSchedule } from "eve/schedules";
 
 import { getGitHubApp } from "../../src/github-app.ts";
 import { evaluateRenovateUpdatesEverywhere } from "../../src/jobs/evaluate-renovate-update.ts";
-import { SANDBOX_TIMEOUT_MS } from "../../src/jobs/regenerate-generated-output.ts";
 import { createModelLintFindingsFixer } from "../../src/lint-findings-fixer.ts";
 import { log, withFields } from "../../src/log.ts";
 import { createVercelSandboxRunner } from "../../src/sandbox-runner.ts";
@@ -37,10 +36,7 @@ export default defineSchedule({
       app,
       fixer: createModelLintFindingsFixer(),
       log: scheduleLog,
-      sandbox: createVercelSandboxRunner({
-        log: scheduleLog,
-        timeoutMs: SANDBOX_TIMEOUT_MS,
-      }),
+      sandbox: createVercelSandboxRunner({ log: scheduleLog }),
       settings,
     });
   },
