@@ -12,6 +12,7 @@ import {
   removeReleaseAgeExclusions,
   verifyReleaseAgeExclusionRemoval,
 } from "@publira/pnpm-workspace";
+import { z } from "zod";
 
 import { AGENT_NAME } from "../agent-name.ts";
 import { loggableFailure, withFields } from "../log.ts";
@@ -74,6 +75,8 @@ export interface ExpiredExclusion {
 }
 
 export type RemoveExpiredReleaseAgeExclusionsResult =
+  /** The repository has nothing to check: no branch, or no manifest. */
+  | { status: "skipped"; reason: string }
   | { status: "nothing-expired"; reports: ReleaseAgeExclusionReport[] }
   | {
       status: "planned";
@@ -112,6 +115,68 @@ const ASSISTED_BY = new RegExp(
   `^Assisted-by: ${AGENT_NAME}:(?<model>\\S+)$`,
   "mu"
 );
+
+const requestFailure = z.object({ status: z.number() });
+
+interface BranchLocation {
+  octokit: Octokit;
+  owner: string;
+  repo: string;
+  branch: string;
+}
+
+/**
+ * The head commit of a branch, or `undefined` when the branch does not exist.
+ * An empty repository names a default branch that has no commit yet, and the
+ * API answers 404 for it.
+ */
+const getBranchSha = async ({
+  octokit,
+  owner,
+  repo,
+  branch,
+}: BranchLocation): Promise<string | undefined> => {
+  try {
+    const { data } = await octokit.rest.repos.getBranch({
+      branch,
+      owner,
+      repo,
+    });
+    return data.commit.sha;
+  } catch (error) {
+    if (requestFailure.safeParse(error).data?.status === 404) {
+      return undefined;
+    }
+    throw error;
+  }
+};
+
+/**
+ * Reads the branch's `pnpm-workspace.yaml`, with the commit it was read
+ * from, or tells why the repository is skipped: the branch does not exist, or
+ * it has no such file.
+ */
+const readManifest = async (
+  location: BranchLocation
+): Promise<{ baseSha: string; source: string } | { reason: string }> => {
+  const { octokit, owner, repo, branch } = location;
+  const baseSha = await getBranchSha(location);
+
+  if (baseSha === undefined) {
+    return { reason: `the branch ${branch} does not exist` };
+  }
+
+  const source = await readOptionalRepositoryFile(octokit, {
+    owner,
+    path: MANIFEST_PATH,
+    ref: baseSha,
+    repo,
+  });
+
+  return source === undefined
+    ? { reason: `the branch ${branch} has no ${MANIFEST_PATH}` }
+    : { baseSha, source };
+};
 
 const commitMessage = (
   expired: readonly ExpiredExclusion[],
@@ -304,11 +369,13 @@ const findExistingCleanup = async ({
  * `pnpm-workspace.yaml` whose pinned versions are all older than
  * `minimumReleaseAge`, and opens a pull request with the change.
  *
- * The npm registry decides which entries expired. A repository without
- * expired entries ends there, without a model call or a write. The edit
- * follows fixed rules, and only when they cannot tell which comments go with
- * the entries does `editor` choose the lines to delete; either way the result
- * is checked before anything is pushed.
+ * A repository whose branch does not exist, such as an empty one, or whose
+ * branch has no `pnpm-workspace.yaml` is skipped. The npm registry decides
+ * which entries expired. A repository without expired entries ends there,
+ * without a model call or a write. The edit follows fixed rules, and only
+ * when they cannot tell which comments go with the entries does `editor`
+ * choose the lines to delete; either way the result is checked before
+ * anything is pushed.
  *
  * Running it again changes nothing while the open pull request still holds
  * the same cleanup, or while the last one, closed without merging, held it.
@@ -328,20 +395,19 @@ export const removeExpiredReleaseAgeExclusions = async ({
     return data.default_branch;
   };
   const baseBranch = base ?? (await getDefaultBranch());
-  const {
-    data: {
-      commit: { sha: baseSha },
-    },
-  } = await octokit.rest.repos.getBranch({ branch: baseBranch, owner, repo });
-  const at = { owner, ref: baseSha, repo };
-  const source = await readOptionalRepositoryFile(octokit, {
-    ...at,
-    path: MANIFEST_PATH,
+  const read = await readManifest({
+    branch: baseBranch,
+    octokit,
+    owner,
+    repo,
   });
 
-  if (source === undefined) {
-    return { reports: [], status: "nothing-expired" };
+  if ("reason" in read) {
+    return { reason: read.reason, status: "skipped" };
   }
+
+  const { baseSha, source } = read;
+  const at = { owner, ref: baseSha, repo };
 
   const manifest = parseWorkspaceManifest(source);
 
@@ -469,9 +535,10 @@ export const removeExpiredReleaseAgeExclusions = async ({
 };
 
 /**
- * The fields of a result to log, without the file: which entries expired,
- * the model that chose the lines, and the pull request. Whether a model was
- * asked in this run is up to the caller, which sees its calls.
+ * The fields of a result to log, without the file: why the repository was
+ * skipped, which entries expired, the model that chose the lines, and the
+ * pull request. Whether a model was asked in this run is up to the caller,
+ * which sees its calls.
  */
 export const summarizeCleanupResult = (
   result: RemoveExpiredReleaseAgeExclusionsResult
@@ -479,7 +546,7 @@ export const summarizeCleanupResult = (
   committed: result.status === "pull-request" ? result.committed : undefined,
   editedBy: "editedBy" in result ? result.editedBy : undefined,
   expired:
-    result.status === "nothing-expired"
+    result.status === "skipped" || result.status === "nothing-expired"
       ? []
       : result.expired.map(({ selector }) => selector),
   model:
@@ -489,6 +556,7 @@ export const summarizeCleanupResult = (
   pullRequest: "pullRequest" in result ? result.pullRequest.number : undefined,
   pullRequestCreated:
     result.status === "pull-request" ? result.pullRequest.created : undefined,
+  reason: result.status === "skipped" ? result.reason : undefined,
   status: result.status,
 });
 
