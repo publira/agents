@@ -239,7 +239,7 @@ const pullRequestSchema = z.looseObject({ body: z.string() });
 const commitSchema = z.looseObject({ message: z.string() });
 const pullRequestTextSchema = z.object({ body: z.string(), title: z.string() });
 
-const MODEL = "anthropic/claude-sonnet-5.5";
+const MODEL = "openai/gpt-5.2";
 
 const neverCalled: ExclusionEditor = () =>
   Promise.reject(new Error("The editor must not be called"));
@@ -832,7 +832,7 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
     const editor = vi.fn<ExclusionEditor>(() =>
       Promise.resolve({
         lineNumbers: [2],
-        model: "anthropic/claude-sonnet-5.5",
+        model: "openai/gpt-5.2",
       })
     );
     const job = vi.fn<typeof removeExpiredReleaseAgeExclusions>(
@@ -855,7 +855,7 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
                   selector: "react@19.3.0",
                 },
               ],
-              model: "anthropic/claude-sonnet-5.5",
+              model: "openai/gpt-5.2",
               pullRequest: {
                 created: true,
                 number: 120,
@@ -872,7 +872,7 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
                   selector: "next@16.3.8",
                 },
               ],
-              model: "anthropic/claude-sonnet-5.5",
+              model: "openai/gpt-5.2",
               pullRequest: {
                 created: false,
                 number: 8,
@@ -897,7 +897,7 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
       expect.objectContaining({
         committed: true,
         expired: ["next@16.3.8", "react@19.3.0"],
-        model: "anthropic/claude-sonnet-5.5",
+        model: "openai/gpt-5.2",
         modelInvoked: true,
         pullRequest: 120,
         pullRequestCreated: true,

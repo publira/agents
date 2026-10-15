@@ -89,14 +89,14 @@ describe(createModelLintFindingsFixer, () => {
         const step = steps.shift();
         return Promise.resolve(step ?? reply);
       },
-      modelId: "anthropic/claude-haiku-5.5",
+      modelId: "openai/gpt-5.1-codex-mini",
     });
     const sandbox = fakeSandbox();
 
     await expect(
       createModelLintFindingsFixer(model)(request(sandbox))
     ).resolves.toStrictEqual({
-      model: "anthropic/claude-haiku-5.5",
+      model: "openai/gpt-5.1-codex-mini",
       stopped: false,
     });
 
@@ -183,14 +183,14 @@ describe(createModelLintFindingsFixer, () => {
           ? untilAborted(abortSignal)
           : Promise.resolve(step);
       },
-      modelId: "anthropic/claude-haiku-5.5",
+      modelId: "openai/gpt-5.1-codex-mini",
     });
     const sandbox = fakeSandbox();
 
     await expect(
       createModelLintFindingsFixer(model)(request(sandbox, Date.now() + 100))
     ).resolves.toStrictEqual({
-      model: "anthropic/claude-haiku-5.5",
+      model: "openai/gpt-5.1-codex-mini",
       stopped: true,
     });
     expect(sandbox.writeFile).toHaveBeenCalledWith("/tmp/repository/a.ts", "");
