@@ -1,10 +1,14 @@
+import { Ajv2020 } from "ajv/dist/2020.js";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 
 import {
   matchesAnyPathPattern,
   matchesPathPattern,
   parseRegenerationConfig,
   readWorkflowEnv,
+  REGENERATION_CONFIG_JSON_SCHEMA,
+  REGENERATION_CONFIG_SCHEMA_URL,
 } from "./regeneration.ts";
 
 const SQLC_SETUP =
@@ -108,6 +112,48 @@ describe(parseRegenerationConfig, () => {
       reason: expect.stringMatching(/^\.chachamaru\/regenerate\.yml/u),
       result: "invalid",
     });
+  });
+});
+
+describe("the JSON Schema", () => {
+  // Strict mode also refuses a keyword the schema should not carry.
+  const validate = new Ajv2020({ allErrors: true, strict: true }).compile(
+    REGENERATION_CONFIG_JSON_SCHEMA
+  );
+
+  it("is identified by the URL it is served at", () => {
+    expect(REGENERATION_CONFIG_JSON_SCHEMA.$id).toBe(
+      REGENERATION_CONFIG_SCHEMA_URL
+    );
+  });
+
+  it("accepts a declaration", () => {
+    expect(validate(parse(CONFIG))).toBeTruthy();
+  });
+
+  it("accepts one without setup or workflow", () => {
+    expect(
+      validate({
+        command: "pnpm codegen",
+        paths: ["src/gen/**"],
+        triggers: ["schema.graphql"],
+      })
+    ).toBeTruthy();
+  });
+
+  it.each([
+    ["an unknown field", { generate: "make" }],
+    ["an empty command", { command: "" }],
+    ["no generated paths", { paths: [] }],
+    ["a trigger that is not a string", { triggers: [1] }],
+  ])("refuses %s", (_label, change) => {
+    expect(validate({ ...parse(CONFIG), ...change })).toBeFalsy();
+  });
+
+  it("is generated from the parser's definition", async () => {
+    await expect(
+      `${JSON.stringify(REGENERATION_CONFIG_JSON_SCHEMA, null, 2)}\n`
+    ).toMatchFileSnapshot("__snapshots__/regenerate-v1.json");
   });
 });
 
