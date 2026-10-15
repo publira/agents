@@ -193,8 +193,8 @@ const fake = ({
         () => Response.json({ tree: { sha: "base-tree" } }),
       ],
       [
-        `GET ${repository}/git/ref/heads/${CLEANUP_BRANCH}`,
-        () => Response.json({ message: "Not Found" }, { status: 404 }),
+        `GET ${repository}/branches/${CLEANUP_BRANCH}`,
+        () => Response.json({ message: "Branch not found" }, { status: 404 }),
       ],
       [
         `POST ${repository}/git/trees`,

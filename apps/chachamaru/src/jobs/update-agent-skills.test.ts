@@ -297,11 +297,11 @@ const fakeGitHub = ({
     if (route.startsWith(`GET ${repository}/git/commits/`)) {
       return Promise.resolve(Response.json({ tree: { sha: "base-tree" } }));
     }
-    if (route === `GET ${repository}/git/ref/heads/${SKILLS_UPDATE_BRANCH}`) {
+    if (route === `GET ${repository}/branches/${SKILLS_UPDATE_BRANCH}`) {
       return Promise.resolve(
         openPullRequestTree === undefined
-          ? Response.json({ message: "Not Found" }, { status: 404 })
-          : Response.json({ object: { sha: "pull-head" } })
+          ? Response.json({ message: "Branch not found" }, { status: 404 })
+          : Response.json({ commit: { sha: "pull-head" } })
       );
     }
 

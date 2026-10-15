@@ -22,10 +22,10 @@ const gitRoutes = (branchCommit?: { tree: string; parents: string[] }) => ({
     parents: branchCommit?.parents.map((sha) => ({ sha })),
     tree: { sha: branchCommit?.tree },
   },
-  [`GET ${repository}/git/ref/heads/chachamaru/cleanup`]:
+  [`GET ${repository}/branches/chachamaru/cleanup`]:
     branchCommit === undefined
-      ? Response.json({ message: "Not Found" }, { status: 404 })
-      : { object: { sha: "branch-head" } },
+      ? Response.json({ message: "Branch not found" }, { status: 404 })
+      : { commit: { sha: "branch-head" } },
   [`PATCH ${repository}/git/refs/heads/chachamaru/cleanup`]: {},
   [`POST ${repository}/git/commits`]: { sha: "new-commit" },
   [`POST ${repository}/git/refs`]: {},

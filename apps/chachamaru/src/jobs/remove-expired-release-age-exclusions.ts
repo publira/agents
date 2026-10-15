@@ -1,10 +1,11 @@
 import {
   commitToBranch,
   ensurePullRequest,
+  getBranchHeadSha,
   listAppRepositories,
   readOptionalRepositoryFile,
 } from "@publira/github";
-import type { GitHubApp, Octokit } from "@publira/github";
+import type { BranchLocation, GitHubApp, Octokit } from "@publira/github";
 import type { RegistryOptions } from "@publira/npm-registry";
 import {
   deleteBlockLines,
@@ -12,7 +13,6 @@ import {
   removeReleaseAgeExclusions,
   verifyReleaseAgeExclusionRemoval,
 } from "@publira/pnpm-workspace";
-import { z } from "zod";
 
 import { AGENT_NAME } from "../agent-name.ts";
 import { loggableFailure, withFields } from "../log.ts";
@@ -116,51 +116,16 @@ const ASSISTED_BY = new RegExp(
   "mu"
 );
 
-const requestFailure = z.object({ status: z.number() });
-
-interface BranchLocation {
-  octokit: Octokit;
-  owner: string;
-  repo: string;
-  branch: string;
-}
-
-/**
- * The head commit of a branch, or `undefined` when the branch does not exist.
- * An empty repository names a default branch that has no commit yet, and the
- * API answers 404 for it.
- */
-const getBranchSha = async ({
-  octokit,
-  owner,
-  repo,
-  branch,
-}: BranchLocation): Promise<string | undefined> => {
-  try {
-    const { data } = await octokit.rest.repos.getBranch({
-      branch,
-      owner,
-      repo,
-    });
-    return data.commit.sha;
-  } catch (error) {
-    if (requestFailure.safeParse(error).data?.status === 404) {
-      return undefined;
-    }
-    throw error;
-  }
-};
-
 /**
  * Reads the branch's `pnpm-workspace.yaml`, with the commit it was read
- * from, or tells why the repository is skipped: the branch does not exist, or
- * it has no such file.
+ * from, or tells why the repository is skipped: the branch does not exist, as
+ * in an empty repository, or it has no such file.
  */
 const readManifest = async (
-  location: BranchLocation
+  octokit: Octokit,
+  { owner, repo, branch }: BranchLocation
 ): Promise<{ baseSha: string; source: string } | { reason: string }> => {
-  const { octokit, owner, repo, branch } = location;
-  const baseSha = await getBranchSha(location);
+  const baseSha = await getBranchHeadSha(octokit, { branch, owner, repo });
 
   if (baseSha === undefined) {
     return { reason: `the branch ${branch} does not exist` };
@@ -395,12 +360,7 @@ export const removeExpiredReleaseAgeExclusions = async ({
     return data.default_branch;
   };
   const baseBranch = base ?? (await getDefaultBranch());
-  const read = await readManifest({
-    branch: baseBranch,
-    octokit,
-    owner,
-    repo,
-  });
+  const read = await readManifest(octokit, { branch: baseBranch, owner, repo });
 
   if ("reason" in read) {
     return { reason: read.reason, status: "skipped" };
