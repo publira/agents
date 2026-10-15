@@ -724,7 +724,7 @@ const regenerateSlowly = (state: { running: number; mostRunning: number }) =>
       : {
           headSha: HEAD,
           reason:
-            "the pull request changes no file that calls for a regeneration",
+            "Renovate's commits change no file that calls for a regeneration",
           status: "skipped" as const,
         };
   });

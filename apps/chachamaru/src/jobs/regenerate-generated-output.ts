@@ -1,4 +1,8 @@
-import { addCommitToBranch, readOptionalRepositoryFile } from "@publira/github";
+import {
+  addCommitToBranch,
+  listChangedFiles,
+  readOptionalRepositoryFile,
+} from "@publira/github";
 import type { Octokit } from "@publira/github";
 import {
   isRenovate,
@@ -7,6 +11,7 @@ import {
   readWorkflowEnv,
   REGENERATION_CONFIG_PATH,
   regenerationSeconds,
+  RENOVATE_LOGIN,
   triggeredRegenerationTargets,
 } from "@publira/maintenance-policies";
 import type {
@@ -30,6 +35,17 @@ import type { Sandbox, SandboxRunner } from "../sandbox-runner.ts";
 /** The subject of the bot's commit of regenerated output. */
 export const REGENERATION_COMMIT_SUBJECT =
   "chore(gen): regenerate for the updated generator versions";
+
+/**
+ * The trailer of the bot's commit of regenerated output that names a target
+ * it completed, once for each, so a later run regenerates only the rest.
+ */
+export const REGENERATED_TARGET_TRAILER = "Regenerated-target";
+
+const REGENERATED_TARGET_LINE = new RegExp(
+  `^${REGENERATED_TARGET_TRAILER}: (?<name>\\S+)$`,
+  "gmu"
+);
 
 // Where the sandbox checks the pull request out.
 const WORKTREE = "/tmp/repository";
@@ -291,10 +307,49 @@ const isSkip = <T extends Plan | RegenerationConfig | Record<string, string>>(
   value: T | Skip
 ): value is Skip => "reason" in value;
 
+type ComparedCommit = Awaited<
+  ReturnType<Octokit["rest"]["repos"]["compareCommitsWithBasehead"]>
+>["data"]["commits"][number];
+
+/**
+ * The targets the bot's regeneration commits on top of the head completed,
+ * or all of them for a commit that names none, which the bot made before a
+ * declaration had targets. Any other commit on top, such as Renovate's
+ * rewrite, leaves none completed.
+ */
+const completedTargets = (
+  commits: readonly ComparedCommit[],
+  { botLogin, headSha }: { botLogin: string; headSha: string }
+): ReadonlySet<string> | "all" => {
+  const completed = new Set<string>();
+  if (commits.at(-1)?.sha !== headSha) {
+    return completed;
+  }
+  for (const { author, commit } of commits.toReversed()) {
+    if (
+      author?.login !== botLogin ||
+      commit.message.split("\n", 1)[0] !== REGENERATION_COMMIT_SUBJECT
+    ) {
+      break;
+    }
+    const names = [...commit.message.matchAll(REGENERATED_TARGET_LINE)].map(
+      ({ groups }) => groups?.name ?? ""
+    );
+    if (names.length === 0) {
+      return "all";
+    }
+    for (const name of names) {
+      completed.add(name);
+    }
+  }
+  return completed;
+};
+
 /**
  * Decides which targets the pull request calls for: the base branch
- * declares them, the pull request changes a file they name, and the head is
- * not the bot's regeneration already.
+ * declares them, Renovate's commits change a file they name, as the
+ * approval reads them, and the bot's regeneration commits on top of the
+ * head have not completed them already.
  */
 const plan = async (
   options: RegenerateGeneratedOutputOptions,
@@ -313,25 +368,31 @@ const plan = async (
       repo,
     });
 
-  const head = comparison.commits.at(-1);
-  if (
-    head?.sha === headSha &&
-    head.author?.login === botLogin &&
-    head.commit.message.split("\n", 1)[0] === REGENERATION_COMMIT_SUBJECT
-  ) {
-    return { reason: "the head is the bot's regeneration already" };
+  const completed = completedTargets(comparison.commits, {
+    botLogin,
+    headSha,
+  });
+  const regenerated = {
+    reason: "the head is the bot's regeneration already",
+  };
+  if (completed === "all") {
+    return regenerated;
   }
 
-  const targets = triggeredRegenerationTargets(
-    config,
-    (comparison.files ?? []).map(({ filename }) => filename)
+  const renovateFiles = await Promise.all(
+    comparison.commits
+      // As the approval reads them: by the author's login.
+      .filter(({ author }) => author?.login === RENOVATE_LOGIN)
+      .map(({ sha }) => listChangedFiles(octokit, { owner, repo, sha }))
   );
-  return targets.length === 0
-    ? {
-        reason:
-          "the pull request changes no file that calls for a regeneration",
-      }
-    : { targets };
+  const triggered = triggeredRegenerationTargets(config, renovateFiles.flat());
+  if (triggered.length === 0) {
+    return {
+      reason: "Renovate's commits change no file that calls for a regeneration",
+    };
+  }
+  const targets = triggered.filter(({ name }) => !completed.has(name));
+  return targets.length === 0 ? regenerated : { targets };
 };
 
 type Regenerated = {
@@ -538,9 +599,22 @@ export const regenerateGeneratedOutput = async (
       ])
     ),
     headSha,
-    message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan on ${headSha}:\n\n${regenerated
-      .map(({ target }) => `- ${target.name}: \`${target.command}\``)
-      .join("\n")}`,
+    message: [
+      REGENERATION_COMMIT_SUBJECT,
+      `Ran on ${headSha}:`,
+      regenerated
+        .map(({ target }) => `- ${target.name}: \`${target.command}\``)
+        .join("\n"),
+      // Those it commits and those whose output is current.
+      [
+        ...regenerated.map(({ target }) => target.name),
+        ...runs.flatMap((run) =>
+          run.status === "unchanged" ? [run.target] : []
+        ),
+      ]
+        .map((name) => `${REGENERATED_TARGET_TRAILER}: ${name}`)
+        .join("\n"),
+    ].join("\n\n"),
     modes: Object.fromEntries(
       committed.flatMap(({ change: { after, path } }) =>
         after === undefined ? [] : [[path, after.mode]]

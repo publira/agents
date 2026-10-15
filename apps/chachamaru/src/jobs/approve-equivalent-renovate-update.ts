@@ -4,6 +4,7 @@ import {
   getPullRequestBodyEditor,
   getRepositoryPermission,
   getRequiredStatusChecks,
+  listChangedFiles,
   minimizeOutdatedReviews,
   readOptionalRepositoryFile,
 } from "@publira/github";
@@ -603,30 +604,6 @@ const checkDescription = async ({
       };
 };
 
-// GitHub lists a commit's files in pages, of at most 300 files in all.
-const FILES_PER_PAGE = 100;
-
-// Every file a commit changes, from all of its pages. The pagination plugin
-// does not follow a commit's files.
-const listCommitFiles = async (
-  context: PullRequestContext,
-  sha: string,
-  page = 1
-): Promise<string[]> => {
-  const { octokit, owner, repo } = context;
-  const { data } = await octokit.rest.repos.getCommit({
-    owner,
-    page,
-    per_page: FILES_PER_PAGE,
-    ref: sha,
-    repo,
-  });
-  const files = (data.files ?? []).map(({ filename }) => filename);
-  return files.length < FILES_PER_PAGE
-    ? files
-    : [...files, ...(await listCommitFiles(context, sha, page + 1))];
-};
-
 // The regenerations the repository declares on the base branch, whose
 // generated output the bot may commit; none without a valid declaration.
 const readRegeneration = async ({
@@ -668,7 +645,8 @@ const readBotCommitScope = async (
     }),
     Promise.all(
       [...botShas, ...renovateShas].map(
-        async (sha) => [sha, await listCommitFiles(context, sha)] as const
+        async (sha) =>
+          [sha, await listChangedFiles(octokit, { owner, repo, sha })] as const
       )
     ),
     readRegeneration(context),

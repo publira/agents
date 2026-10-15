@@ -233,9 +233,8 @@ const regenerationTargets = z
       }
     }
 
-    // The targets a pull request triggers run at once, on its head, and the
-    // head the bot's commit leaves is not regenerated again, so a target
-    // that another's output would trigger would never run.
+    // The bot reads the triggers from Renovate's commits, never its own, so
+    // a target that another's output would trigger would never run.
     for (const [name, { triggers }] of Object.entries(targets)) {
       for (const [index, trigger] of triggers.entries()) {
         const output = declared.find(

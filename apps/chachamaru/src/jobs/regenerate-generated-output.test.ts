@@ -234,10 +234,13 @@ interface GitHubOptions {
   user?: { login: string; type: string };
   /** The base branch's declaration; `null` for none. */
   config?: string | null;
-  /** The files the pull request changes. */
+  /** The files Renovate's commit changes. */
   changed?: readonly string[];
-  /** The head commit's author and message, as the comparison lists it. */
-  headCommit?: { author: string; message: string };
+  /**
+   * The commits on top of Renovate's, the last of which is the head, as the
+   * comparison lists them.
+   */
+  onTop?: readonly { author: string; message: string; files?: string[] }[];
   /** Whether the branch moved, so a fast-forward fails. */
   moved?: boolean;
 }
@@ -258,13 +261,21 @@ const fakeGitHub = ({
   user = { login: "renovate[bot]", type: "Bot" },
   config = CONFIG,
   changed = ["buf.gen.yaml"],
-  headCommit = {
-    author: "renovate[bot]",
-    message: "chore(deps): update buf.gen.yaml",
-  },
+  onTop = [],
   moved = false,
 }: GitHubOptions) => {
   const writes: { route: string; body: unknown }[] = [];
+  const commits = [
+    {
+      author: "renovate[bot]",
+      files: [...changed],
+      message: "chore(deps): update buf.gen.yaml",
+    },
+    ...onTop,
+  ].map((commit, index, all) => ({
+    ...commit,
+    sha: index === all.length - 1 ? fixture.headSha : `commit-${index}`,
+  }));
 
   const fetchImpl = vi.fn<typeof fetch>((input, init) => {
     const url = new URL(String(input));
@@ -309,14 +320,14 @@ const fakeGitHub = ({
       case `GET ${repository}/compare/${fixture.baseSha}...${fixture.headSha}`: {
         return Promise.resolve(
           Response.json({
-            commits: [
-              {
-                author: { login: headCommit.author },
-                commit: { message: headCommit.message },
-                sha: fixture.headSha,
-              },
-            ],
-            files: changed.map((filename) => ({ filename })),
+            commits: commits.map(({ author, message, sha }) => ({
+              author: { login: author },
+              commit: { message },
+              sha,
+            })),
+            files: commits
+              .flatMap(({ files = [] }) => files)
+              .map((filename) => ({ filename })),
             merge_base_commit: { sha: fixture.baseSha },
           })
         );
@@ -344,7 +355,17 @@ const fakeGitHub = ({
         );
       }
       default: {
-        return Promise.resolve(notFound());
+        const listed = commits.find(
+          ({ sha }) => route === `GET ${repository}/commits/${sha}`
+        );
+        return Promise.resolve(
+          listed === undefined
+            ? notFound()
+            : Response.json({
+                files: (listed.files ?? []).map((filename) => ({ filename })),
+                sha: listed.sha,
+              })
+        );
       }
     }
   });
@@ -477,7 +498,7 @@ describe(regenerateGeneratedOutput, () => {
       },
       {
         body: {
-          message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan on ${fixture.headSha}:\n\n- default: \`./gen.sh\``,
+          message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan on ${fixture.headSha}:\n\n- default: \`./gen.sh\`\n\nRegenerated-target: default`,
           parents: [fixture.headSha],
           tree: "new-tree",
         },
@@ -522,16 +543,44 @@ describe(regenerateGeneratedOutput, () => {
     ],
     ["the base branch has no .chachamaru/regenerate.yml", { config: null }],
     [
-      "the pull request changes no file that calls for a regeneration",
+      "Renovate's commits change no file that calls for a regeneration",
       { changed: ["package.json"] },
+    ],
+    [
+      "Renovate's commits change no file that calls for a regeneration",
+      // A trigger only the bot's lock file sync changed, as approval reads it.
+      {
+        changed: [".devcontainer/devcontainer.json"],
+        onTop: [
+          {
+            author: BOT,
+            files: ["buf.gen.yaml"],
+            message: "chore(devcontainer): sync",
+          },
+        ],
+      },
     ],
     [
       "the head is the bot's regeneration already",
       {
-        headCommit: {
-          author: BOT,
-          message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan.`,
-        },
+        onTop: [
+          {
+            author: BOT,
+            message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan on head:\n\n- default: \`./gen.sh\`\n\nRegenerated-target: default`,
+          },
+        ],
+      },
+    ],
+    [
+      "the head is the bot's regeneration already",
+      // One the bot made before declarations had targets.
+      {
+        onTop: [
+          {
+            author: BOT,
+            message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan \`./gen.sh\` on head.`,
+          },
+        ],
       },
     ],
   ])("skips when %s", async (reason, options) => {
@@ -710,7 +759,7 @@ describe(regenerateGeneratedOutput, () => {
       expect(
         github.writes.find(({ route }) => route.endsWith("/git/commits"))?.body
       ).toMatchObject({
-        message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan on ${fixture.headSha}:\n\n- codegen: \`./gen.sh\`\n- ios-packages: \`mkdir -p ios gen && echo pinned > ios/Package.resolved && echo stray > gen/stray.txt\``,
+        message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan on ${fixture.headSha}:\n\n- codegen: \`./gen.sh\`\n- ios-packages: \`mkdir -p ios gen && echo pinned > ios/Package.resolved && echo stray > gen/stray.txt\`\n\nRegenerated-target: codegen\nRegenerated-target: ios-packages`,
       });
     });
 
@@ -749,6 +798,56 @@ describe(regenerateGeneratedOutput, () => {
         ],
       });
       expect(treePaths(github)).not.toContain("ios/Package.resolved");
+      // It names only the target it completed, so the next run retries the
+      // other.
+      expect(
+        github.writes.find(({ route }) => route.endsWith("/git/commits"))?.body
+      ).toMatchObject({
+        message: expect.stringMatching(/\n\nRegenerated-target: codegen$/u),
+      });
+    });
+
+    it("regenerates only the targets the bot's commit on top did not complete", async () => {
+      const github = fakeGitHub({
+        changed: both,
+        config: targets(),
+        fixture,
+        onTop: [
+          {
+            author: BOT,
+            files: ["gen/api.txt"],
+            message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan on renovate:\n\n- codegen: \`./gen.sh\`\n\nRegenerated-target: codegen`,
+          },
+        ],
+      });
+      const sandbox = localSandbox({ origin: fixture.origin, root });
+
+      await expect(run(github, sandbox)).resolves.toMatchObject({
+        targets: [{ status: "committed", target: "ios-packages" }],
+      });
+      expect(sandbox.started()).toBe(1);
+      expect(treePaths(github)).toStrictEqual(["ios/Package.resolved"]);
+    });
+
+    it("names a target whose output is current as completed", async () => {
+      write(fixture.origin, "gen.sh", "#!/bin/sh\necho touched > notes.txt\n");
+      fixture.headSha = commitAll(fixture.origin, "Generate nothing");
+      const github = fakeGitHub({ changed: both, config: targets(), fixture });
+      const sandbox = localSandbox({ origin: fixture.origin, root });
+
+      await expect(run(github, sandbox)).resolves.toMatchObject({
+        targets: [
+          { status: "unchanged", target: "codegen" },
+          { status: "committed", target: "ios-packages" },
+        ],
+      });
+      expect(
+        github.writes.find(({ route }) => route.endsWith("/git/commits"))?.body
+      ).toMatchObject({
+        message: expect.stringMatching(
+          /- ios-packages: .*\n\nRegenerated-target: ios-packages\nRegenerated-target: codegen$/u
+        ),
+      });
     });
 
     it("commits one target's output when another's sandbox fails", async () => {
