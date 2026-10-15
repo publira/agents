@@ -6,6 +6,7 @@ import {
   parseRegenerationConfig,
   readWorkflowEnv,
   REGENERATION_CONFIG_PATH,
+  regenerationSeconds,
 } from "@publira/maintenance-policies";
 import type { RegenerationConfig } from "@publira/maintenance-policies";
 
@@ -13,6 +14,7 @@ import type { GitFileChange } from "../git-output.ts";
 import type { LogFields } from "../log.ts";
 import {
   git,
+  GIT_TIMEOUT_MS,
   readBlobs,
   readTokenOptions,
   runChecked,
@@ -28,16 +30,25 @@ export const REGENERATION_COMMIT_SUBJECT =
 // Where the sandbox checks the pull request out.
 const WORKTREE = "/tmp/repository";
 
-/**
- * How long the sandbox may live, within the 800 seconds the project allows
- * the Vercel Function that the webhook handler and the hourly sweep run in.
- * The sweep runs several at once, so each leaves the others their share.
- */
-const SANDBOX_TIMEOUT_MS = 240_000;
-
 const FETCH_TIMEOUT_MS = 60_000;
-const SETUP_TIMEOUT_MS = 120_000;
-const COMMAND_TIMEOUT_MS = 120_000;
+
+// How long the Git commands before the setup may run: the init, the fetch,
+// and the checkout.
+const CHECKOUT_MS = GIT_TIMEOUT_MS + FETCH_TIMEOUT_MS + GIT_TIMEOUT_MS;
+
+// How long the Git commands after the command may run, to read back what it
+// changed: staging the changes, listing them, and reading the blobs.
+const READ_BACK_MS = 3 * GIT_TIMEOUT_MS;
+
+/**
+ * How long the sandbox may live: every command in it for as long as it may
+ * run, the setup commands and the command for as long as the declaration
+ * lets them. The declaration's maximum keeps it within the 800 seconds the
+ * project allows the Vercel Function that the webhook handler and the
+ * hourly sweep run in.
+ */
+const sandboxTimeoutMs = (config: RegenerationConfig) =>
+  CHECKOUT_MS + regenerationSeconds(config) * 1000 + READ_BACK_MS;
 
 // Where a setup command installs a generator; it is on the PATH of the
 // setup commands and of the command.
@@ -140,7 +151,7 @@ const regenerateInSandbox = async (
   await runChecked(sandbox, {
     args: ["init", "--quiet", WORKTREE],
     cmd: "git",
-    timeoutMs: FETCH_TIMEOUT_MS,
+    timeoutMs: GIT_TIMEOUT_MS,
   });
   const fetch = await sandbox.run({
     args: [
@@ -174,13 +185,13 @@ const regenerateInSandbox = async (
 
   for (const command of config.setup) {
     // oxlint-disable-next-line no-await-in-loop -- each builds on the last
-    const setup = await shell(command, SETUP_TIMEOUT_MS);
+    const setup = await shell(command, config.setupTimeout * 1000);
     if (setup.exitCode !== 0) {
       return failure("setup", setup);
     }
   }
 
-  const regeneration = await shell(config.command, COMMAND_TIMEOUT_MS);
+  const regeneration = await shell(config.command, config.timeout * 1000);
   if (regeneration.exitCode !== 0) {
     return failure("command", regeneration);
   }
@@ -390,7 +401,7 @@ export const regenerateGeneratedOutput = async (
         readToken,
         repo,
       }),
-    { timeoutMs: SANDBOX_TIMEOUT_MS }
+    { timeoutMs: sandboxTimeoutMs(config) }
   );
 
   if (regenerated.status === "failed") {

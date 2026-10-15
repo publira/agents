@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   Sandbox,
   SandboxCommand,
+  SandboxOptions,
   SandboxRunner,
 } from "../sandbox-runner.ts";
 import {
@@ -186,13 +187,20 @@ const localSandbox = ({
         new Error("The regeneration writes no file through the sandbox")
       ),
   };
-  let started = 0;
-  const runner: SandboxRunner = (task) => {
-    started += 1;
+  const started: SandboxOptions[] = [];
+  const runner: SandboxRunner = (task, options) => {
+    started.push(options);
     return task(sandbox);
   };
 
-  return { commands, runner, started: () => started, worktree };
+  return {
+    commands,
+    runner,
+    started: () => started.length,
+    // How long the sandbox may live, as the job asked.
+    timeoutMs: () => started.at(-1)?.timeoutMs,
+    worktree,
+  };
 };
 
 interface GitHubOptions {
@@ -491,6 +499,51 @@ describe(regenerateGeneratedOutput, () => {
 
     await expect(run(github, sandbox)).resolves.toMatchObject({
       reason: expect.stringContaining(".chachamaru/regenerate.yml"),
+      status: "skipped",
+    });
+    expect(sandbox.started()).toBe(0);
+  });
+
+  it.each([
+    [
+      "the default limits",
+      CONFIG,
+      { command: 120_000, sandbox: 450_000, setup: 120_000 },
+    ],
+    [
+      "the limits the declaration sets",
+      `${CONFIG}setupTimeout: 200\ntimeout: 90\n`,
+      { command: 90_000, sandbox: 500_000, setup: 200_000 },
+    ],
+  ])("runs the commands with %s", async (_, config, limits) => {
+    const github = fakeGitHub({ config, fixture });
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+
+    await run(github, sandbox, { dryRun: true });
+
+    // Every command's limit: the init, the fetch, and the checkout, the
+    // setup command and the command, and the three commands of the read-back.
+    expect(sandbox.timeoutMs()).toBe(limits.sandbox);
+    expect(
+      sandbox.commands.reduce((total, { timeoutMs }) => total + timeoutMs, 0)
+    ).toBe(limits.sandbox);
+    // The declared scripts, which run with the CI environment.
+    expect(
+      sandbox.commands
+        .filter(({ env }) => env?.CI === "true")
+        .map(({ timeoutMs }) => timeoutMs)
+    ).toStrictEqual([limits.setup, limits.command]);
+  });
+
+  it("skips a declaration whose limits exceed the maximum", async () => {
+    const github = fakeGitHub({
+      config: `${CONFIG}setupTimeout: 300\ntimeout: 300\n`,
+      fixture,
+    });
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+
+    await expect(run(github, sandbox)).resolves.toMatchObject({
+      reason: expect.stringMatching(/timeout and setupTimeout .* not 600/u),
       status: "skipped",
     });
     expect(sandbox.started()).toBe(0);
