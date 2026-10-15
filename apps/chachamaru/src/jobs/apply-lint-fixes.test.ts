@@ -1060,6 +1060,7 @@ describe("applyLintFixes with a model for the findings", () => {
       checkPassed: false,
       commitSha: "new-commit",
       findings: {
+        comment: { created: true, id: 100 },
         invoked: false,
         paths: [],
         reason: "the sandbox had no time left for the model",
@@ -1069,14 +1070,24 @@ describe("applyLintFixes with a model for the findings", () => {
       paths: ["README.md"],
       status: "committed",
     } satisfies ApplyLintFixesResult);
-    // No comment: the head does not count as tried.
     expect(fixer).not.toHaveBeenCalled();
     expect(sandbox.networkDenied()).toBeFalsy();
-    expect(github.writes.map(({ route }) => route)).toStrictEqual([
-      `POST ${repository}/git/trees`,
-      `POST ${repository}/git/commits`,
-      `PATCH ${repository}/git/refs/heads/${BRANCH}`,
-    ]);
+    // The comment tells the maintainers why no model fixed the findings.
+    expect(github.writes[3]?.route).toBe(
+      `POST ${repository}/issues/31/comments`
+    );
+    expect(github.writes[3]?.body).toStrictEqual({
+      body: [
+        marker(),
+        `The automatic lint fixes leave findings on ${fixture.headSha}, and Chachamaru had no time left to ask a model to fix them. A maintainer needs to fix them; Chachamaru does not try this commit again.`,
+        "",
+        "The end of `pnpm exec ultracite check` after the automatic fixes:",
+        "",
+        "```",
+        "debugger statement",
+        "```",
+      ].join("\n"),
+    });
   });
 
   it("plans the model's commit in a dry run", async () => {

@@ -138,7 +138,7 @@ export interface ApplyLintFixesOptions {
 export interface FindingsFix {
   /**
    * Whether the model was asked; it is not when the sandbox had no time
-   * left for it, and the head does not count as tried.
+   * left for it.
    */
   invoked: boolean;
   /** The model that made the changes; none when its run failed. */
@@ -729,12 +729,14 @@ const summarizeFindings = (fix: SandboxFindingsFix): FindingsFix => {
 
 const findingsComment = (
   headSha: string,
-  { reason, refusedPaths = [], suppressions = [] }: FindingsFix,
+  { invoked, reason, refusedPaths = [], suppressions = [] }: FindingsFix,
   { command, output }: { command: string; output: string }
 ) =>
   [
     findingsMarker(headSha),
-    `The automatic lint fixes leave findings on ${headSha} that a model could not fix for Chachamaru: ${reason ?? "its changes were refused"}. A maintainer needs to fix them; Chachamaru does not try this commit again.`,
+    invoked
+      ? `The automatic lint fixes leave findings on ${headSha} that a model could not fix for Chachamaru: ${reason ?? "its changes were refused"}. A maintainer needs to fix them; Chachamaru does not try this commit again.`
+      : `The automatic lint fixes leave findings on ${headSha}, and Chachamaru had no time left to ask a model to fix them. A maintainer needs to fix them; Chachamaru does not try this commit again.`,
     ...(refusedPaths.length === 0
       ? []
       : [
@@ -806,10 +808,10 @@ const commitFindingsFix = async (
 };
 
 /**
- * Commits the automatic fix alone, as without a model, and, when a model
- * was asked, tells the maintainers on the pull request why its changes were
- * not committed, once for the head, unless the head moved on. A head the
- * model was not asked about gets no comment, so it can still be tried.
+ * Commits the automatic fix alone, as without a model, and, when the
+ * findings were the model's to fix, tells the maintainers on the pull
+ * request why its changes were not committed, or why it was not asked,
+ * once for the head, unless the head moved on.
  */
 const commitAutomaticFix = async (
   settlement: Settlement,
@@ -836,7 +838,7 @@ const commitAutomaticFix = async (
 
   const reportFindings = () => (findings === undefined ? {} : { findings });
   const tellMaintainers = async () =>
-    findings === undefined || !findings.invoked || dryRun
+    findings === undefined || dryRun
       ? reportFindings()
       : {
           findings: {
@@ -925,8 +927,7 @@ const commitAutomaticFix = async (
  * alone, as without a model, and comments on the pull request once for the
  * head. The model gets one attempt per head, and the comment records it.
  * When the steps before the model took so long that its time is up before
- * it starts, it is not asked, nothing is commented, and the head can still
- * be tried.
+ * it starts, it is not asked, and the comment says so instead.
  *
  * It commits on top of the head and only as a fast-forward, and refuses an
  * automatic fix that changes a lock file, a `package.json`, or a file under
