@@ -210,26 +210,31 @@ describe(evaluateRenovateUpdate, () => {
   it.each([
     {
       commitSha: "regenerated",
-      headSha: HEAD,
       ignoredPaths: [],
       paths: ["gen/api.pb.go"],
       status: "committed" as const,
+      target: "codegen",
     },
     {
-      headSha: HEAD,
       ignoredPaths: [],
       paths: ["gen/api.pb.go"],
       status: "would-commit" as const,
+      target: "codegen",
     },
     {
-      headSha: HEAD,
       ignoredPaths: [],
       paths: ["gen/api.pb.go"],
       status: "head-moved" as const,
+      target: "codegen",
     },
-  ])("leaves a head the regeneration $status to the push", async (result) => {
+  ])("leaves a head the regeneration $status to the push", async (target) => {
     const { approve, autoMerge, log, run } = setup({
-      regeneration: () => Promise.resolve(result),
+      regeneration: () =>
+        Promise.resolve({
+          headSha: HEAD,
+          status: "evaluated" as const,
+          targets: [target],
+        }),
       sandbox: regeneration,
     });
 
@@ -241,7 +246,8 @@ describe(evaluateRenovateUpdate, () => {
       expect.objectContaining({
         evaluationDeferred: true,
         paths: ["gen/api.pb.go"],
-        status: result.status,
+        status: target.status,
+        target: "codegen",
       })
     );
     expect(approve).not.toHaveBeenCalled();
@@ -268,11 +274,17 @@ describe(evaluateRenovateUpdate, () => {
     const { approve, log, run } = setup({
       regeneration: () =>
         Promise.resolve({
-          exitCode: 1,
           headSha: HEAD,
-          output: "buf: plugin not found",
-          status: "failed" as const,
-          step: "command" as const,
+          status: "evaluated" as const,
+          targets: [
+            {
+              exitCode: 1,
+              output: "buf: plugin not found",
+              status: "failed" as const,
+              step: "command" as const,
+              target: "codegen",
+            },
+          ],
         }),
       sandbox: regeneration,
     });
@@ -286,9 +298,59 @@ describe(evaluateRenovateUpdate, () => {
         evaluationDeferred: false,
         output: "buf: plugin not found",
         step: "command",
+        target: "codegen",
       })
     );
     expect(approve).toHaveBeenCalledOnce();
+  });
+
+  it("logs each target, and waits for the commit of one beside another's failure", async () => {
+    const { approve, log, run } = setup({
+      regeneration: () =>
+        Promise.resolve({
+          headSha: HEAD,
+          status: "evaluated" as const,
+          targets: [
+            {
+              commitSha: "regenerated",
+              ignoredPaths: [],
+              paths: ["gen/api.pb.go"],
+              status: "committed" as const,
+              target: "codegen",
+            },
+            {
+              error: "Sandbox quota exceeded",
+              status: "error" as const,
+              target: "ios-packages",
+            },
+          ],
+        }),
+      sandbox: regeneration,
+    });
+
+    await run();
+
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Generated output regeneration evaluated",
+      expect.objectContaining({
+        commit: "regenerated",
+        evaluationDeferred: true,
+        status: "committed",
+        target: "codegen",
+      })
+    );
+    expect(log).toHaveBeenCalledWith(
+      "error",
+      "Generated output regeneration failed",
+      expect.objectContaining({
+        error: "Sandbox quota exceeded",
+        evaluationDeferred: true,
+        status: "error",
+        target: "ios-packages",
+      })
+    );
+    expect(approve).not.toHaveBeenCalled();
   });
 
   it("logs a regeneration that threw and still evaluates", async () => {
@@ -647,16 +709,22 @@ const regenerateSlowly = (state: { running: number; mostRunning: number }) =>
     state.running -= 1;
     return pullNumber === 33
       ? {
-          commitSha: "regenerated",
           headSha: HEAD,
-          ignoredPaths: [],
-          paths: ["gen/api.pb.go"],
-          status: "committed" as const,
+          status: "evaluated" as const,
+          targets: [
+            {
+              commitSha: "regenerated",
+              ignoredPaths: [],
+              paths: ["gen/api.pb.go"],
+              status: "committed" as const,
+              target: "default",
+            },
+          ],
         }
       : {
           headSha: HEAD,
           reason:
-            "the pull request changes no file that calls for a regeneration",
+            "Renovate's commits change no file that calls for a regeneration",
           status: "skipped" as const,
         };
   });

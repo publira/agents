@@ -9,6 +9,7 @@ import {
   readWorkflowEnv,
   REGENERATION_CONFIG_JSON_SCHEMA,
   REGENERATION_CONFIG_SCHEMA_URL,
+  triggeredRegenerationTargets,
 } from "./regeneration.ts";
 
 const SQLC_SETUP =
@@ -29,22 +30,40 @@ paths:
   - packages/api-client/src/gen/**
 `;
 
+// The same as a target, beside one that regenerates the iOS package pins.
+const TARGETS_CONFIG = `targets:
+  codegen:
+${CONFIG.replaceAll(/^/gmu, "    ").trimEnd()}
+  ios-packages:
+    triggers:
+      - mobile/pubspec.lock
+    command: flutter pub get
+    paths:
+      - mobile/ios/Runner.xcworkspace/xcshareddata/swiftpm/Package.resolved
+`;
+
+// Declares the targets of `paths`, each triggered by its own file.
+const targets = (...paths: string[]) =>
+  `targets:\n${paths.map((path, index) => `  t${index}:\n    triggers: [t${index}]\n    command: make\n    paths: [${path}]\n`).join("")}`;
+
+const CODEGEN = {
+  command: "task gen",
+  paths: [
+    "server/internal/proto/gen/**",
+    "server/internal/db/gen/**",
+    "packages/api-client/src/gen/**",
+  ],
+  setup: [SQLC_SETUP],
+  setupTimeout: 120,
+  timeout: 120,
+  triggers: ["buf.gen.yaml", ".github/workflows/ci.yml"],
+  workflowEnv: ".github/workflows/ci.yml",
+};
+
 describe(parseRegenerationConfig, () => {
-  it("reads a declaration", () => {
+  it("reads a declaration as one target", () => {
     expect(parseRegenerationConfig(CONFIG)).toStrictEqual({
-      config: {
-        command: "task gen",
-        paths: [
-          "server/internal/proto/gen/**",
-          "server/internal/db/gen/**",
-          "packages/api-client/src/gen/**",
-        ],
-        setup: [SQLC_SETUP],
-        setupTimeout: 120,
-        timeout: 120,
-        triggers: ["buf.gen.yaml", ".github/workflows/ci.yml"],
-        workflowEnv: ".github/workflows/ci.yml",
-      },
+      config: { targets: [{ ...CODEGEN, name: "default" }] },
       result: "valid",
     });
   });
@@ -55,7 +74,9 @@ describe(parseRegenerationConfig, () => {
         "triggers: [a]\ncommand: make\npaths: [.github/gen/**, .github/workflows.json]\n"
       )
     ).toMatchObject({
-      config: { paths: [".github/gen/**", ".github/workflows.json"] },
+      config: {
+        targets: [{ paths: [".github/gen/**", ".github/workflows.json"] }],
+      },
       result: "valid",
     });
   });
@@ -67,12 +88,17 @@ describe(parseRegenerationConfig, () => {
       )
     ).toStrictEqual({
       config: {
-        command: "pnpm codegen",
-        paths: ["src/gen/**"],
-        setup: [],
-        setupTimeout: 120,
-        timeout: 120,
-        triggers: ["schema.graphql"],
+        targets: [
+          {
+            command: "pnpm codegen",
+            name: "default",
+            paths: ["src/gen/**"],
+            setup: [],
+            setupTimeout: 120,
+            timeout: 120,
+            triggers: ["schema.graphql"],
+          },
+        ],
       },
       result: "valid",
     });
@@ -84,7 +110,7 @@ describe(parseRegenerationConfig, () => {
         "triggers: [pubspec.yaml]\nsetup: [a, b]\nsetupTimeout: 150\ncommand: make\ntimeout: 180\npaths: [gen/**]\n"
       )
     ).toMatchObject({
-      config: { setupTimeout: 150, timeout: 180 },
+      config: { targets: [{ setupTimeout: 150, timeout: 180 }] },
       result: "valid",
     });
   });
@@ -95,6 +121,88 @@ describe(parseRegenerationConfig, () => {
         "triggers: [a]\nsetup: [a, b, c]\ncommand: make\npaths: [gen/**]\n"
       )
     ).toMatchObject({ result: "valid" });
+  });
+
+  it("reads named targets in their order", () => {
+    expect(parseRegenerationConfig(TARGETS_CONFIG)).toStrictEqual({
+      config: {
+        targets: [
+          { ...CODEGEN, name: "codegen" },
+          {
+            command: "flutter pub get",
+            name: "ios-packages",
+            paths: [
+              "mobile/ios/Runner.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+            ],
+            setup: [],
+            setupTimeout: 120,
+            timeout: 120,
+            triggers: ["mobile/pubspec.lock"],
+          },
+        ],
+      },
+      result: "valid",
+    });
+  });
+
+  it.each([
+    ["two files", ["a.txt", "b.txt"]],
+    ["two directories side by side", ["gen/**", "generated/**"]],
+    ["a file beside a directory", ["gen.txt", "gen/**"]],
+  ])("reads targets with paths that do not overlap: %s", (_, paths) => {
+    expect(parseRegenerationConfig(targets(...paths))).toMatchObject({
+      result: "valid",
+    });
+  });
+
+  it.each([
+    ["the same file", ["gen/a.txt", "gen/a.txt"]],
+    ["a file under a directory", ["gen/**", "gen/a.txt"]],
+    ["a directory under a directory", ["gen/v1/**", "gen/**"]],
+    ["the same directory", ["gen/**", "gen/**"]],
+  ])("refuses targets with overlapping paths: %s", (_, paths) => {
+    const parsed = parseRegenerationConfig(targets(...paths));
+
+    expect(parsed).toMatchObject({ result: "invalid" });
+    expect(parsed.result === "invalid" && parsed.reason).toMatch(
+      `overlaps ${paths[0]} of target t0   → at targets.t1.paths[0]`
+    );
+  });
+
+  it.each([
+    ["a file", "gen/schema.json"],
+    ["a directory", "gen/**"],
+    ["a file in a directory", "gen/v1/schema.json"],
+  ])(
+    "refuses a trigger that matches another target's paths: %s",
+    (_, trigger) => {
+      const parsed = parseRegenerationConfig(
+        `targets:\n  schema:\n    triggers: [schema.yaml]\n    command: make schema\n    paths: [gen/**]\n  client:\n    triggers: [${trigger}]\n    command: make client\n    paths: [client/**]\n`
+      );
+
+      expect(parsed).toMatchObject({ result: "invalid" });
+      expect(parsed.result === "invalid" && parsed.reason).toMatch(
+        "matches gen/**, the output of target schema; run both generators in one target   → at targets.client.triggers[0]"
+      );
+    }
+  );
+
+  it("reads a target whose triggers match its own paths", () => {
+    expect(
+      parseRegenerationConfig(
+        "targets:\n  gen:\n    triggers: [gen/**]\n    command: make\n    paths: [gen/**]\n"
+      )
+    ).toMatchObject({ result: "valid" });
+  });
+
+  it("names the target whose field is invalid", () => {
+    const parsed = parseRegenerationConfig(
+      `${targets("gen/**")}    timeout: 481\n`
+    );
+
+    expect(parsed.result === "invalid" && parsed.reason).toMatch(
+      /targets\.t0\.timeout/u
+    );
   });
 
   it.each([
@@ -148,6 +256,20 @@ describe(parseRegenerationConfig, () => {
       "an unknown key",
       "triggers: [a]\ncommand: make\npaths: [gen/**]\nbase: main\n",
     ],
+    ["no targets", "targets: {}\n"],
+    ["targets that are a list", "targets: [make]\n"],
+    [
+      "a target's name in capitals",
+      "targets:\n  Gen:\n    triggers: [a]\n    command: make\n    paths: [gen/**]\n",
+    ],
+    [
+      "a target's field beside the targets",
+      `${targets("gen/**")}command: make\n`,
+    ],
+    [
+      "a target without paths",
+      "targets:\n  gen:\n    triggers: [a]\n    command: make\n",
+    ],
     ["a list", "- make\n"],
     ["broken YAML", "command: [make\n"],
   ])("refuses one with %s", (_, source) => {
@@ -182,6 +304,25 @@ describe("the JSON Schema", () => {
         triggers: ["schema.graphql"],
       })
     ).toBeTruthy();
+  });
+
+  it("accepts named targets", () => {
+    expect(validate(parse(TARGETS_CONFIG))).toBeTruthy();
+  });
+
+  it.each([
+    ["none", {}],
+    ["a target's name in capitals", { Gen: parse(CONFIG) }],
+    [
+      "a target with an unknown field",
+      { gen: { ...parse(CONFIG), base: "main" } },
+    ],
+  ])("refuses targets: %s", (_label, declared) => {
+    expect(validate({ targets: declared })).toBeFalsy();
+  });
+
+  it("refuses a target's field beside the targets", () => {
+    expect(validate({ ...parse(TARGETS_CONFIG), command: "make" })).toBeFalsy();
   });
 
   it.each([
@@ -224,6 +365,27 @@ describe(matchesPathPattern, () => {
 describe(matchesAnyPathPattern, () => {
   it("matches no path without patterns", () => {
     expect(matchesAnyPathPattern([], "gen/a.go")).toBeFalsy();
+  });
+});
+
+describe(triggeredRegenerationTargets, () => {
+  const parsed = parseRegenerationConfig(TARGETS_CONFIG);
+
+  it.each([
+    ["one target", ["mobile/pubspec.lock"], ["ios-packages"]],
+    [
+      "two targets",
+      ["buf.gen.yaml", "mobile/pubspec.lock"],
+      ["codegen", "ios-packages"],
+    ],
+    ["none", ["mobile/pubspec.yaml"], []],
+  ])("selects %s by the changed files", (_, changed, names) => {
+    expect(
+      parsed.result === "valid" &&
+        triggeredRegenerationTargets(parsed.config, changed).map(
+          ({ name }) => name
+        )
+    ).toStrictEqual(names);
   });
 });
 

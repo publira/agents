@@ -21,6 +21,7 @@ export {
   graphqlRequestFailure,
 } from "./auto-merge.ts";
 export { getBranchHeadSha } from "./branch.ts";
+export { listChangedFiles } from "./changed-files.ts";
 export type {
   BranchLocation,
   CheckRunState,

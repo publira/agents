@@ -12,6 +12,7 @@ import path from "node:path";
 
 import { createGitHubClient } from "@publira/github";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import type {
   Sandbox,
@@ -127,69 +128,92 @@ interface LocalSandboxOptions {
   root: string;
   origin: string;
   fetchExitCode?: number;
+  /** Fails to start the sandbox of a task that runs this command. */
+  refuse?: string;
 }
 
 /**
- * A sandbox that runs the job's commands on this machine, in a directory of
- * its own, with a home of its own: the fetch reads the local origin.
+ * Sandboxes that run the job's commands on this machine, each in a
+ * directory of its own, with a home of its own: the fetch reads the local
+ * origin.
  */
 const localSandbox = ({
   root,
   origin,
   fetchExitCode = 0,
+  refuse,
 }: LocalSandboxOptions) => {
-  const worktree = path.join(root, "sandbox", "repository");
-  const home = path.join(root, "sandbox", "home");
-  mkdirSync(home, { recursive: true });
   const commands: SandboxCommand[] = [];
-  const localize = (value: string) =>
-    value.replaceAll(SANDBOX_WORKTREE, worktree);
-
-  const sandbox: Sandbox = {
-    denyNetwork: () =>
-      Promise.reject(new Error("The regeneration keeps the network")),
-    run(command) {
-      commands.push(command);
-      const args = (command.args ?? []).map(localize);
-
-      if (
-        command.cmd === "git" &&
-        args.includes("fetch") &&
-        fetchExitCode !== 0
-      ) {
-        return Promise.resolve({
-          exitCode: fetchExitCode,
-          stderr: "fatal: repository not found",
-          stdout: "",
-        });
-      }
-      const result = spawnSync(
-        command.cmd,
-        args.map((arg) =>
-          arg.startsWith("https://github.com/") ? `file://${origin}` : arg
-        ),
-        {
-          cwd: command.cwd === undefined ? undefined : localize(command.cwd),
-          encoding: "utf-8",
-          env: { ...process.env, HOME: home, ...command.env },
-          maxBuffer: 64 * 1024 * 1024,
-        }
-      );
-      return Promise.resolve({
-        exitCode: result.status ?? 1,
-        stderr: result.stderr,
-        stdout: result.stdout,
-      });
-    },
-    stopsAt: Number.POSITIVE_INFINITY,
-    writeFile: () =>
-      Promise.reject(
-        new Error("The regeneration writes no file through the sandbox")
-      ),
-  };
   const started: SandboxOptions[] = [];
+  const directoryOf = (index: number) =>
+    path.join(root, "sandbox", String(index));
+
+  const createSandbox = (index: number): Sandbox => {
+    const worktree = path.join(directoryOf(index), "repository");
+    const home = path.join(directoryOf(index), "home");
+    mkdirSync(home, { recursive: true });
+    const localize = (value: string) =>
+      value.replaceAll(SANDBOX_WORKTREE, worktree);
+
+    return {
+      denyNetwork: () =>
+        Promise.reject(new Error("The regeneration keeps the network")),
+      run(command) {
+        commands.push(command);
+        const args = (command.args ?? []).map(localize);
+
+        if (
+          command.cmd === "git" &&
+          args.includes("fetch") &&
+          fetchExitCode !== 0
+        ) {
+          return Promise.resolve({
+            exitCode: fetchExitCode,
+            stderr: "fatal: repository not found",
+            stdout: "",
+          });
+        }
+        const result = spawnSync(
+          command.cmd,
+          args.map((arg) =>
+            arg.startsWith("https://github.com/") ? `file://${origin}` : arg
+          ),
+          {
+            cwd: command.cwd === undefined ? undefined : localize(command.cwd),
+            encoding: "utf-8",
+            env: { ...process.env, HOME: home, ...command.env },
+            maxBuffer: 64 * 1024 * 1024,
+          }
+        );
+        return Promise.resolve({
+          exitCode: result.status ?? 1,
+          stderr: result.stderr,
+          stdout: result.stdout,
+        });
+      },
+      stopsAt: Number.POSITIVE_INFINITY,
+      writeFile: () =>
+        Promise.reject(
+          new Error("The regeneration writes no file through the sandbox")
+        ),
+    };
+  };
+
   const runner: SandboxRunner = (task, options) => {
+    const sandbox = createSandbox(started.length);
     started.push(options);
+    if (refuse !== undefined) {
+      // The task's first script tells which target it regenerates.
+      const probe: Sandbox = {
+        ...sandbox,
+        run: (command) =>
+          command.cmd === "bash" &&
+          command.args?.some((arg) => arg.includes(refuse))
+            ? Promise.reject(new Error("Sandbox quota exceeded"))
+            : sandbox.run(command),
+      };
+      return task(probe);
+    }
     return task(sandbox);
   };
 
@@ -199,7 +223,8 @@ const localSandbox = ({
     started: () => started.length,
     // How long the sandbox may live, as the job asked.
     timeoutMs: () => started.at(-1)?.timeoutMs,
-    worktree,
+    // Where the first sandbox checked the head out.
+    worktree: path.join(directoryOf(0), "repository"),
   };
 };
 
@@ -209,10 +234,13 @@ interface GitHubOptions {
   user?: { login: string; type: string };
   /** The base branch's declaration; `null` for none. */
   config?: string | null;
-  /** The files the pull request changes. */
+  /** The files Renovate's commit changes. */
   changed?: readonly string[];
-  /** The head commit's author and message, as the comparison lists it. */
-  headCommit?: { author: string; message: string };
+  /**
+   * The commits on top of Renovate's, the last of which is the head, as the
+   * comparison lists them.
+   */
+  onTop?: readonly { author: string; message: string; files?: string[] }[];
   /** Whether the branch moved, so a fast-forward fails. */
   moved?: boolean;
 }
@@ -233,13 +261,21 @@ const fakeGitHub = ({
   user = { login: "renovate[bot]", type: "Bot" },
   config = CONFIG,
   changed = ["buf.gen.yaml"],
-  headCommit = {
-    author: "renovate[bot]",
-    message: "chore(deps): update buf.gen.yaml",
-  },
+  onTop = [],
   moved = false,
 }: GitHubOptions) => {
   const writes: { route: string; body: unknown }[] = [];
+  const commits = [
+    {
+      author: "renovate[bot]",
+      files: [...changed],
+      message: "chore(deps): update buf.gen.yaml",
+    },
+    ...onTop,
+  ].map((commit, index, all) => ({
+    ...commit,
+    sha: index === all.length - 1 ? fixture.headSha : `commit-${index}`,
+  }));
 
   const fetchImpl = vi.fn<typeof fetch>((input, init) => {
     const url = new URL(String(input));
@@ -284,14 +320,14 @@ const fakeGitHub = ({
       case `GET ${repository}/compare/${fixture.baseSha}...${fixture.headSha}`: {
         return Promise.resolve(
           Response.json({
-            commits: [
-              {
-                author: { login: headCommit.author },
-                commit: { message: headCommit.message },
-                sha: fixture.headSha,
-              },
-            ],
-            files: changed.map((filename) => ({ filename })),
+            commits: commits.map(({ author, message, sha }) => ({
+              author: { login: author },
+              commit: { message },
+              sha,
+            })),
+            files: commits
+              .flatMap(({ files = [] }) => files)
+              .map((filename) => ({ filename })),
             merge_base_commit: { sha: fixture.baseSha },
           })
         );
@@ -319,13 +355,32 @@ const fakeGitHub = ({
         );
       }
       default: {
-        return Promise.resolve(notFound());
+        const listed = commits.find(
+          ({ sha }) => route === `GET ${repository}/commits/${sha}`
+        );
+        return Promise.resolve(
+          listed === undefined
+            ? notFound()
+            : Response.json({
+                files: (listed.files ?? []).map((filename) => ({ filename })),
+                sha: listed.sha,
+              })
+        );
       }
     }
   });
 
   return { octokit: createGitHubClient({ fetch: fetchImpl }), writes };
 };
+
+// The paths of the tree the job wrote.
+const treePaths = (github: ReturnType<typeof fakeGitHub>) =>
+  z
+    .object({ tree: z.array(z.object({ path: z.string() })) })
+    .parse(
+      github.writes.find(({ route }) => route.endsWith("/git/trees"))?.body
+    )
+    .tree.map(({ path: treePath }) => treePath);
 
 const location = {
   botLogin: BOT,
@@ -368,9 +423,20 @@ describe(regenerateGeneratedOutput, () => {
     await expect(run(github, sandbox, { dryRun: true })).resolves.toStrictEqual(
       {
         headSha: fixture.headSha,
-        ignoredPaths: ["notes.txt"],
-        paths: ["gen/api.txt", "gen/image.bin", "gen/old.txt", "gen/run.sh"],
-        status: "would-commit",
+        status: "evaluated",
+        targets: [
+          {
+            ignoredPaths: ["notes.txt"],
+            paths: [
+              "gen/api.txt",
+              "gen/image.bin",
+              "gen/old.txt",
+              "gen/run.sh",
+            ],
+            status: "would-commit",
+            target: "default",
+          },
+        ],
       } satisfies RegenerateGeneratedOutputResult
     );
     expect(github.writes).toStrictEqual([]);
@@ -385,11 +451,17 @@ describe(regenerateGeneratedOutput, () => {
     const sandbox = localSandbox({ origin: fixture.origin, root });
 
     await expect(run(github, sandbox)).resolves.toStrictEqual({
-      commitSha: "new-commit",
       headSha: fixture.headSha,
-      ignoredPaths: ["notes.txt"],
-      paths: ["gen/api.txt", "gen/image.bin", "gen/old.txt", "gen/run.sh"],
-      status: "committed",
+      status: "evaluated",
+      targets: [
+        {
+          commitSha: "new-commit",
+          ignoredPaths: ["notes.txt"],
+          paths: ["gen/api.txt", "gen/image.bin", "gen/old.txt", "gen/run.sh"],
+          status: "committed",
+          target: "default",
+        },
+      ],
     } satisfies RegenerateGeneratedOutputResult);
 
     expect(github.writes).toStrictEqual([
@@ -426,7 +498,7 @@ describe(regenerateGeneratedOutput, () => {
       },
       {
         body: {
-          message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan \`./gen.sh\` on ${fixture.headSha}.`,
+          message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan on ${fixture.headSha}:\n\n- default: \`./gen.sh\`\n\nRegenerated-target: default`,
           parents: [fixture.headSha],
           tree: "new-tree",
         },
@@ -447,8 +519,10 @@ describe(regenerateGeneratedOutput, () => {
 
     await expect(run(github, sandbox)).resolves.toStrictEqual({
       headSha: fixture.headSha,
-      ignoredPaths: ["notes.txt"],
-      status: "unchanged",
+      status: "evaluated",
+      targets: [
+        { ignoredPaths: ["notes.txt"], status: "unchanged", target: "default" },
+      ],
     });
     expect(github.writes).toStrictEqual([]);
   });
@@ -458,7 +532,7 @@ describe(regenerateGeneratedOutput, () => {
     const sandbox = localSandbox({ origin: fixture.origin, root });
 
     await expect(run(github, sandbox)).resolves.toMatchObject({
-      status: "head-moved",
+      targets: [{ status: "head-moved" }],
     });
   });
 
@@ -469,16 +543,44 @@ describe(regenerateGeneratedOutput, () => {
     ],
     ["the base branch has no .chachamaru/regenerate.yml", { config: null }],
     [
-      "the pull request changes no file that calls for a regeneration",
+      "Renovate's commits change no file that calls for a regeneration",
       { changed: ["package.json"] },
+    ],
+    [
+      "Renovate's commits change no file that calls for a regeneration",
+      // A trigger only the bot's lock file sync changed, as approval reads it.
+      {
+        changed: [".devcontainer/devcontainer.json"],
+        onTop: [
+          {
+            author: BOT,
+            files: ["buf.gen.yaml"],
+            message: "chore(devcontainer): sync",
+          },
+        ],
+      },
     ],
     [
       "the head is the bot's regeneration already",
       {
-        headCommit: {
-          author: BOT,
-          message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan.`,
-        },
+        onTop: [
+          {
+            author: BOT,
+            message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan on head:\n\n- default: \`./gen.sh\`\n\nRegenerated-target: default`,
+          },
+        ],
+      },
+    ],
+    [
+      "the head is the bot's regeneration already",
+      // One the bot made before declarations had targets.
+      {
+        onTop: [
+          {
+            author: BOT,
+            message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan \`./gen.sh\` on head.`,
+          },
+        ],
       },
     ],
   ])("skips when %s", async (reason, options) => {
@@ -566,13 +668,19 @@ describe(regenerateGeneratedOutput, () => {
       const sandbox = localSandbox({ origin: fixture.origin, root });
 
       await expect(run(github, sandbox)).resolves.toStrictEqual({
-        exitCode,
         headSha: fixture.headSha,
-        output: expect.stringContaining(
-          step === "setup" ? "no tool" : "broken"
-        ),
-        status: "failed",
-        step,
+        status: "evaluated",
+        targets: [
+          {
+            exitCode,
+            output: expect.stringContaining(
+              step === "setup" ? "no tool" : "broken"
+            ),
+            status: "failed",
+            step,
+            target: "default",
+          },
+        ],
       });
       expect(github.writes).toStrictEqual([]);
     }
@@ -587,10 +695,231 @@ describe(regenerateGeneratedOutput, () => {
     });
 
     await expect(run(github, sandbox)).resolves.toMatchObject({
-      exitCode: 128,
-      output: "fatal: repository not found",
-      status: "failed",
-      step: "fetch",
+      targets: [
+        {
+          exitCode: 128,
+          output: "fatal: repository not found",
+          status: "failed",
+          step: "fetch",
+        },
+      ],
+    });
+  });
+
+  describe("with several targets", () => {
+    // Pins the iOS packages, and writes a stray file under the other
+    // target's generated paths.
+    const PINS = `ios-packages:
+    triggers:
+      - mobile/pubspec.lock
+    command: mkdir -p ios gen && echo pinned > ios/Package.resolved && echo stray > gen/stray.txt
+    paths:
+      - ios/**`;
+    const targets = (pins = PINS) =>
+      `targets:\n  codegen:\n${CONFIG.replaceAll(/^(?=.)/gmu, "    ")}  ${pins}\n`;
+    const both = ["buf.gen.yaml", "mobile/pubspec.lock"];
+
+    it("commits each target's own paths in one commit", async () => {
+      const github = fakeGitHub({ changed: both, config: targets(), fixture });
+      const sandbox = localSandbox({ origin: fixture.origin, root });
+
+      await expect(run(github, sandbox)).resolves.toStrictEqual({
+        headSha: fixture.headSha,
+        status: "evaluated",
+        targets: [
+          {
+            commitSha: "new-commit",
+            ignoredPaths: ["notes.txt"],
+            paths: [
+              "gen/api.txt",
+              "gen/image.bin",
+              "gen/old.txt",
+              "gen/run.sh",
+            ],
+            status: "committed",
+            target: "codegen",
+          },
+          {
+            commitSha: "new-commit",
+            ignoredPaths: ["gen/stray.txt"],
+            paths: ["ios/Package.resolved"],
+            status: "committed",
+            target: "ios-packages",
+          },
+        ],
+      } satisfies RegenerateGeneratedOutputResult);
+      expect(sandbox.started()).toBe(2);
+      expect(treePaths(github)).toStrictEqual([
+        "gen/api.txt",
+        "gen/image.bin",
+        "gen/old.txt",
+        "gen/run.sh",
+        "ios/Package.resolved",
+      ]);
+      expect(
+        github.writes.find(({ route }) => route.endsWith("/git/commits"))?.body
+      ).toMatchObject({
+        message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan on ${fixture.headSha}:\n\n- codegen: \`./gen.sh\`\n- ios-packages: \`mkdir -p ios gen && echo pinned > ios/Package.resolved && echo stray > gen/stray.txt\`\n\nRegenerated-target: codegen\nRegenerated-target: ios-packages`,
+      });
+    });
+
+    it("runs only the targets the pull request triggers", async () => {
+      const github = fakeGitHub({
+        changed: ["mobile/pubspec.lock"],
+        config: targets(),
+        fixture,
+      });
+      const sandbox = localSandbox({ origin: fixture.origin, root });
+
+      await expect(run(github, sandbox)).resolves.toMatchObject({
+        targets: [{ status: "committed", target: "ios-packages" }],
+      });
+      expect(sandbox.started()).toBe(1);
+      expect(treePaths(github)).toStrictEqual(["ios/Package.resolved"]);
+    });
+
+    it("commits one target's output when another fails", async () => {
+      const github = fakeGitHub({
+        changed: both,
+        config: targets(PINS.replace(/command: .*/u, "command: exit 5")),
+        fixture,
+      });
+      const sandbox = localSandbox({ origin: fixture.origin, root });
+
+      await expect(run(github, sandbox)).resolves.toMatchObject({
+        targets: [
+          { status: "committed", target: "codegen" },
+          {
+            exitCode: 5,
+            status: "failed",
+            step: "command",
+            target: "ios-packages",
+          },
+        ],
+      });
+      expect(treePaths(github)).not.toContain("ios/Package.resolved");
+      // It names only the target it completed, so the next run retries the
+      // other.
+      expect(
+        github.writes.find(({ route }) => route.endsWith("/git/commits"))?.body
+      ).toMatchObject({
+        message: expect.stringMatching(/\n\nRegenerated-target: codegen$/u),
+      });
+    });
+
+    it("regenerates only the targets the bot's commit on top did not complete", async () => {
+      const github = fakeGitHub({
+        changed: both,
+        config: targets(),
+        fixture,
+        onTop: [
+          {
+            author: BOT,
+            files: ["gen/api.txt"],
+            message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan on renovate:\n\n- codegen: \`./gen.sh\`\n\nRegenerated-target: codegen`,
+          },
+        ],
+      });
+      const sandbox = localSandbox({ origin: fixture.origin, root });
+
+      await expect(run(github, sandbox)).resolves.toMatchObject({
+        targets: [{ status: "committed", target: "ios-packages" }],
+      });
+      expect(sandbox.started()).toBe(1);
+      expect(treePaths(github)).toStrictEqual(["ios/Package.resolved"]);
+    });
+
+    it("regenerates the targets declared since a commit that names none", async () => {
+      const github = fakeGitHub({
+        changed: both,
+        config: targets(),
+        fixture,
+        onTop: [
+          {
+            author: BOT,
+            files: ["gen/api.txt"],
+            message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan \`./gen.sh\` on renovate.`,
+          },
+        ],
+      });
+      const sandbox = localSandbox({ origin: fixture.origin, root });
+
+      await expect(
+        run(github, sandbox, { dryRun: true })
+      ).resolves.toMatchObject({
+        targets: [
+          { target: "codegen" },
+          { status: "would-commit", target: "ios-packages" },
+        ],
+      });
+      expect(sandbox.started()).toBe(2);
+    });
+
+    it("names a target whose output is current as completed", async () => {
+      write(fixture.origin, "gen.sh", "#!/bin/sh\necho touched > notes.txt\n");
+      fixture.headSha = commitAll(fixture.origin, "Generate nothing");
+      const github = fakeGitHub({ changed: both, config: targets(), fixture });
+      const sandbox = localSandbox({ origin: fixture.origin, root });
+
+      await expect(run(github, sandbox)).resolves.toMatchObject({
+        targets: [
+          { status: "unchanged", target: "codegen" },
+          { status: "committed", target: "ios-packages" },
+        ],
+      });
+      expect(
+        github.writes.find(({ route }) => route.endsWith("/git/commits"))?.body
+      ).toMatchObject({
+        message: expect.stringMatching(
+          /- ios-packages: .*\n\nRegenerated-target: ios-packages\nRegenerated-target: codegen$/u
+        ),
+      });
+    });
+
+    it("commits one target's output when another's sandbox fails", async () => {
+      const github = fakeGitHub({ changed: both, config: targets(), fixture });
+      const sandbox = localSandbox({
+        origin: fixture.origin,
+        refuse: "ios/Package.resolved",
+        root,
+      });
+
+      await expect(run(github, sandbox)).resolves.toMatchObject({
+        targets: [
+          { status: "committed", target: "codegen" },
+          {
+            error: "Sandbox quota exceeded",
+            status: "error",
+            target: "ios-packages",
+          },
+        ],
+      });
+    });
+
+    it("skips a target whose workflow the head lacks", async () => {
+      const github = fakeGitHub({
+        changed: both,
+        config: targets(
+          PINS.replace(
+            "command:",
+            "workflowEnv: .github/workflows/ios.yml\n    command:"
+          )
+        ),
+        fixture,
+      });
+      const sandbox = localSandbox({ origin: fixture.origin, root });
+
+      await expect(run(github, sandbox)).resolves.toMatchObject({
+        targets: [
+          { status: "committed", target: "codegen" },
+          {
+            reason: "the head has no .github/workflows/ios.yml",
+            status: "skipped",
+            target: "ios-packages",
+          },
+        ],
+      });
+      expect(sandbox.started()).toBe(1);
     });
   });
 
@@ -642,26 +971,74 @@ describe(regenerateGeneratedOutput, () => {
 });
 
 describe(summarizeRegenerationResult, () => {
-  it("logs a failure without the file contents", () => {
+  it("logs each target without the file contents", () => {
     expect(
       summarizeRegenerationResult({
+        headSha: "head",
+        status: "evaluated",
+        targets: [
+          {
+            exitCode: 1,
+            output: "error",
+            status: "failed",
+            step: "command",
+            target: "codegen",
+          },
+          {
+            commitSha: "commit",
+            ignoredPaths: [],
+            paths: ["ios/Package.resolved"],
+            status: "committed",
+            target: "ios-packages",
+          },
+        ],
+      })
+    ).toStrictEqual([
+      {
+        commit: undefined,
+        error: undefined,
         exitCode: 1,
         headSha: "head",
+        ignoredPaths: undefined,
+        modelInvoked: false,
         output: "error",
+        paths: undefined,
+        reason: undefined,
         status: "failed",
         step: "command",
+        target: "codegen",
+      },
+      {
+        commit: "commit",
+        error: undefined,
+        exitCode: undefined,
+        headSha: "head",
+        ignoredPaths: [],
+        modelInvoked: false,
+        output: undefined,
+        paths: ["ios/Package.resolved"],
+        reason: undefined,
+        status: "committed",
+        step: undefined,
+        target: "ios-packages",
+      },
+    ]);
+  });
+
+  it("logs one line for a pull request it left alone", () => {
+    expect(
+      summarizeRegenerationResult({
+        headSha: "head",
+        reason: "the pull request is closed",
+        status: "skipped",
       })
-    ).toStrictEqual({
-      commit: undefined,
-      exitCode: 1,
-      headSha: "head",
-      ignoredPaths: undefined,
-      modelInvoked: false,
-      output: "error",
-      paths: undefined,
-      reason: undefined,
-      status: "failed",
-      step: "command",
-    });
+    ).toStrictEqual([
+      {
+        headSha: "head",
+        modelInvoked: false,
+        reason: "the pull request is closed",
+        status: "skipped",
+      },
+    ]);
   });
 });

@@ -4,6 +4,7 @@ import {
   getPullRequestBodyEditor,
   getRepositoryPermission,
   getRequiredStatusChecks,
+  listChangedFiles,
   minimizeOutdatedReviews,
   readOptionalRepositoryFile,
 } from "@publira/github";
@@ -171,7 +172,7 @@ const describeCommits = (verdict: RenovateCommitsVerdict): string => {
         author: "was not authored by Renovate",
         committer: "was committed by someone other than its author or GitHub",
         files:
-          "is none of Chachamaru's own commits: of the Dev Container lock files beside the configurations the pull request changes, of the generated output the repository declares, or of automatic lint fixes that leave the lock files, package.json files, and .github alone",
+          "is none of Chachamaru's own commits: of the Dev Container lock files beside the configurations the pull request changes, of the generated output of the regenerations Renovate's commits trigger, or of automatic lint fixes that leave the lock files, package.json files, and .github alone",
         model:
           "is Chachamaru's commit of a model's lint fixes, which a maintainer reviews",
         unverified: "has no verified signature",
@@ -603,33 +604,9 @@ const checkDescription = async ({
       };
 };
 
-// GitHub lists a commit's files in pages, of at most 300 files in all.
-const FILES_PER_PAGE = 100;
-
-// Every file a commit changes, from all of its pages. The pagination plugin
-// does not follow a commit's files.
-const listCommitFiles = async (
-  context: PullRequestContext,
-  sha: string,
-  page = 1
-): Promise<string[]> => {
-  const { octokit, owner, repo } = context;
-  const { data } = await octokit.rest.repos.getCommit({
-    owner,
-    page,
-    per_page: FILES_PER_PAGE,
-    ref: sha,
-    repo,
-  });
-  const files = (data.files ?? []).map(({ filename }) => filename);
-  return files.length < FILES_PER_PAGE
-    ? files
-    : [...files, ...(await listCommitFiles(context, sha, page + 1))];
-};
-
-// The generated output the repository declares on the base branch, which
-// the bot may commit; none without a valid declaration.
-const readGeneratedPaths = async ({
+// The regenerations the repository declares on the base branch, whose
+// generated output the bot may commit; none without a valid declaration.
+const readRegeneration = async ({
   octokit,
   owner,
   repo,
@@ -642,24 +619,24 @@ const readGeneratedPaths = async ({
     repo,
   });
   if (source === undefined) {
-    return [];
+    return;
   }
   const parsed = parseRegenerationConfig(source);
-  return parsed.result === "valid" ? parsed.config.paths : [];
+  return parsed.result === "valid" ? parsed.config : undefined;
 };
 
-// The files each of the bot's commits changes, and those the pull request
-// does and the generated output, which tell whether the bot may have made
-// them. Read only when the bot made a commit.
+// The files each of the bot's and Renovate's commits changes, and those the
+// pull request does and the regenerations, which tell whether the bot may
+// have made its commits. Read only when the bot made a commit.
 const readBotCommitScope = async (
   context: PullRequestContext,
-  botShas: readonly string[]
+  { botShas, renovateShas }: { botShas: string[]; renovateShas: string[] }
 ) => {
   const { octokit, owner, repo, pullNumber, reviewer } = context;
   if (botShas.length === 0) {
     return { files: new Map<string, string[]>(), scope: undefined };
   }
-  const [changed, files, generatedPaths] = await Promise.all([
+  const [changed, files, regeneration] = await Promise.all([
     octokit.paginate(octokit.rest.pulls.listFiles, {
       owner,
       per_page: 100,
@@ -667,18 +644,19 @@ const readBotCommitScope = async (
       repo,
     }),
     Promise.all(
-      botShas.map(
-        async (sha) => [sha, await listCommitFiles(context, sha)] as const
+      [...botShas, ...renovateShas].map(
+        async (sha) =>
+          [sha, await listChangedFiles(octokit, { owner, repo, sha })] as const
       )
     ),
-    readGeneratedPaths(context),
+    readRegeneration(context),
   ]);
   return {
     files: new Map(files),
     scope: {
       botLogin: reviewer,
       changedFiles: changed.map(({ filename }) => filename),
-      generatedPaths,
+      regeneration,
     },
   };
 };
@@ -691,12 +669,14 @@ const checkCommits = async (context: PullRequestContext): Promise<Verdict> => {
     pull_number: pullNumber,
     repo,
   });
-  const { files, scope } = await readBotCommitScope(
-    context,
-    commits
+  const { files, scope } = await readBotCommitScope(context, {
+    botShas: commits
       .filter(({ author }) => author?.login === reviewer)
-      .map(({ sha }) => sha)
-  );
+      .map(({ sha }) => sha),
+    renovateShas: commits
+      .filter(({ author }) => author?.login === RENOVATE_LOGIN)
+      .map(({ sha }) => sha),
+  });
   const verdict = evaluateRenovateCommits(
     commits.map((commit) => ({
       authorLogin: commit.author?.login,

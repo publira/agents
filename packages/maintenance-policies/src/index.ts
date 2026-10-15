@@ -91,8 +91,10 @@ export {
 export type {
   RegenerationConfig,
   RegenerationConfigParseResult,
+  RegenerationTarget,
 } from "./regeneration.ts";
 export {
+  DEFAULT_REGENERATION_TARGET_NAME,
   matchesAnyPathPattern,
   matchesPathPattern,
   parseRegenerationConfig,
@@ -101,6 +103,7 @@ export {
   REGENERATION_CONFIG_PATH,
   REGENERATION_CONFIG_SCHEMA_URL,
   regenerationSeconds,
+  triggeredRegenerationTargets,
 } from "./regeneration.ts";
 export type {
   RenovateUpdate,

@@ -218,15 +218,18 @@ const fakeGitHub = ({
     if (route === "GET /repos/publira/agents/pulls/31/files") {
       return pullFiles.map((filename) => ({ filename }));
     }
-    if (route === `GET /repos/publira/agents/commits/${HEAD}`) {
+    const commit =
+      /^GET \/repos\/publira\/agents\/commits\/(?<sha>[^/]+)$/u.exec(route)
+        ?.groups?.sha;
+    if (commit !== undefined) {
       // In pages of `per_page` files, as GitHub lists them.
       const perPage = Number(url.searchParams.get("per_page") ?? 300);
       const page = Number(url.searchParams.get("page") ?? 1);
       return {
-        files: (commitFiles[HEAD] ?? [])
+        files: (commitFiles[commit] ?? [])
           .slice((page - 1) * perPage, page * perPage)
           .map((filename) => ({ filename })),
-        sha: HEAD,
+        sha: commit,
       };
     }
   };
@@ -522,7 +525,7 @@ describe(approveEquivalentRenovateUpdate, () => {
 
     expect(failedCondition(await run(github))).toStrictEqual({
       condition: "commits",
-      detail: `commit ${HEAD.slice(0, 7)} is none of Chachamaru's own commits: of the Dev Container lock files beside the configurations the pull request changes, of the generated output the repository declares, or of automatic lint fixes that leave the lock files, package.json files, and .github alone`,
+      detail: `commit ${HEAD.slice(0, 7)} is none of Chachamaru's own commits: of the Dev Container lock files beside the configurations the pull request changes, of the generated output of the regenerations Renovate's commits trigger, or of automatic lint fixes that leave the lock files, package.json files, and .github alone`,
       passed: false,
     });
   });
@@ -538,10 +541,43 @@ describe(approveEquivalentRenovateUpdate, () => {
       sha: HEAD,
     };
     const scenario = {
-      commitFiles: { [HEAD]: ["server/internal/proto/gen/api.pb.go"] },
+      commitFiles: {
+        [HEAD]: ["server/internal/proto/gen/api.pb.go"],
+        renovate: ["buf.gen.yaml"],
+      },
       commits: [renovateCommit("renovate"), regenerationCommit],
       pullFiles: ["buf.gen.yaml", "server/internal/proto/gen/api.pb.go"],
     };
+
+    it("accepts it within the paths of a target the pull request triggers", async () => {
+      await expect(
+        run(
+          fakeGitHub({
+            ...scenario,
+            regenerationConfig:
+              "targets:\n  codegen:\n    triggers: [buf.gen.yaml]\n    command: task gen\n    paths: [server/internal/proto/gen/**]\n  ios-packages:\n    triggers: [mobile/pubspec.lock]\n    command: flutter pub get\n    paths: [mobile/ios/Package.resolved]\n",
+          })
+        )
+      ).resolves.toMatchObject({ status: "approved" });
+    });
+
+    it("accepts it when it restores a trigger that is also its output", async () => {
+      await expect(
+        run(
+          fakeGitHub({
+            commitFiles: {
+              [HEAD]: ["gen/VERSION", "gen/api.pb.go"],
+              renovate: ["gen/VERSION"],
+            },
+            commits: [renovateCommit("renovate"), regenerationCommit],
+            // The diff no longer lists the trigger the bot restored.
+            pullFiles: ["gen/api.pb.go"],
+            regenerationConfig:
+              "triggers: [gen/VERSION]\ncommand: make\npaths: [gen/**]\n",
+          })
+        )
+      ).resolves.toMatchObject({ status: "approved" });
+    });
 
     it("accepts it within the paths the base branch declares", async () => {
       const result = await run(
@@ -572,6 +608,10 @@ describe(approveEquivalentRenovateUpdate, () => {
         "triggers: [buf.gen.yaml]\ncommand: task gen\npaths: [server/internal/db/gen/**]\n",
       ],
       ["an invalid declaration", "command: task gen\n"],
+      [
+        "the paths declared by a target the pull request does not trigger",
+        "targets:\n  ios-packages:\n    triggers: [mobile/pubspec.lock]\n    command: flutter pub get\n    paths: [server/internal/proto/gen/**]\n",
+      ],
     ])("refuses it with %s", async (_, regenerationConfig) => {
       expect(
         failedCondition(
