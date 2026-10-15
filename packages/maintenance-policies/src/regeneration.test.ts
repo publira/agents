@@ -169,6 +169,32 @@ describe(parseRegenerationConfig, () => {
     );
   });
 
+  it.each([
+    ["a file", "gen/schema.json"],
+    ["a directory", "gen/**"],
+    ["a file in a directory", "gen/v1/schema.json"],
+  ])(
+    "refuses a trigger that matches another target's paths: %s",
+    (_, trigger) => {
+      const parsed = parseRegenerationConfig(
+        `targets:\n  schema:\n    triggers: [schema.yaml]\n    command: make schema\n    paths: [gen/**]\n  client:\n    triggers: [${trigger}]\n    command: make client\n    paths: [client/**]\n`
+      );
+
+      expect(parsed).toMatchObject({ result: "invalid" });
+      expect(parsed.result === "invalid" && parsed.reason).toMatch(
+        "matches gen/**, the output of target schema; run both generators in one target   → at targets.client.triggers[0]"
+      );
+    }
+  );
+
+  it("reads a target whose triggers match its own paths", () => {
+    expect(
+      parseRegenerationConfig(
+        "targets:\n  gen:\n    triggers: [gen/**]\n    command: make\n    paths: [gen/**]\n"
+      )
+    ).toMatchObject({ result: "valid" });
+  });
+
   it("names the target whose field is invalid", () => {
     const parsed = parseRegenerationConfig(
       `${targets("gen/**")}    timeout: 481\n`

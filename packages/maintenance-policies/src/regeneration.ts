@@ -210,7 +210,7 @@ const regenerationTargets = z
       })
       .meta({ minProperties: 1 })
       .describe(
-        "The regenerations, by name: lowercase letters and digits, joined by single hyphens. A pull request runs each one whose `triggers` it changes, in a sandbox of its own, and nothing else. No two may declare `paths` that can match the same file."
+        "The regenerations, by name: lowercase letters and digits, joined by single hyphens. A pull request runs each one whose `triggers` it changes, in a sandbox of its own, and nothing else. No two may declare `paths` that can match the same file, and no target's `triggers` may match another's `paths`: a generator that feeds another runs in the same target's `command`."
       ),
   })
   .superRefine(({ targets }, context) => {
@@ -230,6 +230,25 @@ const regenerationTargets = z
           message: `overlaps ${other.pattern} of target ${other.name}`,
           path: ["targets", path.name, "paths", path.index],
         });
+      }
+    }
+
+    // The targets a pull request triggers run at once, on its head, and the
+    // head the bot's commit leaves is not regenerated again, so a target
+    // that another's output would trigger would never run.
+    for (const [name, { triggers }] of Object.entries(targets)) {
+      for (const [index, trigger] of triggers.entries()) {
+        const output = declared.find(
+          (path) =>
+            path.name !== name && pathPatternsOverlap(trigger, path.pattern)
+        );
+        if (output !== undefined) {
+          context.addIssue({
+            code: "custom",
+            message: `matches ${output.pattern}, the output of target ${output.name}; run both generators in one target`,
+            path: ["targets", name, "triggers", index],
+          });
+        }
       }
     }
   });

@@ -15,7 +15,7 @@
             "$ref": "#/$defs/target"
           },
           "minProperties": 1,
-          "description": "The regenerations, by name: lowercase letters and digits, joined by single hyphens. A pull request runs each one whose `triggers` it changes, in a sandbox of its own, and nothing else. No two may declare `paths` that can match the same file."
+          "description": "The regenerations, by name: lowercase letters and digits, joined by single hyphens. A pull request runs each one whose `triggers` it changes, in a sandbox of its own, and nothing else. No two may declare `paths` that can match the same file, and no target's `triggers` may match another's `paths`: a generator that feeds another runs in the same target's `command`."
         }
       },
       "required": [
