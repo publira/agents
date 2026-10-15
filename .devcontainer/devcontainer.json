@@ -20,7 +20,7 @@
     },
     "ghcr.io/devcontainers/features/github-cli:1.1.3": {}
   },
-  "image": "ghcr.io/publira/base-images/publira-dev:2026.10.14@sha256:cb94862b5552a52ea8b787ab35d2abbee03e97a6ad1b61b1dc3dc0fb55876309",
+  "image": "ghcr.io/publira/base-images/publira-dev:2026.10.15@sha256:925f1a4a9ab17a902ef3ef9513206d067b0221eefd04f5932118d64ea3259298",
   "mounts": [
     "source=publira-agents-claude-${devcontainerId},target=/home/vscode/.claude,type=volume",
     "source=publira-agents-codex-${devcontainerId},target=/home/vscode/.codex,type=volume",
