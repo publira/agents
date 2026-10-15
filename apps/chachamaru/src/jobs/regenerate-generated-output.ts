@@ -5,6 +5,7 @@ import {
 } from "@publira/github";
 import type { Octokit } from "@publira/github";
 import {
+  DEFAULT_REGENERATION_TARGET_NAME,
   isRenovate,
   matchesAnyPathPattern,
   parseRegenerationConfig,
@@ -312,15 +313,16 @@ type ComparedCommit = Awaited<
 >["data"]["commits"][number];
 
 /**
- * The targets the bot's regeneration commits on top of the head completed,
- * or all of them for a commit that names none, which the bot made before a
- * declaration had targets. Any other commit on top, such as Renovate's
- * rewrite, leaves none completed.
+ * The targets the bot's regeneration commits on top of the head completed.
+ * A commit that names none, which the bot made before a declaration had
+ * targets, completed the single regeneration a declaration without targets
+ * is read as, and no target declared since. Any other commit on top, such as
+ * Renovate's rewrite, leaves none completed.
  */
 const completedTargets = (
   commits: readonly ComparedCommit[],
   { botLogin, headSha }: { botLogin: string; headSha: string }
-): ReadonlySet<string> | "all" => {
+): ReadonlySet<string> => {
   const completed = new Set<string>();
   if (commits.at(-1)?.sha !== headSha) {
     return completed;
@@ -335,10 +337,9 @@ const completedTargets = (
     const names = [...commit.message.matchAll(REGENERATED_TARGET_LINE)].map(
       ({ groups }) => groups?.name ?? ""
     );
-    if (names.length === 0) {
-      return "all";
-    }
-    for (const name of names) {
+    for (const name of names.length === 0
+      ? [DEFAULT_REGENERATION_TARGET_NAME]
+      : names) {
       completed.add(name);
     }
   }
@@ -372,13 +373,6 @@ const plan = async (
     botLogin,
     headSha,
   });
-  const regenerated = {
-    reason: "the head is the bot's regeneration already",
-  };
-  if (completed === "all") {
-    return regenerated;
-  }
-
   const renovateFiles = await Promise.all(
     comparison.commits
       // As the approval reads them: by the author's login.
@@ -392,7 +386,9 @@ const plan = async (
     };
   }
   const targets = triggered.filter(({ name }) => !completed.has(name));
-  return targets.length === 0 ? regenerated : { targets };
+  return targets.length === 0
+    ? { reason: "the head is the bot's regeneration already" }
+    : { targets };
 };
 
 type Regenerated = {

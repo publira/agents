@@ -829,6 +829,32 @@ describe(regenerateGeneratedOutput, () => {
       expect(treePaths(github)).toStrictEqual(["ios/Package.resolved"]);
     });
 
+    it("regenerates the targets declared since a commit that names none", async () => {
+      const github = fakeGitHub({
+        changed: both,
+        config: targets(),
+        fixture,
+        onTop: [
+          {
+            author: BOT,
+            files: ["gen/api.txt"],
+            message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan \`./gen.sh\` on renovate.`,
+          },
+        ],
+      });
+      const sandbox = localSandbox({ origin: fixture.origin, root });
+
+      await expect(
+        run(github, sandbox, { dryRun: true })
+      ).resolves.toMatchObject({
+        targets: [
+          { target: "codegen" },
+          { status: "would-commit", target: "ios-packages" },
+        ],
+      });
+      expect(sandbox.started()).toBe(2);
+    });
+
     it("names a target whose output is current as completed", async () => {
       write(fixture.origin, "gen.sh", "#!/bin/sh\necho touched > notes.txt\n");
       fixture.headSha = commitAll(fixture.origin, "Generate nothing");
