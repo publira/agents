@@ -522,7 +522,7 @@ describe(approveEquivalentRenovateUpdate, () => {
 
     expect(failedCondition(await run(github))).toStrictEqual({
       condition: "commits",
-      detail: `commit ${HEAD.slice(0, 7)} is none of Chachamaru's own commits: of the Dev Container lock files beside the configurations the pull request changes, of the generated output the repository declares, or of automatic lint fixes that leave the lock files, package.json files, and .github alone`,
+      detail: `commit ${HEAD.slice(0, 7)} is none of Chachamaru's own commits: of the Dev Container lock files beside the configurations the pull request changes, of the generated output of the regenerations the pull request triggers, or of automatic lint fixes that leave the lock files, package.json files, and .github alone`,
       passed: false,
     });
   });
@@ -542,6 +542,18 @@ describe(approveEquivalentRenovateUpdate, () => {
       commits: [renovateCommit("renovate"), regenerationCommit],
       pullFiles: ["buf.gen.yaml", "server/internal/proto/gen/api.pb.go"],
     };
+
+    it("accepts it within the paths of a target the pull request triggers", async () => {
+      await expect(
+        run(
+          fakeGitHub({
+            ...scenario,
+            regenerationConfig:
+              "targets:\n  codegen:\n    triggers: [buf.gen.yaml]\n    command: task gen\n    paths: [server/internal/proto/gen/**]\n  ios-packages:\n    triggers: [mobile/pubspec.lock]\n    command: flutter pub get\n    paths: [mobile/ios/Package.resolved]\n",
+          })
+        )
+      ).resolves.toMatchObject({ status: "approved" });
+    });
 
     it("accepts it within the paths the base branch declares", async () => {
       const result = await run(
@@ -572,6 +584,10 @@ describe(approveEquivalentRenovateUpdate, () => {
         "triggers: [buf.gen.yaml]\ncommand: task gen\npaths: [server/internal/db/gen/**]\n",
       ],
       ["an invalid declaration", "command: task gen\n"],
+      [
+        "the paths declared by a target the pull request does not trigger",
+        "targets:\n  ios-packages:\n    triggers: [mobile/pubspec.lock]\n    command: flutter pub get\n    paths: [server/internal/proto/gen/**]\n",
+      ],
     ])("refuses it with %s", async (_, regenerationConfig) => {
       expect(
         failedCondition(

@@ -171,7 +171,7 @@ const describeCommits = (verdict: RenovateCommitsVerdict): string => {
         author: "was not authored by Renovate",
         committer: "was committed by someone other than its author or GitHub",
         files:
-          "is none of Chachamaru's own commits: of the Dev Container lock files beside the configurations the pull request changes, of the generated output the repository declares, or of automatic lint fixes that leave the lock files, package.json files, and .github alone",
+          "is none of Chachamaru's own commits: of the Dev Container lock files beside the configurations the pull request changes, of the generated output of the regenerations the pull request triggers, or of automatic lint fixes that leave the lock files, package.json files, and .github alone",
         model:
           "is Chachamaru's commit of a model's lint fixes, which a maintainer reviews",
         unverified: "has no verified signature",
@@ -627,9 +627,9 @@ const listCommitFiles = async (
     : [...files, ...(await listCommitFiles(context, sha, page + 1))];
 };
 
-// The generated output the repository declares on the base branch, which
-// the bot may commit; none without a valid declaration.
-const readGeneratedPaths = async ({
+// The regenerations the repository declares on the base branch, whose
+// generated output the bot may commit; none without a valid declaration.
+const readRegeneration = async ({
   octokit,
   owner,
   repo,
@@ -642,14 +642,14 @@ const readGeneratedPaths = async ({
     repo,
   });
   if (source === undefined) {
-    return [];
+    return;
   }
   const parsed = parseRegenerationConfig(source);
-  return parsed.result === "valid" ? parsed.config.paths : [];
+  return parsed.result === "valid" ? parsed.config : undefined;
 };
 
 // The files each of the bot's commits changes, and those the pull request
-// does and the generated output, which tell whether the bot may have made
+// does and the regenerations, which tell whether the bot may have made
 // them. Read only when the bot made a commit.
 const readBotCommitScope = async (
   context: PullRequestContext,
@@ -659,7 +659,7 @@ const readBotCommitScope = async (
   if (botShas.length === 0) {
     return { files: new Map<string, string[]>(), scope: undefined };
   }
-  const [changed, files, generatedPaths] = await Promise.all([
+  const [changed, files, regeneration] = await Promise.all([
     octokit.paginate(octokit.rest.pulls.listFiles, {
       owner,
       per_page: 100,
@@ -671,14 +671,14 @@ const readBotCommitScope = async (
         async (sha) => [sha, await listCommitFiles(context, sha)] as const
       )
     ),
-    readGeneratedPaths(context),
+    readRegeneration(context),
   ]);
   return {
     files: new Map(files),
     scope: {
       botLogin: reviewer,
       changedFiles: changed.map(({ filename }) => filename),
-      generatedPaths,
+      regeneration,
     },
   };
 };

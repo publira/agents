@@ -64,7 +64,7 @@ The bot writes one JSON object per line to the Vercel project's runtime logs, wi
 - `close-completed-parent-issue`: the parent `issue` and the closed or removed `subIssue` that led to it, the `status`, the `reason` an issue was left open, the number of `subIssues`, and the `comment` with `commentCreated`. `modelInvoked` is always `false`.
 - `label-agent-assisted-pull-request`: the `status`, the number of `commits` it read, and the `reason` it left the label as it is. `modelInvoked` is always `false`.
 - `sync-devcontainer-lock-file`: the `status`, the `headSha` it read, the `lockFiles` it compared or committed, the `reason` it left the pull request alone, the `commit`, and whether approval and auto-merge wait for the commit's push (`evaluationDeferred`). `modelInvoked` is always `false`.
-- `regenerate-generated-output`: the `status`, the `headSha` it read, the generated `paths` it committed or would, the `ignoredPaths` the command changed outside them, the `reason` it left the pull request alone, the `commit`, and whether approval and auto-merge wait for the commit's push (`evaluationDeferred`). When the sandbox could not fetch the head, install the generators, or run the command, the `step`, the `exitCode`, and the end of the command's `output`. `modelInvoked` is always `false`.
+- `regenerate-generated-output`: one line for each [target](#several-targets) the pull request triggers, naming the `target`, or one line without it for a pull request the job left alone. The `status`, the `headSha` it read, the target's generated `paths` it committed or would, the `ignoredPaths` its command changed outside them, the `reason` it left the pull request or the target alone, the `commit`, and whether approval and auto-merge wait for the commit's push (`evaluationDeferred`). When the sandbox could not fetch the head, install the generators, or run the command, the `step`, the `exitCode`, and the end of the command's `output`; when the target's regeneration threw, such as when no sandbox could start, the `error`, logged as an error. `modelInvoked` is always `false`.
 - `remove-expired-release-age-exclusions`: the `status`, the `reason` a repository was skipped, such as a default branch that does not exist yet or has no `pnpm-workspace.yaml`, the `expired` entries, whether the rules or a model chose the lines (`editedBy`), whether a model was asked in this run (`modelInvoked`, with the `model`), and the `pullRequest` with `pullRequestCreated`.
 - `update-agent-skills`: the `status`, the default branch's commit the update ran on (`baseSha`), the `skills` it added, updated, or removed, the `paths` it commits and the `ignoredPaths` it leaves out, whether it committed (`committed`), and the `pullRequest` with `pullRequestCreated`. When the sandbox could not clone the repository or update its skills, the `step`, the `exitCode`, and the end of the command's `output`. `modelInvoked` is always `false`.
 
@@ -117,15 +117,45 @@ paths:
 
 A pattern is a path from the root, or a directory and everything under it with a trailing `/**`. `setup`, `workflowEnv`, and the [time limits](#time-limits) are optional; the paths cannot match anything under `.github/workflows/`, which the App cannot write, so `.github/**` is refused too. The bot reads the declaration from the base branch, so a pull request cannot widen what the bot commits, and an invalid one leaves the pull request alone with the reason in the log.
 
-The bot serves the declaration's JSON Schema at `https://chachamaru.publira.dev/schemas/regenerate/v1.json`, from the deployment that parses the declaration. With the `yaml-language-server` comment at the top, as above, an editor completes and validates the file, and a CI tool such as `check-jsonschema` can check it. JSON Schema cannot express the rules for the patterns, the paths under `.github/workflows/`, or the [time limits](#time-limits)' total, so the schema states them in its descriptions, and the bot's parser stays the authority. `v1` is the schema's major version, raised only for a change that makes a valid declaration invalid, such as a removed or renamed field, so a declaration keeps the version it was written for.
+The bot serves the declaration's JSON Schema at `https://chachamaru.publira.dev/schemas/regenerate/v1.json`, from the deployment that parses the declaration. With the `yaml-language-server` comment at the top, as above, an editor completes and validates the file, and a CI tool such as `check-jsonschema` can check it. JSON Schema cannot express the rules for the patterns, the paths under `.github/workflows/`, the [time limits](#time-limits)' total, or the paths of two [targets](#several-targets) that overlap, so the schema states them in its descriptions, and the bot's parser stays the authority. `v1` is the schema's major version, raised only for a change that makes a valid declaration invalid, such as a removed or renamed field, so a declaration keeps the version it was written for.
+
+#### Several targets
+
+A repository whose generated output comes from more than one toolchain declares each as a named target under `targets`, with the fields above:
+
+```yaml
+targets:
+  codegen:
+    triggers:
+      - buf.gen.yaml
+      - .github/workflows/ci.yml
+    workflowEnv: .github/workflows/ci.yml
+    setup:
+      - ...
+    command: task gen
+    paths:
+      - server/internal/proto/gen/**
+      - server/internal/db/gen/**
+      - packages/api-client/src/gen/**
+  ios-packages:
+    triggers:
+      - mobile/pubspec.yaml
+      - mobile/pubspec.lock
+    command: ...
+    paths:
+      - mobile/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+      - mobile/ios/Runner.xcworkspace/xcshareddata/swiftpm/Package.resolved
+```
+
+A target's name is lowercase letters and digits, joined by single hyphens. A pull request runs every target whose triggers it changes, each in a sandbox of its own and at the same time, and no other. Each target contributes only its own paths to the commit, so no two targets may declare paths that can match the same file, such as `gen/**` and `gen/api/**`; a declaration where two do is invalid. A declaration without `targets` is read as one target named `default`.
 
 The bot regenerates when Renovate opens a pull request that changes a trigger, reopens it, or pushes to it, and in the hourly sweep; a check or a status that completes leaves the head as that evaluation found it. An evaluation runs it after the Dev Container lock file sync and before approval. The sweep first regenerates a repository's Renovate pull requests and applies the [automatic lint fixes](#lint-fixes) to them, up to four pull requests at a time, and then evaluates them one at a time, except a pull request whose head the bot's commit moved, which its push's evaluation takes up. The setup and the command run the pull request's own code, so they run in a Vercel Sandbox of its own, deleted afterwards, as Bash scripts with `CI=true` and the workflow's `env` values. The sandbox fetches the head alone: anonymously for a public repository, and for a private one with a token that can only read that repository's contents. It holds no other credential, and the bot writes the commit from the app runtime.
 
-The bot commits the changes under the generated paths, with their file modes, on top of the head and only as a fast-forward, with the subject `chore(gen): regenerate for the updated generator versions`, and logs any other path the command changed. It writes nothing when the output is current, and leaves a head that is its own regeneration commit alone without starting a sandbox. When the fetch, a setup command, or the command fails, it leaves the pull request alone and logs why; the repository's CI still rejects stale output. A head that the bot commits to, or would in a dry run, is neither approved nor merged; the commit's push is evaluated instead. Renovate may discard the commit when it rewrites the branch, and the next evaluation puts it back. Approval accepts the bot's signed commit as long as it changes only the paths the base branch declares.
+The bot commits the changes under each target's generated paths, with their file modes, in one commit on top of the head and only as a fast-forward, with the subject `chore(gen): regenerate for the updated generator versions` and each target's name and command in the body, and logs any other path a target's command changed. It writes nothing when the output is current, and leaves a head that is its own regeneration commit alone without starting a sandbox. When the fetch, a setup command, or the command of a target fails, it leaves that target's output alone and logs why, and still commits the other targets' output; the repository's CI still rejects stale output. A head that the bot commits to, or would in a dry run, is neither approved nor merged; the commit's push is evaluated instead. Renovate may discard the commit when it rewrites the branch, and the next evaluation puts it back. Approval accepts the bot's signed commit as long as it changes only the paths of the targets the base branch declares and the pull request triggers.
 
 #### Time limits
 
-Each setup command runs at most `setupTimeout` seconds and the command at most `timeout`, both 120 unless the declaration sets them, in whole seconds. A repository whose generators take longer to install or to run declares what they need:
+Each setup command runs at most `setupTimeout` seconds and the command at most `timeout`, both 120 unless the declaration, or the target, sets them, in whole seconds. A repository whose generators take longer to install or to run declares what they need:
 
 ```yaml
 # Each setup command may run 180 seconds, and the command 300.
@@ -133,7 +163,7 @@ setupTimeout: 180
 timeout: 300
 ```
 
-Together they may take at most 480 seconds, `timeout` plus `setupTimeout` once for each setup command; publira/publira's three setup commands and its command reach that with the defaults. A declaration over it is invalid, and the reason in the log names the field. The sandbox lives as long as they and the Git commands around them may run, with 120 seconds more to fetch and check out the head and 90 to read the output back, so at most 690 seconds, within the 800 seconds the project allows the Vercel Function of a webhook delivery or the sweep. Fetching publira/publira's head, installing its three generators, and running `task gen` took about 10 seconds in Amazon Linux 2023, the Vercel Sandbox's system. Running up to four at once keeps a regeneration that takes long, or times out every hour, from leaving the next pull requests too little of the sweep's time.
+Together they may take at most 480 seconds, `timeout` plus `setupTimeout` once for each setup command; publira/publira's three setup commands and its command reach that with the defaults. A declaration over it is invalid, and the reason in the log names the field. The sandbox lives as long as they and the Git commands around them may run, with 120 seconds more to fetch and check out the head and 90 to read the output back, so at most 690 seconds, within the 800 seconds the project allows the Vercel Function of a webhook delivery or the sweep. Fetching publira/publira's head, installing its three generators, and running `task gen` took about 10 seconds in Amazon Linux 2023, the Vercel Sandbox's system. The limits apply to each target on its own, since the targets run at the same time. Running up to four pull requests at once keeps a regeneration that takes long, or times out every hour, from leaving the next pull requests too little of the sweep's time.
 
 ### Lint fixes
 

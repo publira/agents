@@ -7,7 +7,11 @@ import {
   LINT_FINDINGS_FIX_COMMIT_SUBJECT,
   LINT_FIX_COMMIT_SUBJECT,
 } from "./lint-fix.ts";
-import { matchesAnyPathPattern } from "./regeneration.ts";
+import {
+  matchesAnyPathPattern,
+  triggeredRegenerationTargets,
+} from "./regeneration.ts";
+import type { RegenerationConfig } from "./regeneration.ts";
 import { RENOVATE_LOGIN } from "./renovate-update.ts";
 
 // The committer GitHub records, and signs for, on a commit made through its
@@ -44,10 +48,11 @@ export interface BotCommitScope {
   /** The files the pull request changes. */
   changedFiles: readonly string[];
   /**
-   * The patterns of the generated output the repository declares on the
-   * base branch, which the bot regenerates; none without a declaration.
+   * The regenerations the repository declares on the base branch; none
+   * without a valid declaration. The bot commits the generated output of the
+   * targets whose triggers the pull request changes.
    */
-  generatedPaths?: readonly string[];
+  regeneration?: RegenerationConfig;
 }
 
 export type RenovateCommitsVerdict =
@@ -125,10 +130,10 @@ const botCommitKind = (
  *
  * With `bot`, the bot's own commits are accepted too, signed like Renovate's,
  * as long as each changes only the lock files beside the Dev Container
- * configurations the pull request changes, or only the generated output the
- * repository declares, or is its commit of automatic lint fixes, which
- * changes no lock file, `package.json`, or file under `.github/`. Its commit
- * of a model's lint fixes is never accepted.
+ * configurations the pull request changes, or only the generated output of
+ * the regeneration targets the pull request triggers, or is its commit of
+ * automatic lint fixes, which changes no lock file, `package.json`, or file
+ * under `.github/`. Its commit of a model's lint fixes is never accepted.
  */
 export const evaluateRenovateCommits = (
   commits: readonly PullRequestCommit[],
@@ -145,7 +150,13 @@ export const evaluateRenovateCommits = (
   }
 
   const allowedLockFiles = lockFilesOf(bot?.changedFiles ?? []);
-  const generatedPaths = bot?.generatedPaths ?? [];
+  const generatedPaths =
+    bot?.regeneration === undefined
+      ? []
+      : triggeredRegenerationTargets(
+          bot.regeneration,
+          bot.changedFiles
+        ).flatMap(({ paths }) => paths);
   const botCommits = { "lint-fix": 0, "lock-file": 0, regeneration: 0 };
 
   for (const commit of commits) {

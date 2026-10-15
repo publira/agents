@@ -7,8 +7,12 @@ import {
   readWorkflowEnv,
   REGENERATION_CONFIG_PATH,
   regenerationSeconds,
+  triggeredRegenerationTargets,
 } from "@publira/maintenance-policies";
-import type { RegenerationConfig } from "@publira/maintenance-policies";
+import type {
+  RegenerationConfig,
+  RegenerationTarget,
+} from "@publira/maintenance-policies";
 
 import type { GitFileChange } from "../git-output.ts";
 import type { LogFields } from "../log.ts";
@@ -41,14 +45,14 @@ const CHECKOUT_MS = GIT_TIMEOUT_MS + FETCH_TIMEOUT_MS + GIT_TIMEOUT_MS;
 const READ_BACK_MS = 3 * GIT_TIMEOUT_MS;
 
 /**
- * How long the sandbox may live: every command in it for as long as it may
- * run, the setup commands and the command for as long as the declaration
+ * How long a target's sandbox may live: every command in it for as long as
+ * it may run, the setup commands and the command for as long as the target
  * lets them. The declaration's maximum keeps it within the 800 seconds the
  * project allows the Vercel Function that the webhook handler and the
- * hourly sweep run in.
+ * hourly sweep run in, and the targets run at the same time.
  */
-const sandboxTimeoutMs = (config: RegenerationConfig) =>
-  CHECKOUT_MS + regenerationSeconds(config) * 1000 + READ_BACK_MS;
+const sandboxTimeoutMs = (target: RegenerationTarget) =>
+  CHECKOUT_MS + regenerationSeconds(target) * 1000 + READ_BACK_MS;
 
 // Where a setup command installs a generator; it is on the PATH of the
 // setup commands and of the command.
@@ -73,50 +77,64 @@ export interface RegenerateGeneratedOutputOptions {
 }
 
 interface RegeneratedPaths {
-  /** The generated paths the command changed, which the commit takes. */
+  /** The target's generated paths the command changed, which the commit takes. */
   paths: string[];
   /** The other paths the command changed, which the commit leaves out. */
   ignoredPaths: string[];
 }
 
-export type RegenerateGeneratedOutputResult =
-  | { status: "skipped"; headSha: string; reason: string }
+type FailedStep = "command" | "fetch" | "setup";
+
+// Omits a key from each member of a union, keeping them apart.
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+  ? Omit<T, K>
+  : never;
+
+/** What became of one target the pull request triggers. */
+export type RegenerationTargetResult = { target: string } & (
+  | { status: "skipped"; reason: string }
   | {
       /** The sandbox could not fetch the head, install, or regenerate. */
       status: "failed";
-      headSha: string;
-      step: "command" | "fetch" | "setup";
+      step: FailedStep;
       exitCode: number;
       /** The end of the command's output. */
       output: string;
     }
-  | { status: "unchanged"; headSha: string; ignoredPaths: string[] }
-  | ({ status: "would-commit"; headSha: string } & RegeneratedPaths)
-  | ({
-      status: "committed";
-      headSha: string;
-      commitSha: string;
-    } & RegeneratedPaths)
+  | {
+      /** The regeneration threw, such as when no sandbox could start. */
+      status: "error";
+      error: string;
+    }
+  | { status: "unchanged"; ignoredPaths: string[] }
+  | ({ status: "would-commit" } & RegeneratedPaths)
+  | ({ status: "committed"; commitSha: string } & RegeneratedPaths)
   | ({
       /** The branch moved while the job ran; its push is evaluated anew. */
       status: "head-moved";
+    } & RegeneratedPaths)
+);
+
+export type RegenerateGeneratedOutputResult =
+  | { status: "skipped"; headSha: string; reason: string }
+  | {
+      status: "evaluated";
       headSha: string;
-    } & RegeneratedPaths);
+      /** Every target the pull request triggers, in the declared order. */
+      targets: RegenerationTargetResult[];
+    };
 
 interface SandboxRequest {
   owner: string;
   repo: string;
   headSha: string;
   readToken: string | undefined;
-  config: RegenerationConfig;
+  target: RegenerationTarget;
   env: Readonly<Record<string, string>>;
 }
 
 type SandboxResult =
-  | Omit<
-      Extract<RegenerateGeneratedOutputResult, { status: "failed" }>,
-      "headSha"
-    >
+  | Omit<Extract<RegenerationTargetResult, { status: "failed" }>, "target">
   | {
       status: "regenerated";
       changes: GitFileChange[];
@@ -125,7 +143,7 @@ type SandboxResult =
     };
 
 const failure = (
-  step: "command" | "fetch" | "setup",
+  step: FailedStep,
   {
     exitCode,
     stdout,
@@ -139,14 +157,14 @@ const failure = (
 });
 
 /**
- * Checks out the head, installs the generators, runs the command, and reads
- * back what changed under the generated paths. The sandbox gets no
+ * Checks out the head, installs a target's generators, runs its command, and
+ * reads back what changed under its generated paths. The sandbox gets no
  * credential but the read token, and that only for the fetch, which does not
  * store it where the setup or the command could read it.
  */
 const regenerateInSandbox = async (
   sandbox: Sandbox,
-  { owner, repo, headSha, readToken, config, env }: SandboxRequest
+  { owner, repo, headSha, readToken, target, env }: SandboxRequest
 ): Promise<SandboxResult> => {
   await runChecked(sandbox, {
     args: ["init", "--quiet", WORKTREE],
@@ -183,15 +201,15 @@ const regenerateInSandbox = async (
       timeoutMs,
     });
 
-  for (const command of config.setup) {
+  for (const command of target.setup) {
     // oxlint-disable-next-line no-await-in-loop -- each builds on the last
-    const setup = await shell(command, config.setupTimeout * 1000);
+    const setup = await shell(command, target.setupTimeout * 1000);
     if (setup.exitCode !== 0) {
       return failure("setup", setup);
     }
   }
 
-  const regeneration = await shell(config.command, config.timeout * 1000);
+  const regeneration = await shell(target.command, target.timeout * 1000);
   if (regeneration.exitCode !== 0) {
     return failure("command", regeneration);
   }
@@ -201,7 +219,7 @@ const regenerateInSandbox = async (
     sandbox,
     WORKTREE,
     changes.flatMap(({ after, path }) =>
-      after !== undefined && matchesAnyPathPattern(config.paths, path)
+      after !== undefined && matchesAnyPathPattern(target.paths, path)
         ? [after.sha]
         : []
     )
@@ -215,9 +233,8 @@ interface Skip {
 }
 
 interface Plan {
-  config: RegenerationConfig;
-  /** The environment of the setup commands and the command. */
-  env: Record<string, string>;
+  /** The targets the pull request triggers. */
+  targets: RegenerationTarget[];
 }
 
 interface PullRequestRefs {
@@ -243,10 +260,10 @@ const readConfig = async (
   return parsed.result === "valid" ? parsed.config : { reason: parsed.reason };
 };
 
-/** Reads the head's workflow env that the declaration names, if any. */
+/** Reads the head's workflow env that a target names, if any. */
 const readEnv = async (
   { octokit, owner, repo }: RegenerateGeneratedOutputOptions,
-  { workflowEnv }: RegenerationConfig,
+  { workflowEnv }: RegenerationTarget,
   headSha: string
 ): Promise<Record<string, string> | Skip> => {
   if (workflowEnv === undefined) {
@@ -275,9 +292,9 @@ const isSkip = <T extends Plan | RegenerationConfig | Record<string, string>>(
 ): value is Skip => "reason" in value;
 
 /**
- * Decides whether the pull request calls for a regeneration: the base
- * branch declares one, the pull request changes a file it names, and the
- * head is not the bot's regeneration already.
+ * Decides which targets the pull request calls for: the base branch
+ * declares them, the pull request changes a file they name, and the head is
+ * not the bot's regeneration already.
  */
 const plan = async (
   options: RegenerateGeneratedOutputOptions,
@@ -305,15 +322,94 @@ const plan = async (
     return { reason: "the head is the bot's regeneration already" };
   }
 
-  const changed = (comparison.files ?? []).map(({ filename }) => filename);
-  if (!changed.some((path) => matchesAnyPathPattern(config.triggers, path))) {
+  const targets = triggeredRegenerationTargets(
+    config,
+    (comparison.files ?? []).map(({ filename }) => filename)
+  );
+  return targets.length === 0
+    ? {
+        reason:
+          "the pull request changes no file that calls for a regeneration",
+      }
+    : { targets };
+};
+
+type Regenerated = {
+  status: "regenerated";
+  target: RegenerationTarget;
+  /** The changes under the target's generated paths. */
+  committed: GitFileChange[];
+  blobs: Map<string, Buffer>;
+} & RegeneratedPaths;
+
+/** What a target's sandbox regenerated, before the commit. */
+type TargetRun =
+  | Exclude<
+      RegenerationTargetResult,
+      { status: "committed" | "head-moved" | "would-commit" }
+    >
+  | Regenerated;
+
+interface TargetRequest {
+  options: RegenerateGeneratedOutputOptions;
+  headSha: string;
+  readToken: string | undefined;
+}
+
+/**
+ * Regenerates one target in a sandbox of its own and splits what changed
+ * into its generated paths and the rest. It never throws, so one target's
+ * failure leaves the others' output to commit.
+ */
+const regenerateTarget = async (
+  { options, headSha, readToken }: TargetRequest,
+  target: RegenerationTarget
+): Promise<TargetRun> => {
+  const { owner, repo, sandbox } = options;
+  try {
+    const env = await readEnv(options, target, headSha);
+    if (isSkip(env)) {
+      return { reason: env.reason, status: "skipped", target: target.name };
+    }
+    const regenerated = await sandbox(
+      (session) =>
+        regenerateInSandbox(session, {
+          env,
+          headSha,
+          owner,
+          readToken,
+          repo,
+          target,
+        }),
+      { timeoutMs: sandboxTimeoutMs(target) }
+    );
+    if (regenerated.status === "failed") {
+      return { ...regenerated, target: target.name };
+    }
+
+    const isGenerated = ({ path }: GitFileChange) =>
+      matchesAnyPathPattern(target.paths, path);
+    const committed = regenerated.changes.filter(isGenerated);
+    const ignoredPaths = regenerated.changes
+      .filter((change) => !isGenerated(change))
+      .map(({ path }) => path);
+    return committed.length === 0
+      ? { ignoredPaths, status: "unchanged", target: target.name }
+      : {
+          blobs: regenerated.blobs,
+          committed,
+          ignoredPaths,
+          paths: committed.map(({ path }) => path),
+          status: "regenerated",
+          target,
+        };
+  } catch (error) {
     return {
-      reason: "the pull request changes no file that calls for a regeneration",
+      error: error instanceof Error ? error.message : String(error),
+      status: "error",
+      target: target.name,
     };
   }
-
-  const env = await readEnv(options, config, headSha);
-  return isSkip(env) ? env : { config, env };
 };
 
 const contentOf =
@@ -337,6 +433,10 @@ const contentOf =
  * branch. Renovate rewrites the versions but cannot run the generators, so
  * the repository's CI would reject such a pull request until someone did.
  *
+ * Each target the pull request triggers runs at the same time, in a sandbox
+ * of its own, and contributes only its own generated paths to one commit; a
+ * target that fails leaves the others' output to commit.
+ *
  * The declaration is read from the base branch, so a pull request cannot
  * widen what the bot commits. The command runs the pull request's own code,
  * in a sandbox with no write credential; the generators are the versions the
@@ -356,7 +456,6 @@ export const regenerateGeneratedOutput = async (
     owner,
     repo,
     pullNumber,
-    sandbox,
     createReadToken,
     dryRun = false,
   } = options;
@@ -386,55 +485,64 @@ export const regenerateGeneratedOutput = async (
   if (isSkip(planned)) {
     return skip(planned.reason);
   }
-  const { config, env } = planned;
 
   const readToken = pullRequest.base.repo.private
     ? await createReadToken()
     : undefined;
-  const regenerated = await sandbox(
-    (session) =>
-      regenerateInSandbox(session, {
-        config,
-        env,
-        headSha,
-        owner,
-        readToken,
-        repo,
-      }),
-    { timeoutMs: sandboxTimeoutMs(config) }
+  const runs = await Promise.all(
+    planned.targets.map((target) =>
+      regenerateTarget({ headSha, options, readToken }, target)
+    )
   );
+  const regenerated = runs.filter(
+    (run): run is Regenerated => run.status === "regenerated"
+  );
+  const evaluated = (
+    outcome: (
+      paths: RegeneratedPaths
+    ) => DistributiveOmit<
+      Extract<
+        RegenerationTargetResult,
+        { status: "committed" | "head-moved" | "would-commit" }
+      >,
+      "target"
+    >
+  ): RegenerateGeneratedOutputResult => ({
+    headSha,
+    status: "evaluated",
+    targets: runs.map((run) =>
+      run.status === "regenerated"
+        ? {
+            ...outcome({ ignoredPaths: run.ignoredPaths, paths: run.paths }),
+            target: run.target.name,
+          }
+        : run
+    ),
+  });
 
-  if (regenerated.status === "failed") {
-    return { ...regenerated, headSha };
+  if (regenerated.length === 0 || dryRun) {
+    return evaluated((paths) => ({ ...paths, status: "would-commit" }));
   }
 
-  const { blobs, changes } = regenerated;
-  const isGenerated = ({ path }: GitFileChange) =>
-    matchesAnyPathPattern(config.paths, path);
-  const committed = changes.filter(isGenerated);
-  const ignoredPaths = changes
-    .filter((change) => !isGenerated(change))
-    .map(({ path }) => path);
-
-  if (committed.length === 0) {
-    return { headSha, ignoredPaths, status: "unchanged" };
-  }
-
-  const paths = committed.map(({ path }) => path);
-
-  if (dryRun) {
-    return { headSha, ignoredPaths, paths, status: "would-commit" };
-  }
-
+  // The targets' generated paths do not overlap, so neither do their
+  // changes.
+  const committed = regenerated.flatMap(({ blobs, committed: changes }) =>
+    changes.map((change) => ({ blobs, change }))
+  );
   const commit = await addCommitToBranch(octokit, {
     branch: pullRequest.head.ref,
     files: Object.fromEntries(
-      committed.map((change) => [change.path, contentOf(blobs)(change)])
+      committed.map(({ blobs, change }) => [
+        change.path,
+        contentOf(blobs)(change),
+      ])
     ),
     headSha,
-    message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan \`${config.command}\` on ${headSha}.`,
+    message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan on ${headSha}:\n\n${regenerated
+      .map(({ target }) => `- ${target.name}: \`${target.command}\``)
+      .join("\n")}`,
     modes: Object.fromEntries(
-      committed.flatMap(({ after, path }) =>
+      committed.flatMap(({ change: { after, path } }) =>
         after === undefined ? [] : [[path, after.mode]]
       )
     ),
@@ -442,29 +550,55 @@ export const regenerateGeneratedOutput = async (
     repo,
   });
 
-  return commit.status === "moved"
-    ? { headSha, ignoredPaths, paths, status: "head-moved" }
-    : {
-        commitSha: commit.sha,
-        headSha,
-        ignoredPaths,
-        paths,
-        status: "committed",
-      };
+  return evaluated((paths) =>
+    commit.status === "moved"
+      ? { ...paths, status: "head-moved" }
+      : { ...paths, commitSha: commit.sha, status: "committed" }
+  );
 };
 
-/** The fields of a result to log, without file contents. */
+// The statuses after which the bot moved the head, or would in a dry run.
+const HEAD_MOVING_STATUSES = new Set<RegenerationTargetResult["status"]>([
+  "committed",
+  "head-moved",
+  "would-commit",
+]);
+
+/** Whether the bot moved the head, or would in a dry run. */
+export const regenerationMovesHead = (
+  result: RegenerateGeneratedOutputResult
+): boolean =>
+  result.status === "evaluated" &&
+  result.targets.some(({ status }) => HEAD_MOVING_STATUSES.has(status));
+
+/**
+ * The fields of a result to log, without file contents: one line for each
+ * target, or one for a pull request the job left alone.
+ */
 export const summarizeRegenerationResult = (
   result: RegenerateGeneratedOutputResult
-): LogFields => ({
-  commit: result.status === "committed" ? result.commitSha : undefined,
-  exitCode: result.status === "failed" ? result.exitCode : undefined,
-  headSha: result.headSha,
-  ignoredPaths: "ignoredPaths" in result ? result.ignoredPaths : undefined,
-  modelInvoked: false,
-  output: result.status === "failed" ? result.output : undefined,
-  paths: "paths" in result ? result.paths : undefined,
-  reason: result.status === "skipped" ? result.reason : undefined,
-  status: result.status,
-  step: result.status === "failed" ? result.step : undefined,
-});
+): LogFields[] =>
+  result.status === "skipped"
+    ? [
+        {
+          headSha: result.headSha,
+          modelInvoked: false,
+          reason: result.reason,
+          status: result.status,
+        },
+      ]
+    : result.targets.map((target) => ({
+        commit: target.status === "committed" ? target.commitSha : undefined,
+        error: target.status === "error" ? target.error : undefined,
+        exitCode: target.status === "failed" ? target.exitCode : undefined,
+        headSha: result.headSha,
+        ignoredPaths:
+          "ignoredPaths" in target ? target.ignoredPaths : undefined,
+        modelInvoked: false,
+        output: target.status === "failed" ? target.output : undefined,
+        paths: "paths" in target ? target.paths : undefined,
+        reason: target.status === "skipped" ? target.reason : undefined,
+        status: target.status,
+        step: target.status === "failed" ? target.step : undefined,
+        target: target.target,
+      }));

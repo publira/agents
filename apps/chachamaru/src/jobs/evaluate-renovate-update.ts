@@ -24,9 +24,9 @@ import {
 } from "./auto-merge-renovate-update.ts";
 import {
   regenerateGeneratedOutput,
+  regenerationMovesHead,
   summarizeRegenerationResult,
 } from "./regenerate-generated-output.ts";
-import type { RegenerateGeneratedOutputResult } from "./regenerate-generated-output.ts";
 import {
   summarizeLockFileSyncResult,
   syncDevContainerLockFile,
@@ -45,11 +45,6 @@ export interface RenovateUpdateJobs {
 // moved already. The push is delivered as `synchronize` and evaluated then.
 const DEFERRING_SYNC_STATUSES = new Set<
   SyncDevContainerLockFileResult["status"]
->(["committed", "head-moved", "would-commit"]);
-
-// The same for the bot's commit of regenerated output.
-const DEFERRING_REGENERATION_STATUSES = new Set<
-  RegenerateGeneratedOutputResult["status"]
 >(["committed", "head-moved", "would-commit"]);
 
 // The same for the bot's commit of automatic lint fixes.
@@ -109,9 +104,9 @@ interface RegenerateOptions {
 }
 
 /**
- * Regenerates a pull request's generated output and logs the outcome or the
- * failure. Tells whether approval and auto-merge wait for the push of the
- * bot's commit.
+ * Regenerates a pull request's generated output and logs the outcome of
+ * each target, or the failure. Tells whether approval and auto-merge wait
+ * for the push of the bot's commit.
  */
 const regenerateAndLog = async ({
   octokit,
@@ -141,12 +136,22 @@ const regenerateAndLog = async ({
       pullNumber,
       repo,
     });
-    const deferred = DEFERRING_REGENERATION_STATUSES.has(result.status);
-    regenerationLog(
-      result.status === "failed" ? "warn" : "info",
-      "Generated output regeneration evaluated",
-      { ...summarizeRegenerationResult(result), evaluationDeferred: deferred }
-    );
+    const deferred = regenerationMovesHead(result);
+    for (const summary of summarizeRegenerationResult(result)) {
+      if (summary.status === "error") {
+        // The target's output stays as it is, like a regeneration that threw.
+        regenerationLog("error", "Generated output regeneration failed", {
+          ...summary,
+          evaluationDeferred: deferred,
+        });
+      } else {
+        regenerationLog(
+          summary.status === "failed" ? "warn" : "info",
+          "Generated output regeneration evaluated",
+          { ...summary, evaluationDeferred: deferred }
+        );
+      }
+    }
     return deferred;
   } catch (error) {
     // The output stays as it is; the repository's CI tells whether it is

@@ -242,9 +242,32 @@ describe(evaluateRenovateCommits, () => {
     });
 
     describe("of regenerated output", () => {
+      const target = {
+        command: "task gen",
+        setup: [],
+        setupTimeout: 120,
+        timeout: 120,
+      };
+      const regeneration = {
+        targets: [
+          {
+            ...target,
+            name: "codegen",
+            paths: ["server/internal/proto/gen/**", "sqlc.lock"],
+            triggers: ["buf.gen.yaml"],
+          },
+          {
+            ...target,
+            name: "ios-packages",
+            paths: ["mobile/ios/Package.resolved"],
+            triggers: ["mobile/pubspec.lock"],
+          },
+        ],
+      };
       const generatedScope = {
         ...scope,
-        generatedPaths: ["server/internal/proto/gen/**", "sqlc.lock"],
+        changedFiles: [...scope.changedFiles, "buf.gen.yaml"],
+        regeneration,
       };
 
       it("accepts a signed commit of the declared generated paths", () => {
@@ -306,6 +329,45 @@ describe(evaluateRenovateCommits, () => {
         expect(
           evaluateRenovateCommits(
             [renovateCommit("a"), lockFileCommit("b", files)],
+            "b",
+            generatedScope
+          )
+        ).toStrictEqual({
+          problem: "files",
+          result: "foreign-commit",
+          sha: "b",
+        });
+      });
+
+      it("accepts the output of every target the pull request triggers", () => {
+        expect(
+          evaluateRenovateCommits(
+            [
+              renovateCommit("a"),
+              lockFileCommit("b", [
+                "server/internal/proto/gen/api.pb.go",
+                "mobile/ios/Package.resolved",
+              ]),
+            ],
+            "b",
+            {
+              ...generatedScope,
+              changedFiles: [
+                ...generatedScope.changedFiles,
+                "mobile/pubspec.lock",
+              ],
+            }
+          )
+        ).toMatchObject({ regenerationCommits: 1, result: "accepted" });
+      });
+
+      it("refuses the output of a target the pull request does not trigger", () => {
+        expect(
+          evaluateRenovateCommits(
+            [
+              renovateCommit("a"),
+              lockFileCommit("b", ["mobile/ios/Package.resolved"]),
+            ],
             "b",
             generatedScope
           )
