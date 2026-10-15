@@ -39,7 +39,7 @@ export interface ExclusionEditRequest {
 export interface ExclusionEdit {
   /** The lines of the block to delete; line 1 is the first. */
   lineNumbers: number[];
-  /** The model that chose them, such as `anthropic/claude-sonnet-5.5`. */
+  /** The model that chose them, such as `openai/gpt-5.2`. */
   model: string;
 }
 

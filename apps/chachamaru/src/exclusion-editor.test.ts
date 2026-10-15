@@ -19,7 +19,7 @@ describe(createModelExclusionEditor, () => {
       doGenerate: {
         content: [{ text: '{"deleteLines":[2,3]}', type: "text" }],
         finishReason: { raw: "stop", unified: "stop" },
-        response: { modelId: "anthropic/claude-sonnet-5.5" },
+        response: { modelId: "openai/gpt-5.2" },
         usage,
         warnings: [],
       },
@@ -39,7 +39,7 @@ describe(createModelExclusionEditor, () => {
       })
     ).resolves.toStrictEqual({
       lineNumbers: [2, 3],
-      model: "anthropic/claude-sonnet-5.5",
+      model: "openai/gpt-5.2",
     });
 
     const sent = JSON.stringify(model.doGenerateCalls[0]?.prompt);
