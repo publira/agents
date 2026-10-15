@@ -171,7 +171,7 @@ const describeCommits = (verdict: RenovateCommitsVerdict): string => {
         author: "was not authored by Renovate",
         committer: "was committed by someone other than its author or GitHub",
         files:
-          "is none of Chachamaru's own commits: of the Dev Container lock files beside the configurations the pull request changes, of the generated output of the regenerations the pull request triggers, or of automatic lint fixes that leave the lock files, package.json files, and .github alone",
+          "is none of Chachamaru's own commits: of the Dev Container lock files beside the configurations the pull request changes, of the generated output of the regenerations Renovate's commits trigger, or of automatic lint fixes that leave the lock files, package.json files, and .github alone",
         model:
           "is Chachamaru's commit of a model's lint fixes, which a maintainer reviews",
         unverified: "has no verified signature",
@@ -648,12 +648,12 @@ const readRegeneration = async ({
   return parsed.result === "valid" ? parsed.config : undefined;
 };
 
-// The files each of the bot's commits changes, and those the pull request
-// does and the regenerations, which tell whether the bot may have made
-// them. Read only when the bot made a commit.
+// The files each of the bot's and Renovate's commits changes, and those the
+// pull request does and the regenerations, which tell whether the bot may
+// have made its commits. Read only when the bot made a commit.
 const readBotCommitScope = async (
   context: PullRequestContext,
-  botShas: readonly string[]
+  { botShas, renovateShas }: { botShas: string[]; renovateShas: string[] }
 ) => {
   const { octokit, owner, repo, pullNumber, reviewer } = context;
   if (botShas.length === 0) {
@@ -667,7 +667,7 @@ const readBotCommitScope = async (
       repo,
     }),
     Promise.all(
-      botShas.map(
+      [...botShas, ...renovateShas].map(
         async (sha) => [sha, await listCommitFiles(context, sha)] as const
       )
     ),
@@ -691,12 +691,14 @@ const checkCommits = async (context: PullRequestContext): Promise<Verdict> => {
     pull_number: pullNumber,
     repo,
   });
-  const { files, scope } = await readBotCommitScope(
-    context,
-    commits
+  const { files, scope } = await readBotCommitScope(context, {
+    botShas: commits
       .filter(({ author }) => author?.login === reviewer)
-      .map(({ sha }) => sha)
-  );
+      .map(({ sha }) => sha),
+    renovateShas: commits
+      .filter(({ author }) => author?.login === RENOVATE_LOGIN)
+      .map(({ sha }) => sha),
+  });
   const verdict = evaluateRenovateCommits(
     commits.map((commit) => ({
       authorLogin: commit.author?.login,

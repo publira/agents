@@ -264,17 +264,15 @@ describe(evaluateRenovateCommits, () => {
           },
         ],
       };
-      const generatedScope = {
-        ...scope,
-        changedFiles: [...scope.changedFiles, "buf.gen.yaml"],
-        regeneration,
-      };
+      const generatedScope = { ...scope, regeneration };
+      // Renovate's commit, which changes a trigger of `codegen`.
+      const bump = { ...renovateCommit("a"), files: ["buf.gen.yaml"] };
 
       it("accepts a signed commit of the declared generated paths", () => {
         expect(
           evaluateRenovateCommits(
             [
-              renovateCommit("a"),
+              bump,
               lockFileCommit("b", [
                 "server/internal/proto/gen/api/v1/api.pb.go",
                 "sqlc.lock",
@@ -296,7 +294,7 @@ describe(evaluateRenovateCommits, () => {
         expect(
           evaluateRenovateCommits(
             [
-              renovateCommit("a"),
+              bump,
               lockFileCommit("b", [".devcontainer/devcontainer-lock.json"]),
               lockFileCommit("c", ["server/internal/proto/gen/api.pb.go"]),
             ],
@@ -328,7 +326,7 @@ describe(evaluateRenovateCommits, () => {
       ])("refuses one that changes %s", (_, files) => {
         expect(
           evaluateRenovateCommits(
-            [renovateCommit("a"), lockFileCommit("b", files)],
+            [bump, lockFileCommit("b", files)],
             "b",
             generatedScope
           )
@@ -339,24 +337,18 @@ describe(evaluateRenovateCommits, () => {
         });
       });
 
-      it("accepts the output of every target the pull request triggers", () => {
+      it("accepts the output of every target Renovate's commits trigger", () => {
         expect(
           evaluateRenovateCommits(
             [
-              renovateCommit("a"),
+              { ...bump, files: ["buf.gen.yaml", "mobile/pubspec.lock"] },
               lockFileCommit("b", [
                 "server/internal/proto/gen/api.pb.go",
                 "mobile/ios/Package.resolved",
               ]),
             ],
             "b",
-            {
-              ...generatedScope,
-              changedFiles: [
-                ...generatedScope.changedFiles,
-                "mobile/pubspec.lock",
-              ],
-            }
+            generatedScope
           )
         ).toMatchObject({ regenerationCommits: 1, result: "accepted" });
       });
@@ -364,12 +356,52 @@ describe(evaluateRenovateCommits, () => {
       it("refuses the output of a target the pull request does not trigger", () => {
         expect(
           evaluateRenovateCommits(
-            [
-              renovateCommit("a"),
-              lockFileCommit("b", ["mobile/ios/Package.resolved"]),
-            ],
+            [bump, lockFileCommit("b", ["mobile/ios/Package.resolved"])],
             "b",
             generatedScope
+          )
+        ).toStrictEqual({
+          problem: "files",
+          result: "foreign-commit",
+          sha: "b",
+        });
+      });
+
+      it("accepts the output of a target whose trigger it restores", () => {
+        // The pull request's diff no longer lists the trigger.
+        expect(
+          evaluateRenovateCommits(
+            [
+              { ...renovateCommit("a"), files: ["gen/VERSION"] },
+              lockFileCommit("b", ["gen/VERSION", "gen/api.pb.go"]),
+            ],
+            "b",
+            {
+              ...scope,
+              regeneration: {
+                targets: [
+                  {
+                    ...target,
+                    name: "gen",
+                    paths: ["gen/**"],
+                    triggers: ["gen/VERSION"],
+                  },
+                ],
+              },
+            }
+          )
+        ).toMatchObject({ regenerationCommits: 1, result: "accepted" });
+      });
+
+      it("refuses the output of a target only the bot's commit triggers", () => {
+        expect(
+          evaluateRenovateCommits(
+            [
+              renovateCommit("a"),
+              lockFileCommit("b", ["server/internal/proto/gen/api.pb.go"]),
+            ],
+            "b",
+            { ...generatedScope, changedFiles: ["buf.gen.yaml"] }
           )
         ).toStrictEqual({
           problem: "files",
@@ -382,7 +414,7 @@ describe(evaluateRenovateCommits, () => {
         expect(
           evaluateRenovateCommits(
             [
-              renovateCommit("a"),
+              bump,
               lockFileCommit("b", ["server/internal/proto/gen/api.pb.go"]),
             ],
             "b",

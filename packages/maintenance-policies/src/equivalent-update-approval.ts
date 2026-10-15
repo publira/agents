@@ -35,7 +35,10 @@ export interface PullRequestCommit {
   committerLogin: string | undefined;
   /** Whether GitHub verified the commit's signature. */
   verified: boolean;
-  /** The files the commit changes; read only for the bot's commits. */
+  /**
+   * The files the commit changes; read only for the bot's and Renovate's
+   * commits, and only when the bot made one.
+   */
   files?: readonly string[];
   /** The first line of the commit's message. */
   subject?: string;
@@ -50,7 +53,7 @@ export interface BotCommitScope {
   /**
    * The regenerations the repository declares on the base branch; none
    * without a valid declaration. The bot commits the generated output of the
-   * targets whose triggers the pull request changes.
+   * targets whose triggers Renovate's commits change.
    */
   regeneration?: RegenerationConfig;
 }
@@ -131,7 +134,7 @@ const botCommitKind = (
  * With `bot`, the bot's own commits are accepted too, signed like Renovate's,
  * as long as each changes only the lock files beside the Dev Container
  * configurations the pull request changes, or only the generated output of
- * the regeneration targets the pull request triggers, or is its commit of
+ * the regeneration targets Renovate's commits trigger, or is its commit of
  * automatic lint fixes, which changes no lock file, `package.json`, or file
  * under `.github/`. Its commit of a model's lint fixes is never accepted.
  */
@@ -150,12 +153,16 @@ export const evaluateRenovateCommits = (
   }
 
   const allowedLockFiles = lockFilesOf(bot?.changedFiles ?? []);
+  // What Renovate changed, rather than the pull request's diff: a target
+  // may restore a trigger that is also its output, which leaves the diff.
   const generatedPaths =
     bot?.regeneration === undefined
       ? []
       : triggeredRegenerationTargets(
           bot.regeneration,
-          bot.changedFiles
+          commits.flatMap(({ authorLogin, files = [] }) =>
+            authorLogin === RENOVATE_LOGIN ? files : []
+          )
         ).flatMap(({ paths }) => paths);
   const botCommits = { "lint-fix": 0, "lock-file": 0, regeneration: 0 };
 
