@@ -40,6 +40,8 @@ describe(parseRegenerationConfig, () => {
           "packages/api-client/src/gen/**",
         ],
         setup: [SQLC_SETUP],
+        setupTimeout: 120,
+        timeout: 120,
         triggers: ["buf.gen.yaml", ".github/workflows/ci.yml"],
         workflowEnv: ".github/workflows/ci.yml",
       },
@@ -68,10 +70,51 @@ describe(parseRegenerationConfig, () => {
         command: "pnpm codegen",
         paths: ["src/gen/**"],
         setup: [],
+        setupTimeout: 120,
+        timeout: 120,
         triggers: ["schema.graphql"],
       },
       result: "valid",
     });
+  });
+
+  it("reads the time limits a declaration sets", () => {
+    expect(
+      parseRegenerationConfig(
+        "triggers: [pubspec.yaml]\nsetup: [a, b]\nsetupTimeout: 150\ncommand: make\ntimeout: 180\npaths: [gen/**]\n"
+      )
+    ).toMatchObject({
+      config: { setupTimeout: 150, timeout: 180 },
+      result: "valid",
+    });
+  });
+
+  it("reads limits that total the maximum", () => {
+    expect(
+      parseRegenerationConfig(
+        "triggers: [a]\nsetup: [a, b, c]\ncommand: make\npaths: [gen/**]\n"
+      )
+    ).toMatchObject({ result: "valid" });
+  });
+
+  it.each([
+    ["a timeout over the maximum", "timeout: 481\n", /timeout/u],
+    ["a setupTimeout over the maximum", "setupTimeout: 481\n", /setupTimeout/u],
+    ["a timeout of zero", "timeout: 0\n", /timeout/u],
+    ["a fractional timeout", "timeout: 1.5\n", /timeout/u],
+    ["a timeout as text", "timeout: 2m\n", /timeout/u],
+    [
+      "limits that total more than the maximum",
+      "setup: [a, b, c]\nsetupTimeout: 121\n",
+      /timeout and setupTimeout .* at most 480 seconds, not 483/u,
+    ],
+  ])("refuses one with %s, naming the field", (_, limits, field) => {
+    const parsed = parseRegenerationConfig(
+      `triggers: [a]\ncommand: make\npaths: [gen/**]\n${limits}`
+    );
+
+    expect(parsed).toMatchObject({ result: "invalid" });
+    expect(parsed.result === "invalid" && parsed.reason).toMatch(field);
   });
 
   it.each([
@@ -146,6 +189,8 @@ describe("the JSON Schema", () => {
     ["an empty command", { command: "" }],
     ["no generated paths", { paths: [] }],
     ["a trigger that is not a string", { triggers: [1] }],
+    ["a timeout over the maximum", { timeout: 481 }],
+    ["a fractional setupTimeout", { setupTimeout: 1.5 }],
   ])("refuses %s", (_label, change) => {
     expect(validate({ ...parse(CONFIG), ...change })).toBeFalsy();
   });

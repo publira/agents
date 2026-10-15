@@ -100,6 +100,7 @@ export {
   REGENERATION_CONFIG_JSON_SCHEMA,
   REGENERATION_CONFIG_PATH,
   REGENERATION_CONFIG_SCHEMA_URL,
+  regenerationSeconds,
 } from "./regeneration.ts";
 export type {
   RenovateUpdate,

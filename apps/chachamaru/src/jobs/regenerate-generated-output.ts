@@ -6,6 +6,7 @@ import {
   parseRegenerationConfig,
   readWorkflowEnv,
   REGENERATION_CONFIG_PATH,
+  regenerationSeconds,
 } from "@publira/maintenance-policies";
 import type { RegenerationConfig } from "@publira/maintenance-policies";
 
@@ -28,16 +29,21 @@ export const REGENERATION_COMMIT_SUBJECT =
 // Where the sandbox checks the pull request out.
 const WORKTREE = "/tmp/repository";
 
-/**
- * How long the sandbox may live, within the 800 seconds the project allows
- * the Vercel Function that the webhook handler and the hourly sweep run in.
- * The sweep runs several at once, so each leaves the others their share.
- */
-const SANDBOX_TIMEOUT_MS = 240_000;
-
 const FETCH_TIMEOUT_MS = 60_000;
-const SETUP_TIMEOUT_MS = 120_000;
-const COMMAND_TIMEOUT_MS = 120_000;
+
+// How much of the sandbox's life is left after the command, to read back
+// what it changed.
+const READ_BACK_MS = 60_000;
+
+/**
+ * How long the sandbox may live: the fetch, every setup command and the
+ * command for as long as the declaration lets them run, and the read-back.
+ * The declaration's maximum keeps it within the 800 seconds the project
+ * allows the Vercel Function that the webhook handler and the hourly sweep
+ * run in.
+ */
+const sandboxTimeoutMs = (config: RegenerationConfig) =>
+  FETCH_TIMEOUT_MS + regenerationSeconds(config) * 1000 + READ_BACK_MS;
 
 // Where a setup command installs a generator; it is on the PATH of the
 // setup commands and of the command.
@@ -174,13 +180,13 @@ const regenerateInSandbox = async (
 
   for (const command of config.setup) {
     // oxlint-disable-next-line no-await-in-loop -- each builds on the last
-    const setup = await shell(command, SETUP_TIMEOUT_MS);
+    const setup = await shell(command, config.setupTimeout * 1000);
     if (setup.exitCode !== 0) {
       return failure("setup", setup);
     }
   }
 
-  const regeneration = await shell(config.command, COMMAND_TIMEOUT_MS);
+  const regeneration = await shell(config.command, config.timeout * 1000);
   if (regeneration.exitCode !== 0) {
     return failure("command", regeneration);
   }
@@ -390,7 +396,7 @@ export const regenerateGeneratedOutput = async (
         readToken,
         repo,
       }),
-    { timeoutMs: SANDBOX_TIMEOUT_MS }
+    { timeoutMs: sandboxTimeoutMs(config) }
   );
 
   if (regenerated.status === "failed") {

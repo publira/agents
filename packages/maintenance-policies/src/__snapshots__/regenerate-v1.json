@@ -27,6 +27,20 @@
         "minLength": 1
       }
     },
+    "setupTimeout": {
+      "default": 120,
+      "description": "How long each setup command may run, in seconds. `timeout` and `setupTimeout` for each setup command may total at most 480.",
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 480
+    },
+    "timeout": {
+      "default": 120,
+      "description": "How long `command` may run, in seconds. `timeout` and `setupTimeout` for each setup command may total at most 480.",
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 480
+    },
     "triggers": {
       "minItems": 1,
       "type": "array",
