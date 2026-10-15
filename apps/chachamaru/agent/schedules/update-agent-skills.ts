@@ -1,10 +1,7 @@
 import { defineSchedule } from "eve/schedules";
 
 import { getGitHubApp } from "../../src/github-app.ts";
-import {
-  SANDBOX_TIMEOUT_MS,
-  updateAgentSkillsEverywhere,
-} from "../../src/jobs/update-agent-skills.ts";
+import { updateAgentSkillsEverywhere } from "../../src/jobs/update-agent-skills.ts";
 import { log, withFields } from "../../src/log.ts";
 import { createVercelSandboxRunner } from "../../src/sandbox-runner.ts";
 import { readSettings } from "../../src/settings.ts";
@@ -33,10 +30,7 @@ export default defineSchedule({
       app,
       dryRun,
       log: scheduleLog,
-      sandbox: createVercelSandboxRunner({
-        log: scheduleLog,
-        timeoutMs: SANDBOX_TIMEOUT_MS,
-      }),
+      sandbox: createVercelSandboxRunner({ log: scheduleLog }),
     });
   },
 });

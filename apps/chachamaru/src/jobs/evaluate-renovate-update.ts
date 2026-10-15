@@ -389,9 +389,10 @@ export interface EvaluateRenovateUpdatesEverywhereOptions {
 
 /**
  * How many pull requests of one repository the sweep runs a sandbox for at
- * once. Each sandbox can live up to 240 seconds, close to the 300 the
- * function running the sweep has, so one after another, a slow one would
- * leave the next too little time, every hour again.
+ * once. A regeneration's sandbox can live up to 240 seconds and a lint
+ * fix's up to 480, of the 800 the function running the sweep has, so one
+ * after another, a slow one would leave the next too little time, every
+ * hour again.
  */
 export const SWEEP_SANDBOX_CONCURRENCY = 4;
 

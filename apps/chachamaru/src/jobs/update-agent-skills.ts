@@ -41,10 +41,12 @@ const TITLE = "chore(skills): update agent skills";
 const WORKTREE = "/tmp/repository";
 
 /**
- * How long the sandbox may live, within the 300 seconds a Vercel Function
- * runs by default. A clone and an update of publira/publira took 30 seconds.
+ * How long the sandbox may live, within the 800 seconds the project allows
+ * the Vercel Function that the schedule runs in, which updates every
+ * repository at once. A clone and an update of publira/publira took 30
+ * seconds.
  */
-export const SANDBOX_TIMEOUT_MS = 240_000;
+const SANDBOX_TIMEOUT_MS = 240_000;
 
 const CLONE_TIMEOUT_MS = 60_000;
 const UPDATE_TIMEOUT_MS = 120_000;
@@ -278,8 +280,9 @@ export const updateAgentSkills = async ({
   }
 
   const readToken = repository.private ? await createReadToken() : undefined;
-  const update = await sandbox((session) =>
-    updateInSandbox(session, { branch, owner, readToken, repo })
+  const update = await sandbox(
+    (session) => updateInSandbox(session, { branch, owner, readToken, repo }),
+    { timeoutMs: SANDBOX_TIMEOUT_MS }
   );
 
   if (update.status === "failed") {

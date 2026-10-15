@@ -29,10 +29,11 @@ export const REGENERATION_COMMIT_SUBJECT =
 const WORKTREE = "/tmp/repository";
 
 /**
- * How long the sandbox may live, within the 300 seconds a Vercel Function
- * runs by default, which the webhook handler and the hourly sweep run in.
+ * How long the sandbox may live, within the 800 seconds the project allows
+ * the Vercel Function that the webhook handler and the hourly sweep run in.
+ * The sweep runs several at once, so each leaves the others their share.
  */
-export const SANDBOX_TIMEOUT_MS = 240_000;
+const SANDBOX_TIMEOUT_MS = 240_000;
 
 const FETCH_TIMEOUT_MS = 60_000;
 const SETUP_TIMEOUT_MS = 120_000;
@@ -379,15 +380,17 @@ export const regenerateGeneratedOutput = async (
   const readToken = pullRequest.base.repo.private
     ? await createReadToken()
     : undefined;
-  const regenerated = await sandbox((session) =>
-    regenerateInSandbox(session, {
-      config,
-      env,
-      headSha,
-      owner,
-      readToken,
-      repo,
-    })
+  const regenerated = await sandbox(
+    (session) =>
+      regenerateInSandbox(session, {
+        config,
+        env,
+        headSha,
+        owner,
+        readToken,
+        repo,
+      }),
+    { timeoutMs: SANDBOX_TIMEOUT_MS }
   );
 
   if (regenerated.status === "failed") {

@@ -195,6 +195,11 @@ interface LocalSandboxOptions {
   fetchExitCode?: number;
   /** Passed to every command, such as an exit code for a stand-in. */
   env?: Readonly<Record<string, string>>;
+  /**
+   * How long the sandbox has left when the task starts, instead of the
+   * whole life the job asks for.
+   */
+  timeLeftMs?: number;
 }
 
 /**
@@ -207,6 +212,7 @@ const localSandbox = ({
   origin,
   fetchExitCode = 0,
   env = {},
+  timeLeftMs,
 }: LocalSandboxOptions) => {
   const worktree = path.join(root, "sandbox", "repository");
   const home = path.join(root, "sandbox", "home");
@@ -270,15 +276,16 @@ const localSandbox = ({
         stdout: result.stdout,
       });
     },
-    stopsAt: Date.now() + 240_000,
+    stopsAt: 0,
     writeFile(file, content) {
       write("/", localize(file), content);
       return Promise.resolve();
     },
   };
-  const requested: (SandboxOptions | undefined)[] = [];
+  const requested: SandboxOptions[] = [];
   const runner: SandboxRunner = (task, options) => {
     requested.push(options);
+    sandbox.stopsAt = Date.now() + (timeLeftMs ?? options.timeoutMs);
     return task(sandbox);
   };
 
@@ -292,6 +299,8 @@ const localSandbox = ({
     requested: () => requested,
     runner,
     started: () => requested.length,
+    /** When the sandbox stops, as the job was told. */
+    stopsAt: () => sandbox.stopsAt,
     worktree,
   };
 };
@@ -569,7 +578,9 @@ describe(applyLintFixes, () => {
 
     await run(github, sandbox, { dryRun: true });
 
-    expect(sandbox.requested()).toStrictEqual([{ vcpus: 4 }]);
+    expect(sandbox.requested()).toStrictEqual([
+      { timeoutMs: 480_000, vcpus: 4 },
+    ]);
   });
 
   it("installs and runs ultracite with npm when the repository names it", async () => {
@@ -929,6 +940,7 @@ describe("applyLintFixes with a model for the findings", () => {
       commitSha: "new-commit",
       findings: {
         checkPassed: true,
+        invoked: true,
         model: MODEL,
         paths: ["README.md", "src/index.ts"],
         stopped: false,
@@ -996,12 +1008,12 @@ describe("applyLintFixes with a model for the findings", () => {
     const github = fakeGitHub({ fixture });
     const sandbox = localSandbox({ origin: fixture.origin, root });
     const { fixer } = modelWriting(sandbox, { "src/index.ts": FIXED_SCRIPT });
-    const latest = Date.now() + 240_000 - 75_000;
 
     await run(github, sandbox, { dryRun: true, fixer });
 
+    // The check's timeout, and the Git commands around it.
     const [request] = fixer.mock.calls[0] ?? [];
-    expect(request?.deadline).toBeLessThanOrEqual(latest);
+    expect(request?.deadline).toBe(sandbox.stopsAt() - 135_000);
   });
 
   it("commits the automatic fix and comments when the model's run fails", async () => {
@@ -1017,6 +1029,7 @@ describe("applyLintFixes with a model for the findings", () => {
       findings: {
         comment: { created: true, id: 100 },
         error: "The gateway is down",
+        invoked: true,
         paths: [],
         reason: "the model's run failed",
       },
@@ -1033,6 +1046,50 @@ describe("applyLintFixes with a model for the findings", () => {
     ]);
   });
 
+  it("commits the automatic fix without asking a model that has no time left", async () => {
+    const github = fakeGitHub({ fixture });
+    // The steps before the model took all but the time the check needs.
+    const sandbox = localSandbox({
+      origin: fixture.origin,
+      root,
+      timeLeftMs: 135_000,
+    });
+    const { fixer } = modelWriting(sandbox, { "src/index.ts": FIXED_SCRIPT });
+
+    await expect(run(github, sandbox, { fixer })).resolves.toStrictEqual({
+      checkPassed: false,
+      commitSha: "new-commit",
+      findings: {
+        comment: { created: true, id: 100 },
+        invoked: false,
+        paths: [],
+        reason: "the sandbox had no time left for the model",
+      },
+      headSha: fixture.headSha,
+      output: "debugger statement\n",
+      paths: ["README.md"],
+      status: "committed",
+    } satisfies ApplyLintFixesResult);
+    expect(fixer).not.toHaveBeenCalled();
+    expect(sandbox.networkDenied()).toBeFalsy();
+    // The comment tells the maintainers why no model fixed the findings.
+    expect(github.writes[3]?.route).toBe(
+      `POST ${repository}/issues/31/comments`
+    );
+    expect(github.writes[3]?.body).toStrictEqual({
+      body: [
+        marker(),
+        `The automatic lint fixes leave findings on ${fixture.headSha}, and Chachamaru had no time left to ask a model to fix them. A maintainer needs to fix them; Chachamaru does not try this commit again.`,
+        "",
+        "The end of `pnpm exec ultracite check` after the automatic fixes:",
+        "",
+        "```",
+        "debugger statement",
+        "```",
+      ].join("\n"),
+    });
+  });
+
   it("plans the model's commit in a dry run", async () => {
     const github = fakeGitHub({ fixture });
     const sandbox = localSandbox({ origin: fixture.origin, root });
@@ -1041,7 +1098,11 @@ describe("applyLintFixes with a model for the findings", () => {
     await expect(
       run(github, sandbox, { dryRun: true, fixer })
     ).resolves.toMatchObject({
-      findings: { checkPassed: true, paths: ["README.md", "src/index.ts"] },
+      findings: {
+        checkPassed: true,
+        invoked: true,
+        paths: ["README.md", "src/index.ts"],
+      },
       paths: ["README.md", "src/index.ts"],
       status: "would-commit",
     });
@@ -1061,6 +1122,7 @@ describe("applyLintFixes with a model for the findings", () => {
       findings: {
         checkPassed: true,
         comment: { created: true, id: 100 },
+        invoked: true,
         model: MODEL,
         paths: ["README.md", "src/index.ts"],
         reason: "the model added comments that turn findings off",
@@ -1138,6 +1200,7 @@ describe("applyLintFixes with a model for the findings", () => {
       exitCode: 1,
       // The log says the model ran, and what it changed.
       findings: {
+        invoked: true,
         model: MODEL,
         paths: ["README.md", "src/index.ts"],
         stopped: false,
@@ -1171,6 +1234,7 @@ describe("applyLintFixes with a model for the findings", () => {
       findings: {
         checkPassed: false,
         comment: { created: true, id: 100 },
+        invoked: true,
         model: MODEL,
         paths: ["src/index.ts"],
         reason: "`ultracite check` still fails after the model's changes",
@@ -1265,6 +1329,32 @@ describe(summarizeLintFixResult, () => {
     });
   });
 
+  it("logs that the model was not asked, and why", () => {
+    expect(
+      summarizeLintFixResult({
+        checkPassed: false,
+        commitSha: "fixed",
+        findings: {
+          invoked: false,
+          paths: [],
+          reason: "the sandbox had no time left for the model",
+        },
+        headSha: "head",
+        output: "debugger statement\n",
+        paths: ["README.md"],
+        status: "committed",
+      })
+    ).toMatchObject({
+      comment: undefined,
+      model: undefined,
+      modelError: undefined,
+      modelInvoked: false,
+      modelPaths: [],
+      modelReason: "the sandbox had no time left for the model",
+      status: "committed",
+    });
+  });
+
   it("logs what the model did and why its fix was refused", () => {
     expect(
       summarizeLintFixResult({
@@ -1273,6 +1363,7 @@ describe(summarizeLintFixResult, () => {
         findings: {
           checkPassed: true,
           comment: { created: true, id: 7 },
+          invoked: true,
           model: "openai/gpt-5.1-codex-mini",
           paths: ["README.md", "src/index.ts"],
           reason: "the model added comments that turn findings off",

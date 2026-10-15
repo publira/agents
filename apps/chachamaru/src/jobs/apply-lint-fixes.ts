@@ -65,6 +65,17 @@ const LINT_TIMEOUT_MS = 120_000;
 // changes and read them back: the check, and the Git commands around it.
 const CHECK_RESERVE_MS = LINT_TIMEOUT_MS + 15_000;
 
+/**
+ * How long the sandbox may live, within the 800 seconds the project allows
+ * the Vercel Function that the webhook handler and the hourly sweep run in.
+ * On publira/publira the fetch, the install, and the three runs of
+ * ultracite before the model take up to 200 seconds; with the 90 the model
+ * may work and the reserve after it, the model gets its whole time with
+ * some to spare, and a repository whose lint takes longer still has a
+ * sandbox that stops well within the function.
+ */
+const SANDBOX_TIMEOUT_MS = 480_000;
+
 // How much of the check's output and of the automatic fix's diff the model
 // reads, from their ends.
 const MODEL_INPUT_LIMIT = 20_000;
@@ -125,6 +136,11 @@ export interface ApplyLintFixesOptions {
  * asked to fix.
  */
 export interface FindingsFix {
+  /**
+   * Whether the model was asked; it is not when the sandbox had no time
+   * left for it.
+   */
+  invoked: boolean;
   /** The model that made the changes; none when its run failed. */
   model?: string;
   /**
@@ -145,7 +161,10 @@ export interface FindingsFix {
   paths: string[];
   /** Why the model's run failed. */
   error?: string;
-  /** Why the changes are not committed, when they are refused. */
+  /**
+   * Why the changes are not committed, when they are refused, or why the
+   * model was not asked.
+   */
   reason?: string;
   /** The files among `paths` that kept them from being committed. */
   refusedPaths?: string[];
@@ -231,8 +250,8 @@ interface SandboxRequest {
 }
 
 /**
- * What the model changed, and what the check and the policy made of it, or
- * why its run failed.
+ * What the model changed, and what the check and the policy made of it, why
+ * its run failed, or why it was not asked.
  */
 type SandboxFindingsFix =
   | {
@@ -245,7 +264,8 @@ type SandboxFindingsFix =
       checkPassed: boolean;
       verdict: LintFindingsFixVerdict;
     }
-  | { status: "model-failed"; error: string };
+  | { status: "model-failed"; error: string }
+  | { status: "not-asked"; reason: string };
 
 /** A command the sandbox could not run to the end; see the result. */
 type Failure = Omit<
@@ -329,12 +349,22 @@ interface FindingsRequest {
  * that fix left them and staged them, then checks and reads back the
  * result. The model works in this sandbox through its tools; the job, not
  * the model, runs the check afterwards and reads the diff. A tool killed
- * during that check fails the job: the changes cannot be checked.
+ * during that check fails the job: the changes cannot be checked. When the
+ * steps before took so long that the model's time is already up, it is not
+ * asked.
  */
 const fixFindingsInSandbox = async (
   sandbox: Sandbox,
   { fixer, command, check, output }: FindingsRequest
 ): Promise<SandboxFindingsFix | Failure> => {
+  const deadline = sandbox.stopsAt - CHECK_RESERVE_MS;
+  if (deadline <= Date.now()) {
+    return {
+      reason: "the sandbox had no time left for the model",
+      status: "not-asked",
+    };
+  }
+
   // Fixing and checking need no network, and the model's calls run in the
   // app runtime, not in the sandbox.
   await sandbox.denyNetwork();
@@ -352,7 +382,7 @@ const fixFindingsInSandbox = async (
   try {
     fix = await fixer({
       command,
-      deadline: sandbox.stopsAt - CHECK_RESERVE_MS,
+      deadline,
       diff: tail(diff, MODEL_INPUT_LIMIT),
       output: tail(output, MODEL_INPUT_LIMIT),
       sandbox,
@@ -393,7 +423,12 @@ const fixFindingsInSandbox = async (
     // The model ran, and the log says so, with what it changed.
     return {
       ...killed,
-      findings: { model, paths: changes.map(({ path }) => path), stopped },
+      findings: {
+        invoked: true,
+        model,
+        paths: changes.map(({ path }) => path),
+        stopped,
+      },
     };
   }
   const checkPassed = after.exitCode === 0;
@@ -664,12 +699,21 @@ const commitOf = (
 
 /** What a model's fix comes to, without the files. */
 const summarizeFindings = (fix: SandboxFindingsFix): FindingsFix => {
+  if (fix.status === "not-asked") {
+    return { invoked: false, paths: [], reason: fix.reason };
+  }
   if (fix.status === "model-failed") {
-    return { error: fix.error, paths: [], reason: "the model's run failed" };
+    return {
+      error: fix.error,
+      invoked: true,
+      paths: [],
+      reason: "the model's run failed",
+    };
   }
   const { model, stopped, changes, checkPassed, verdict } = fix;
   return {
     checkPassed,
+    invoked: true,
     model,
     paths: changes.map(({ path }) => path),
     stopped,
@@ -685,12 +729,14 @@ const summarizeFindings = (fix: SandboxFindingsFix): FindingsFix => {
 
 const findingsComment = (
   headSha: string,
-  { reason, refusedPaths = [], suppressions = [] }: FindingsFix,
+  { invoked, reason, refusedPaths = [], suppressions = [] }: FindingsFix,
   { command, output }: { command: string; output: string }
 ) =>
   [
     findingsMarker(headSha),
-    `The automatic lint fixes leave findings on ${headSha} that a model could not fix for Chachamaru: ${reason ?? "its changes were refused"}. A maintainer needs to fix them; Chachamaru does not try this commit again.`,
+    invoked
+      ? `The automatic lint fixes leave findings on ${headSha} that a model could not fix for Chachamaru: ${reason ?? "its changes were refused"}. A maintainer needs to fix them; Chachamaru does not try this commit again.`
+      : `The automatic lint fixes leave findings on ${headSha}, and Chachamaru had no time left to ask a model to fix them. A maintainer needs to fix them; Chachamaru does not try this commit again.`,
     ...(refusedPaths.length === 0
       ? []
       : [
@@ -762,9 +808,10 @@ const commitFindingsFix = async (
 };
 
 /**
- * Commits the automatic fix alone, as without a model, and, when a model
- * was asked, tells the maintainers on the pull request why its changes were
- * not committed, once for the head, unless the head moved on.
+ * Commits the automatic fix alone, as without a model, and, when the
+ * findings were the model's to fix, tells the maintainers on the pull
+ * request why its changes were not committed, or why it was not asked,
+ * once for the head, unless the head moved on.
  */
 const commitAutomaticFix = async (
   settlement: Settlement,
@@ -879,6 +926,8 @@ const commitAutomaticFix = async (
  * comment that turns a finding off. Otherwise it commits the automatic fix
  * alone, as without a model, and comments on the pull request once for the
  * head. The model gets one attempt per head, and the comment records it.
+ * When the steps before the model took so long that its time is up before
+ * it starts, it is not asked, and the comment says so instead.
  *
  * It commits on top of the head and only as a fast-forward, and refuses an
  * automatic fix that changes a lock file, a `package.json`, or a file under
@@ -958,7 +1007,7 @@ export const applyLintFixes = async (
         readToken,
         repo,
       }),
-    { vcpus: SANDBOX_VCPUS }
+    { timeoutMs: SANDBOX_TIMEOUT_MS, vcpus: SANDBOX_VCPUS }
   );
 
   if (fixed.status === "changed-before-fix") {
@@ -999,7 +1048,7 @@ const findingsFields = (findings: FindingsFix | undefined): LogFields => ({
   model: findings?.model,
   modelCheckPassed: findings?.checkPassed,
   modelError: findings?.error,
-  modelInvoked: findings !== undefined,
+  modelInvoked: findings?.invoked ?? false,
   modelPaths: findings?.paths,
   modelReason: findings?.reason,
   modelRefusedPaths: findings?.refusedPaths,

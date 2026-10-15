@@ -7,7 +7,6 @@ import {
   evaluateRenovateUpdatesEverywhere,
   fixLintAndLog,
 } from "../jobs/evaluate-renovate-update.ts";
-import { SANDBOX_TIMEOUT_MS } from "../jobs/regenerate-generated-output.ts";
 import { createModelLintFindingsFixer } from "../lint-findings-fixer.ts";
 import type { LintFindingsFixer } from "../lint-findings-fixer.ts";
 import { withFields } from "../log.ts";
@@ -93,7 +92,7 @@ export interface RenovateUpdateHandlerOptions {
 }
 
 const createRepositorySandbox = (log: Log) =>
-  createVercelSandboxRunner({ log, timeoutMs: SANDBOX_TIMEOUT_MS });
+  createVercelSandboxRunner({ log });
 
 /**
  * The handlers that approve equivalent Renovate updates, and auto-merge them,
