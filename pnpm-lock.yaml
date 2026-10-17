@@ -168,8 +168,8 @@ catalogs:
       specifier: 24.19.2
       version: 24.19.2
     '@vercel/sandbox':
-      specifier: 3.7.0
-      version: 3.7.0
+      specifier: 3.8.0
+      version: 3.8.0
     ajv:
       specifier: 8.20.0
       version: 8.20.0
@@ -234,7 +234,7 @@ importers:
         version: link:../../packages/pnpm-workspace
       '@vercel/sandbox':
         specifier: 'catalog:'
-        version: 3.7.0
+        version: 3.8.0
       ai:
         specifier: 7.0.139
         version: 7.0.139(zod@4.6.7)
@@ -1082,8 +1082,8 @@ packages:
     resolution: {integrity: sha512-ko6ATeRUlHZMB5hLFdC7+/Q1dI2f3NX3gZHxtpALdkxurwjD5HFHGWYF+4o+4SF0E47jg6KzcHknmRpHcKgJ5A==}
     engines: {node: '>= 20'}
 
-  '@vercel/sandbox@3.7.0':
-    resolution: {integrity: sha512-ncGIIIJHxMnZAw+UCCF1fxum0j1Sez/wVsRpuMpaekbEcaM5V4hahJ/HGw06r4cV48U0tEJqoMIMRAZIktlkWw==}
+  '@vercel/sandbox@3.8.0':
+    resolution: {integrity: sha512-2ib+Dl8WG898OBmtep33UtE6pGbvNA9WClT7NHqQ0tch1Lq1OjQ/gmfjDT32C3HvyPA4YBXoLiJDVWZXURQW8w==}
 
   '@vitest/mocker@5.0.4':
     resolution: {integrity: sha512-tqAlrYWce4iUxhr3ncNohejtCTOcHeE8XWrSNZY3OhPoDn01yeGv+gnaBy64ATp7o6pb03eIbBAjzmibpc9vIQ==}
@@ -2806,7 +2806,7 @@ snapshots:
       '@vercel/cli-exec': 1.0.1
       jose: 5.10.0
 
-  '@vercel/sandbox@3.7.0':
+  '@vercel/sandbox@3.8.0':
     dependencies:
       '@vercel/detect-agent': 1.2.5
       '@vercel/oidc': 4.0.0
