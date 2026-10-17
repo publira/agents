@@ -18,11 +18,13 @@ export const getBranchHeadSha = async (
       owner,
       repo,
     });
+
     return data.commit.sha;
   } catch (error) {
     if (requestFailure.safeParse(error).data?.status === 404) {
       return undefined;
     }
+
     throw error;
   }
 };

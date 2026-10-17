@@ -123,9 +123,11 @@ exit 2
 
 const runGit = (cwd: string, ...args: string[]) => {
   const result = spawnSync("git", args, { cwd, encoding: "utf-8" });
+
   if (result.status !== 0) {
     throw new Error(`git ${args.join(" ")}: ${result.stderr}`);
   }
+
   return result.stdout.trim();
 };
 
@@ -146,6 +148,7 @@ const commitAll = (root: string, message: string) => {
     "--quiet",
     `--message=${message}`
   );
+
   return runGit(root, "rev-parse", "HEAD");
 };
 
@@ -172,6 +175,7 @@ const createFixture = (root: string): Fixture => {
   write(origin, "docs/usage.md", "Open a comic.\n");
   write(origin, "src/index.ts", "export const read = () => 1;\n");
   const headSha = commitAll(origin, "chore(deps): update oxc monorepo");
+
   return { headSha, manifest: manifest("pnpm@12.10.1"), origin };
 };
 
@@ -182,6 +186,7 @@ const commitToFixture = (
   for (const [file, content] of Object.entries(files)) {
     write(fixture.origin, file, content);
   }
+
   fixture.headSha = commitAll(fixture.origin, "chore(deps): update oxc");
   fixture.manifest = readFileSync(
     path.join(fixture.origin, "package.json"),
@@ -219,6 +224,7 @@ const localSandbox = ({
   const bin = path.join(root, "sandbox", "bin");
   mkdirSync(home, { recursive: true });
   mkdirSync(bin, { recursive: true });
+
   for (const [name, script] of Object.entries({
     npm: NPM,
     pnpm: PNPM,
@@ -227,14 +233,18 @@ const localSandbox = ({
     writeFileSync(path.join(bin, name), script);
     chmodSync(path.join(bin, name), 0o755);
   }
+
   const commands: SandboxCommand[] = [];
+
   const localize = (value: string) =>
     value.replaceAll(SANDBOX_WORKTREE, worktree);
+
   let networkDenied = false;
 
   const sandbox: Sandbox = {
     denyNetwork() {
       networkDenied = true;
+
       return Promise.resolve();
     },
     run(command) {
@@ -252,6 +262,7 @@ const localSandbox = ({
           stdout: "",
         });
       }
+
       const result = spawnSync(
         command.cmd,
         args.map((arg) =>
@@ -270,6 +281,7 @@ const localSandbox = ({
           maxBuffer: 64 * 1024 * 1024,
         }
       );
+
       return Promise.resolve({
         exitCode: result.status ?? 1,
         stderr: result.stderr,
@@ -279,13 +291,17 @@ const localSandbox = ({
     stopsAt: 0,
     writeFile(file, content) {
       write("/", localize(file), content);
+
       return Promise.resolve();
     },
   };
+
   const requested: SandboxOptions[] = [];
+
   const runner: SandboxRunner = (task, options) => {
     requested.push(options);
     sandbox.stopsAt = Date.now() + (timeLeftMs ?? options.timeoutMs);
+
     return task(sandbox);
   };
 
@@ -349,6 +365,7 @@ const fakeGitHub = ({
 }: GitHubOptions) => {
   const writes: { route: string; body: unknown }[] = [];
   const reads: string[] = [];
+
   const comments = initialComments.map((body, index) => ({
     body,
     created_at: "2026-10-10T00:00:00Z",
@@ -388,6 +405,7 @@ const fakeGitHub = ({
           })
         );
       }
+
       case `GET ${repository}/contents/package.json`: {
         return Promise.resolve(
           rootManifest === null || ref !== fixture.headSha
@@ -395,6 +413,7 @@ const fakeGitHub = ({
             : file(rootManifest)
         );
       }
+
       case `GET ${repository}/commits/${fixture.headSha}/check-runs`: {
         return Promise.resolve(
           Response.json({
@@ -403,9 +422,11 @@ const fakeGitHub = ({
           })
         );
       }
+
       case `GET ${repository}/commits/${fixture.headSha}/statuses`: {
         return Promise.resolve(Response.json([]));
       }
+
       case `GET ${repository}/commits/${fixture.headSha}`: {
         return Promise.resolve(
           Response.json({
@@ -415,15 +436,19 @@ const fakeGitHub = ({
           })
         );
       }
+
       case `GET ${repository}/git/commits/${fixture.headSha}`: {
         return Promise.resolve(Response.json({ tree: { sha: "head-tree" } }));
       }
+
       case `POST ${repository}/git/trees`: {
         return Promise.resolve(Response.json({ sha: "new-tree" }));
       }
+
       case `POST ${repository}/git/commits`: {
         return Promise.resolve(Response.json({ sha: "new-commit" }));
       }
+
       case `PATCH ${repository}/git/refs/heads/${BRANCH}`: {
         return Promise.resolve(
           moved
@@ -434,9 +459,11 @@ const fakeGitHub = ({
             : Response.json({})
         );
       }
+
       case `GET ${repository}/issues/31/comments`: {
         return Promise.resolve(Response.json(comments));
       }
+
       case `POST ${repository}/issues/31/comments`: {
         const comment = {
           body: z
@@ -446,9 +473,12 @@ const fakeGitHub = ({
           id: 100 + comments.length,
           user: { login: BOT },
         };
+
         comments.push(comment);
+
         return Promise.resolve(Response.json(comment, { status: 201 }));
       }
+
       default: {
         return Promise.resolve(notFound());
       }
@@ -459,6 +489,7 @@ const fakeGitHub = ({
     const response = await respond(input, init);
     // The pagination reads the URL a page came from.
     Object.defineProperty(response, "url", { value: String(input) });
+
     return response;
   });
 
@@ -644,6 +675,7 @@ describe(applyLintFixes, () => {
         fixture,
         headCommit: { author: BOT, message: `${subject}\n\nRan.` },
       });
+
       const sandbox = localSandbox({ origin: fixture.origin, root });
       const fixer = vi.fn<LintFindingsFixer>();
 
@@ -693,6 +725,7 @@ describe(applyLintFixes, () => {
 
   it("refuses to commit when the install changed files Git tracks", async () => {
     const github = fakeGitHub({ fixture });
+
     const sandbox = localSandbox({
       env: { INSTALL_WRITES: "src/index.ts" },
       origin: fixture.origin,
@@ -774,6 +807,7 @@ describe(applyLintFixes, () => {
       ],
       fixture,
     });
+
     const sandbox = localSandbox({ origin: fixture.origin, root });
 
     await expect(run(github, sandbox, { dryRun: true })).resolves.toMatchObject(
@@ -839,6 +873,7 @@ describe(applyLintFixes, () => {
 
   it("leaves the pull request alone when the fetch fails", async () => {
     const github = fakeGitHub({ fixture });
+
     const sandbox = localSandbox({
       fetchExitCode: 128,
       origin: fixture.origin,
@@ -895,16 +930,20 @@ const modelWriting = (
   files: Readonly<Record<string, string>>
 ) => {
   const networkDenied: boolean[] = [];
+
   const fixer = vi.fn<LintFindingsFixer>(
     async ({ sandbox: session, worktree }) => {
       networkDenied.push(sandbox.networkDenied());
+
       for (const [name, content] of Object.entries(files)) {
         // oxlint-disable-next-line no-await-in-loop -- one file at a time
         await session.writeFile(path.posix.join(worktree, name), content);
       }
+
       return { model: MODEL, stopped: false };
     }
   );
+
   return { fixer, networkDenied };
 };
 
@@ -931,6 +970,7 @@ describe("applyLintFixes with a model for the findings", () => {
   it("commits the model's fix with the automatic one, disclosing the model", async () => {
     const github = fakeGitHub({ fixture });
     const sandbox = localSandbox({ origin: fixture.origin, root });
+
     const { fixer, networkDenied } = modelWriting(sandbox, {
       "src/index.ts": FIXED_SCRIPT,
     });
@@ -1019,6 +1059,7 @@ describe("applyLintFixes with a model for the findings", () => {
   it("commits the automatic fix and comments when the model's run fails", async () => {
     const github = fakeGitHub({ fixture });
     const sandbox = localSandbox({ origin: fixture.origin, root });
+
     const fixer = vi.fn<LintFindingsFixer>(() =>
       Promise.reject(new Error("The gateway is down"))
     );
@@ -1048,12 +1089,14 @@ describe("applyLintFixes with a model for the findings", () => {
 
   it("commits the automatic fix without asking a model that has no time left", async () => {
     const github = fakeGitHub({ fixture });
+
     // The steps before the model took all but the time the check needs.
     const sandbox = localSandbox({
       origin: fixture.origin,
       root,
       timeLeftMs: 135_000,
     });
+
     const { fixer } = modelWriting(sandbox, { "src/index.ts": FIXED_SCRIPT });
 
     await expect(run(github, sandbox, { fixer })).resolves.toStrictEqual({
@@ -1112,6 +1155,7 @@ describe("applyLintFixes with a model for the findings", () => {
   it("commits the automatic fix alone and comments when the model turns a finding off", async () => {
     const github = fakeGitHub({ fixture });
     const sandbox = localSandbox({ origin: fixture.origin, root });
+
     const { fixer } = modelWriting(sandbox, {
       "src/index.ts": `// @ts-expect-error the check\n${FIXED_SCRIPT}`,
     });
@@ -1169,6 +1213,7 @@ describe("applyLintFixes with a model for the findings", () => {
     });
     const github = fakeGitHub({ fixture });
     const sandbox = localSandbox({ origin: fixture.origin, root });
+
     const { fixer } = modelWriting(sandbox, {
       "oxlint.config.ts":
         'export default { rules: { "no-debugger": "off" } };\n',
@@ -1188,11 +1233,13 @@ describe("applyLintFixes with a model for the findings", () => {
 
   it("fails without a commit or a comment when a tool is killed during the check after the model", async () => {
     const github = fakeGitHub({ fixture });
+
     const sandbox = localSandbox({
       env: { KILL_ON: "check:3" },
       origin: fixture.origin,
       root,
     });
+
     const { fixer } = modelWriting(sandbox, { "src/index.ts": FIXED_SCRIPT });
 
     const result = await run(github, sandbox, { fixer });
@@ -1225,6 +1272,7 @@ describe("applyLintFixes with a model for the findings", () => {
     commitToFixture(fixture, { "README.md": "# Comic Viewer\n" });
     const github = fakeGitHub({ fixture });
     const sandbox = localSandbox({ origin: fixture.origin, root });
+
     const { fixer } = modelWriting(sandbox, {
       "src/index.ts":
         "export const read = () => {\n  debugger;\n  return 1;\n};\n",
@@ -1255,6 +1303,7 @@ describe("applyLintFixes with a model for the findings", () => {
   it("checks without the files Git does not track that the model wrote", async () => {
     const github = fakeGitHub({ fixture });
     const sandbox = localSandbox({ origin: fixture.origin, root });
+
     const { fixer } = modelWriting(sandbox, {
       "src/helper.ts": "export const helper = () => 1;\n",
       "src/index.ts": FIXED_SCRIPT,
@@ -1275,10 +1324,12 @@ describe("applyLintFixes with a model for the findings", () => {
 
   it("does not ask the model again on a head it tried", async () => {
     commitToFixture(fixture, { "README.md": "# Comic Viewer\n" });
+
     const github = fakeGitHub({
       comments: [`${marker()}\nAn earlier attempt.`],
       fixture,
     });
+
     const sandbox = localSandbox({ origin: fixture.origin, root });
     const { fixer } = modelWriting(sandbox, { "src/index.ts": FIXED_SCRIPT });
 

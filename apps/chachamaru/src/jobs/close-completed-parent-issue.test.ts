@@ -29,6 +29,7 @@ const fakeGitHub = ({
 }: Scenario = {}) => {
   const routes: string[] = [];
   const writes: { route: string; body: unknown }[] = [];
+
   const posted = [...comments].map((comment, index) => ({
     created_at: CLOSED_AT,
     id: index + 1,
@@ -40,9 +41,12 @@ const fakeGitHub = ({
     const url = new URL(String(input));
     const method = init?.method ?? "GET";
     const route = `${method} ${url.pathname}`;
+
     const body =
       init?.body === undefined ? undefined : JSON.parse(String(init.body));
+
     routes.push(route);
+
     if (method !== "GET") {
       writes.push({ body, route });
     }
@@ -59,9 +63,11 @@ const fakeGitHub = ({
             updated_at: CLOSED_AT,
           });
         }
+
         case `GET ${ISSUE}/sub_issues`: {
           return Response.json(subIssues);
         }
+
         case `PATCH ${ISSUE}`: {
           return Response.json({
             closed_at: CLOSED_AT,
@@ -70,9 +76,11 @@ const fakeGitHub = ({
             updated_at: CLOSED_AT,
           });
         }
+
         case `GET ${ISSUE}/comments`: {
           return Response.json(posted);
         }
+
         case `POST ${ISSUE}/comments`: {
           const comment = {
             body: body.body,
@@ -81,16 +89,21 @@ const fakeGitHub = ({
             updated_at: CLOSED_AT,
             user: { login: BOT },
           };
+
           posted.push(comment);
+
           return Response.json(comment, { status: 201 });
         }
+
         default: {
           return Response.json({ message: "Not Found" }, { status: 404 });
         }
       }
     };
+
     const response = respond();
     Object.defineProperty(response, "url", { value: url.href });
+
     return Promise.resolve(response);
   });
 

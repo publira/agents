@@ -102,10 +102,12 @@ const findTargets = async (
 ): Promise<LockFileTarget[] | Skip> => {
   const read = (path: string, ref: string) =>
     readOptionalRepositoryFile(octokit, { owner, path, ref, repo });
+
   const targets: LockFileTarget[] = [];
 
   for (const configPath of changed.filter(isDevContainerConfigPath)) {
     const path = devContainerLockFilePathOf(configPath);
+
     // oxlint-disable-next-line no-await-in-loop -- a pull request changes one or two
     const [text, before, after] = await Promise.all([
       read(path, headSha),
@@ -116,18 +118,22 @@ const findTargets = async (
     if (text === undefined) {
       continue;
     }
+
     if (after === undefined) {
       return { reason: `the pull request deletes ${configPath}` };
     }
 
     // A configuration the pull request added had no Features before it.
     const parsedBefore = parseFeatureReferences(before ?? "{}");
+
     if (parsedBefore.result === "invalid") {
       return {
         reason: `${configPath} at the merge base: ${parsedBefore.reason}`,
       };
     }
+
     const parsedAfter = parseFeatureReferences(after);
+
     if (parsedAfter.result === "invalid") {
       return { reason: `${configPath} at the head: ${parsedAfter.reason}` };
     }
@@ -136,9 +142,11 @@ const findTargets = async (
       parsedBefore.references,
       parsedAfter.references
     );
+
     if (verdict.result === "unsupported") {
       return { reason: `${configPath}: ${verdict.reason}` };
     }
+
     if (verdict.result === "bumped") {
       targets.push({ bumps: verdict.bumps, path, text });
     }
@@ -155,6 +163,7 @@ const resolveBumps = async (
   const references = new Map(
     targets.flatMap(({ bumps }) => bumps.map(({ to }) => [to.reference, to]))
   );
+
   try {
     return new Map(
       await Promise.all(
@@ -181,6 +190,7 @@ const regenerate = (
 
   for (const { path, text, bumps } of targets) {
     const lockFile = parseLockFile(text);
+
     if (lockFile.result === "invalid") {
       return { reason: `${path}: ${lockFile.reason}` };
     }
@@ -190,13 +200,17 @@ const regenerate = (
       entries: lockFile.entries,
       resolved,
     });
+
     if (verdict.result === "unsupported") {
       return { reason: `${path}: ${verdict.reason}` };
     }
+
     if (verdict.result === "sync") {
       const regenerated = formatLockFile(verdict.entries, lockFile.format);
+
       if (regenerated !== text) {
         files[path] = regenerated;
+
         for (const reference of verdict.changed) {
           synced.add(reference);
         }
@@ -226,10 +240,12 @@ const commitMessage = (
       )
     ),
   ];
+
   const listed =
     features.length <= 1
       ? (features[0] ?? "")
       : `${features.slice(0, -1).join(", ")} and ${features.at(-1)}`;
+
   return `chore(devcontainer): sync the ${paths.length === 1 ? "lock file" : "lock files"} with ${listed}`;
 };
 
@@ -260,16 +276,20 @@ export const syncDevContainerLockFile = async (
     pull_number: pullNumber,
     repo,
   });
+
   const headSha = pullRequest.head.sha;
+
   const skip = (reason: string) =>
     ({ headSha, reason, status: "skipped" }) as const;
 
   if (!isRenovate(pullRequest.user)) {
     return skip("Renovate did not open the pull request");
   }
+
   if (pullRequest.state !== "open") {
     return skip("the pull request is closed");
   }
+
   if (pullRequest.head.repo?.full_name !== pullRequest.base.repo.full_name) {
     return skip("its branch is in another repository");
   }
@@ -280,6 +300,7 @@ export const syncDevContainerLockFile = async (
       owner,
       repo,
     });
+
   const changed = (comparison.files ?? []).map(({ filename }) => filename);
 
   if (!changed.some(isDevContainerConfigPath)) {
@@ -291,9 +312,11 @@ export const syncDevContainerLockFile = async (
     headSha,
     mergeBase: comparison.merge_base_commit.sha,
   });
+
   if (isSkip(targets)) {
     return skip(targets.reason);
   }
+
   if (targets.length === 0) {
     return skip(
       "the pull request bumps no Feature of a configuration with a lock file"
@@ -301,11 +324,13 @@ export const syncDevContainerLockFile = async (
   }
 
   const resolved = await resolveBumps(targets, options.registry);
+
   if (isSkip(resolved)) {
     return skip(resolved.reason);
   }
 
   const regenerated = regenerate(targets, resolved);
+
   if (isSkip(regenerated)) {
     return skip(regenerated.reason);
   }

@@ -107,6 +107,7 @@ const sandboxTools = ({
   deadline,
 }: LintFindingsFixRequest) => {
   const resolve = (file: string) => path.posix.resolve(worktree, file);
+
   // A command ends by the deadline at the latest, so none is still running
   // in the worktree when the job checks it.
   const commandTimeout = () =>
@@ -124,6 +125,7 @@ const sandboxTools = ({
           env: { CI: "true", NO_COLOR: "1" },
           timeoutMs: commandTimeout(),
         });
+
         return `Exit code ${result.exitCode}\n${tail(`${result.stdout}${result.stderr}`)}`;
       },
       inputSchema: z.object({ command: z.string().min(1) }),
@@ -137,9 +139,11 @@ const sandboxTools = ({
           cmd: "cat",
           timeoutMs: commandTimeout(),
         });
+
         if (result.exitCode !== 0) {
           return `Cannot read ${file}: ${result.stderr}`;
         }
+
         return result.stdout.length > READ_LIMIT
           ? `${file} has ${result.stdout.length} characters, too many to read whole. Read parts of it with bash, such as with sed -n.`
           : result.stdout;
@@ -151,6 +155,7 @@ const sandboxTools = ({
         "Replace the whole content of a file of the repository, by its path relative to the repository's directory.",
       async execute({ path: file, content }) {
         await sandbox.writeFile(resolve(file), content);
+
         return `Wrote ${file}.`;
       },
       inputSchema: z.object({
@@ -171,9 +176,11 @@ export const createModelLintFindingsFixer =
   (model: LanguageModel = LINT_FINDINGS_MODEL): LintFindingsFixer =>
   async (request) => {
     const lastStep = Math.min(Date.now() + WORK_MS, request.deadline);
+
     const abortSignal = AbortSignal.timeout(
       Math.max(0, request.deadline - Date.now())
     );
+
     // The model that answered the last step done, for a run cut off later.
     let answered: string | undefined;
 
@@ -189,6 +196,7 @@ export const createModelLintFindingsFixer =
         stopWhen: [stepCountIs(MAX_STEPS), () => Date.now() >= lastStep],
         tools: sandboxTools(request),
       });
+
       // A model stopped by a condition ends on a step that called tools.
       return {
         model: response.modelId,
@@ -200,6 +208,7 @@ export const createModelLintFindingsFixer =
       if (abortSignal.aborted && answered !== undefined) {
         return { model: answered, stopped: true };
       }
+
       throw error;
     }
   };

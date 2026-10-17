@@ -132,13 +132,16 @@ export const createRenovateUpdateHandlers = ({
     { app, log }: Parameters<WebhookHandler>[1]
   ) => {
     const repo = payload.repository.name;
+
     const [octokit, reviewer] = await Promise.all([
       app.getInstallationOctokit(payload.installation.id),
       app.getBotLogin(),
     ]);
+
     const installationLog = withFields(log, {
       installation: payload.installation.id,
     });
+
     return {
       log: installationLog,
       octokit,
@@ -165,6 +168,7 @@ export const createRenovateUpdateHandlers = ({
   ) => {
     const { log, octokit, owner, repo, repositorySandbox, reviewer, settings } =
       await prepare(payload, context);
+
     const regeneration = regenerate ? repositorySandbox() : undefined;
 
     for (const pullNumber of new Set(pullNumbers)) {
@@ -192,6 +196,7 @@ export const createRenovateUpdateHandlers = ({
   ) => {
     const { log, octokit, owner, repo, repositorySandbox, reviewer, settings } =
       await prepare(payload, context);
+
     const lintFix = repositorySandbox();
 
     for (const pullNumber of new Set(pullNumbers)) {
@@ -265,6 +270,7 @@ export const createRenovateUpdateHandlers = ({
       const octokit = await context.app.getInstallationOctokit(
         payload.installation.id
       );
+
       const { data: pulls } =
         await octokit.rest.repos.listPullRequestsAssociatedWithCommit({
           commit_sha: payload.sha,
@@ -277,6 +283,7 @@ export const createRenovateUpdateHandlers = ({
           (pull) => pull.state === "open" && pull.user?.login === RENOVATE_LOGIN
         )
         .map(({ number }) => number);
+
       await (payload.state === "success"
         ? evaluate(payload, pullNumbers, context)
         : fixLintOf(payload, pullNumbers, context));

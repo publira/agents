@@ -46,12 +46,15 @@ export const getRepositoryPermission = async (
       repo,
       username,
     });
+
     return data.permission;
   } catch (error) {
     const failed = failure.safeParse(error).data;
+
     if (failed !== undefined && isUnreadable(failed)) {
       return undefined;
     }
+
     throw error;
   }
 };

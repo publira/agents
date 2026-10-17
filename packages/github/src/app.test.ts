@@ -25,6 +25,7 @@ const jwtClaimsSchema = z.object({ iss: z.number() });
 const jwtClaims = (authorization: string | null) => {
   const [scheme, jwt] = authorization?.split(" ") ?? [];
   expect(scheme?.toLowerCase()).toBe("bearer");
+
   return jwtClaimsSchema.parse(
     JSON.parse(Buffer.from(jwt?.split(".")[1] ?? "", "base64url").toString())
   );
@@ -33,6 +34,7 @@ const jwtClaims = (authorization: string | null) => {
 describe(createGitHubApp, () => {
   it("authenticates as the App with a JWT", async () => {
     const github = fakeGitHub({ "GET /app": { slug: "chachamaru-bot" } });
+
     const app = createGitHubApp({
       appId: 123,
       fetch: github.fetch,
@@ -51,6 +53,7 @@ describe(createGitHubApp, () => {
       "GET /repos/publira/agents": { full_name: "publira/agents" },
       "POST /app/installations/42/access_tokens": tokenResponse("ghs_one"),
     });
+
     const app = createGitHubApp({
       appId: 123,
       fetch: github.fetch,
@@ -74,15 +77,18 @@ describe(createGitHubApp, () => {
 
   it("tries an installation's failed reads again", async () => {
     let attempts = 0;
+
     const github = fakeGitHub({
       "GET /repos/publira/agents": dynamic(() => {
         attempts += 1;
+
         return attempts === 1
           ? Response.json({ message: "Bad Gateway" }, { status: 502 })
           : { full_name: "publira/agents" };
       }),
       "POST /app/installations/42/access_tokens": tokenResponse("ghs_one"),
     });
+
     const app = createGitHubApp({
       appId: 123,
       fetch: github.fetch,
@@ -105,6 +111,7 @@ describe(createGitHubApp, () => {
       "GET /repos/publira/agents": { full_name: "publira/agents" },
       "POST /app/installations/42/access_tokens": tokenResponse("ghs_one"),
     });
+
     const app = createGitHubApp({
       appId: 123,
       fetch: github.fetch,
@@ -127,6 +134,7 @@ describe(createGitHubApp, () => {
       "GET /repos/publira/agents/installation": { id: 42 },
       "POST /app/installations/42/access_tokens": tokenResponse("ghs_one"),
     });
+
     const app = createGitHubApp({
       appId: 123,
       fetch: github.fetch,
@@ -137,6 +145,7 @@ describe(createGitHubApp, () => {
       owner: "publira",
       repo: "agents",
     });
+
     await octokit.rest.repos.get({ owner: "publira", repo: "agents" });
 
     expect(github.requests.at(-1)?.headers.get("authorization")).toBe(
@@ -146,6 +155,7 @@ describe(createGitHubApp, () => {
 
   it("derives the bot login from the App's slug once", async () => {
     const github = fakeGitHub({ "GET /app": { slug: "chachamaru-bot" } });
+
     const app = createGitHubApp({
       appId: 123,
       fetch: github.fetch,
@@ -159,14 +169,17 @@ describe(createGitHubApp, () => {
 
   it("asks for the bot login again after a failure", async () => {
     let attempts = 0;
+
     const github = fakeGitHub({
       "GET /app": dynamic(() => {
         attempts += 1;
+
         return attempts === 1
           ? Response.json({ message: "Forbidden" }, { status: 403 })
           : { slug: "chachamaru-bot" };
       }),
     });
+
     const app = createGitHubApp({
       appId: 123,
       fetch: github.fetch,

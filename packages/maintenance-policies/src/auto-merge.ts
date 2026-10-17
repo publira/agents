@@ -75,31 +75,39 @@ export const canAutoMerge = ({
   if (!enabled) {
     return decline("auto-merge is disabled");
   }
+
   if (!approvedByBot) {
     return decline(`the bot's approval of ${shortSha(headSha)} does not stand`);
   }
+
   if (approval === undefined) {
     return decline("the approval policy was not evaluated again");
   }
+
   if (!approval.approvable) {
     return decline(`the approval policy does not hold: ${approval.reason}`);
   }
+
   if (approval.headSha !== headSha) {
     return decline(
       `the approval policy was evaluated on ${shortSha(approval.headSha)}, but the head is ${shortSha(headSha)}`
     );
   }
+
   if (mergeStateStatus === "DIRTY") {
     return decline("it has conflicts");
   }
+
   if (mergeStateStatus === "DRAFT") {
     return decline("it is a draft");
   }
+
   if (changesWorkflows) {
     return decline(
       "it changes .github/workflows/, which the App cannot merge without the Workflows permission"
     );
   }
+
   if (
     rules.requiredApprovingReviewCount < 1 ||
     !rules.dismissesStaleReviewsOnPush
@@ -108,6 +116,7 @@ export const canAutoMerge = ({
       "the base branch's rulesets do not require an approval that a push dismisses, so GitHub would not hold back a new head"
     );
   }
+
   if (!repository.autoMergeAllowed) {
     return decline("the repository does not allow auto-merge");
   }

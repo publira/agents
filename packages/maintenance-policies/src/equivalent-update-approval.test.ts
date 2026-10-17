@@ -123,6 +123,7 @@ describe(evaluateRenovateCommits, () => {
 
   describe("with the bot's lock file commits", () => {
     const BOT = "chachamaru-bot[bot]";
+
     const scope = {
       botLogin: BOT,
       changedFiles: [
@@ -130,6 +131,7 @@ describe(evaluateRenovateCommits, () => {
         ".devcontainer/devcontainer-lock.json",
       ],
     };
+
     const lockFileCommit = (sha: string, files: readonly string[]) => ({
       authorLogin: BOT,
       committerLogin: BOT,
@@ -137,6 +139,7 @@ describe(evaluateRenovateCommits, () => {
       sha,
       verified: true,
     });
+
     const lintFixCommit = (sha: string, files: readonly string[]) => ({
       ...lockFileCommit(sha, files),
       subject: LINT_FIX_COMMIT_SUBJECT,
@@ -248,6 +251,7 @@ describe(evaluateRenovateCommits, () => {
         setupTimeout: 120,
         timeout: 120,
       };
+
       const regeneration = {
         targets: [
           {
@@ -264,6 +268,7 @@ describe(evaluateRenovateCommits, () => {
           },
         ],
       };
+
       const generatedScope = { ...scope, regeneration };
       // Renovate's commit, which changes a trigger of `codegen`.
       const bump = { ...renovateCommit("a"), files: ["buf.gen.yaml"] };

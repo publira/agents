@@ -31,6 +31,7 @@ export type LintSetupVerdict =
  */
 export const readLintSetup = (source: string): LintSetupVerdict => {
   let value: unknown;
+
   try {
     value = JSON.parse(source);
   } catch {
@@ -38,6 +39,7 @@ export const readLintSetup = (source: string): LintSetupVerdict => {
   }
 
   const parsed = packageJson.safeParse(value);
+
   if (!parsed.success) {
     return {
       reason: "the root package.json is not a package manifest",
@@ -50,6 +52,7 @@ export const readLintSetup = (source: string): LintSetupVerdict => {
     devDependencies = {},
     packageManager,
   } = parsed.data;
+
   if (!(ULTRACITE in dependencies || ULTRACITE in devDependencies)) {
     return {
       reason: "the root package.json does not depend on ultracite",
@@ -58,6 +61,7 @@ export const readLintSetup = (source: string): LintSetupVerdict => {
   }
 
   const name = packageManager?.split("@", 1)[0];
+
   if (!isLintPackageManager(name)) {
     return {
       reason:
@@ -96,6 +100,7 @@ export const readKilledLintTool = (
   output: string
 ): KilledLintTool | undefined => {
   const groups = KILLED_TOOL_LINE.exec(output)?.groups;
+
   return groups === undefined
     ? undefined
     : { signal: groups.signal ?? "unknown", tool: groups.tool ?? "" };
@@ -142,6 +147,7 @@ const LINT_CONFIGURATION_FILE_NAMES = [
  */
 export const isLintFindingsFixRefusedPath = (path: string): boolean => {
   const name = path.slice(path.lastIndexOf("/") + 1);
+
   return (
     isLintFixRefusedPath(path) ||
     LINT_CONFIGURATION_FILE_NAMES.some((pattern) => pattern.test(name))
@@ -200,9 +206,11 @@ export const evaluateLintFindingsFix = ({
   addedLines,
 }: LintFindingsFixInput): LintFindingsFixVerdict => {
   const refusedPaths = paths.filter(isLintFindingsFixRefusedPath);
+
   const suppressions = addedLines.filter(({ text }) =>
     SUPPRESSIONS.some((suppression) => text.includes(suppression))
   );
+
   const refuse = (reason: string): LintFindingsFixVerdict => ({
     reason,
     refusedPaths,
@@ -213,16 +221,20 @@ export const evaluateLintFindingsFix = ({
   if (paths.length === 0) {
     return refuse("the model changed nothing");
   }
+
   if (refusedPaths.length > 0) {
     return refuse(
       "the model changed a lock file, a package.json, a file under .github, or the lint configuration"
     );
   }
+
   if (suppressions.length > 0) {
     return refuse("the model added comments that turn findings off");
   }
+
   if (!checkPassed) {
     return refuse("`ultracite check` still fails after the model's changes");
   }
+
   return { result: "accepted" };
 };

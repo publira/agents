@@ -149,6 +149,7 @@ const updateInSandbox = async (
 
   const head = await git(sandbox, WORKTREE, "rev-parse", "HEAD");
   const baseSha = head.trim();
+
   const update = await sandbox.run({
     args: ["-y", `skills@${SKILLS_VERSION}`, "update", "-p", "-y"],
     cmd: "npx",
@@ -167,9 +168,11 @@ const updateInSandbox = async (
   }
 
   const changes = await stageChanges(sandbox, WORKTREE);
+
   const files = parseStagedFiles(
     await git(sandbox, WORKTREE, "ls-files", "--stage", "-z")
   );
+
   const wanted = [
     ...new Set(
       changes
@@ -183,6 +186,7 @@ const updateInSandbox = async (
         ])
     ),
   ];
+
   const blobs = await readBlobs(sandbox, WORKTREE, wanted);
 
   return { baseSha, blobs, changes, files, status: "updated" };
@@ -268,6 +272,7 @@ export const updateAgentSkills = async ({
 }: UpdateAgentSkillsOptions): Promise<UpdateAgentSkillsResult> => {
   const { data: repository } = await octokit.rest.repos.get({ owner, repo });
   const branch = repository.default_branch;
+
   const lockFile = await readOptionalRepositoryFile(octokit, {
     owner,
     path: SKILLS_LOCK_FILE,
@@ -280,6 +285,7 @@ export const updateAgentSkills = async ({
   }
 
   const readToken = repository.private ? await createReadToken() : undefined;
+
   const update = await sandbox(
     (session) => updateInSandbox(session, { branch, owner, readToken, repo }),
     { timeoutMs: SANDBOX_TIMEOUT_MS }
@@ -291,6 +297,7 @@ export const updateAgentSkills = async ({
 
   const { baseSha, blobs, changes, files: updatedFiles } = update;
   const committed = changes.filter(({ path }) => isAgentSkillsPath(path));
+
   const ignoredPaths = changes
     .filter(({ path }) => !isAgentSkillsPath(path))
     .map(({ path }) => path);
@@ -300,6 +307,7 @@ export const updateAgentSkills = async ({
   }
 
   const lockChange = committed.find(({ path }) => path === SKILLS_LOCK_FILE);
+
   const skills =
     lockChange === undefined
       ? []
@@ -315,6 +323,7 @@ export const updateAgentSkills = async ({
               : blobs.get(lockChange.after.sha)
           )
         );
+
   const paths = committed.map(({ path }) => path);
   const plan = { baseSha, ignoredPaths, paths, skills };
 
@@ -331,6 +340,7 @@ export const updateAgentSkills = async ({
       repo,
       title: TITLE,
     });
+
   const {
     data: [open],
   } = await octokit.rest.pulls.list({
@@ -361,10 +371,13 @@ export const updateAgentSkills = async ({
     if (after === undefined) {
       return null;
     }
+
     const content = blobs.get(after.sha);
+
     if (content === undefined) {
       throw new Error(`The sandbox did not return ${path}`);
     }
+
     return content;
   };
 
@@ -449,6 +462,7 @@ export const updateAgentSkillsEverywhere = async ({
           owner,
           repo,
         });
+
         try {
           const result = await job({
             createReadToken: () =>
@@ -459,6 +473,7 @@ export const updateAgentSkillsEverywhere = async ({
             repo,
             sandbox,
           });
+
           if (result.status === "failed") {
             repositoryLog(
               "warn",

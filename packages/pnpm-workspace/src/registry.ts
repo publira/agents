@@ -20,9 +20,11 @@ const parseNpmrc = (source: string): Map<string, string> => {
   for (const line of source.split(/\r?\n/u)) {
     const trimmed = line.trim();
     const separator = trimmed.indexOf("=");
+
     if (trimmed.startsWith("#") || trimmed.startsWith(";") || separator < 1) {
       continue;
     }
+
     const value = trimmed.slice(separator + 1).trim();
     settings.set(
       trimmed.slice(0, separator).trim(),
@@ -45,6 +47,7 @@ export const resolvePackageRegistry = (
 ): string => {
   const settings = parseNpmrc(npmrc);
   const scope = name.startsWith("@") ? name.split("/")[0] : undefined;
+
   const scopeRegistry =
     scope === undefined
       ? undefined

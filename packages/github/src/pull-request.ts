@@ -36,6 +36,7 @@ export const ensurePullRequest = async (
       repo,
       state: "open",
     });
+
     return data[0];
   };
 
@@ -51,13 +52,16 @@ export const ensurePullRequest = async (
         repo,
         title,
       });
+
       return { created: true, number: data.number, url: data.html_url };
     } catch (error) {
       // A concurrent run opened it first.
       if (requestFailure.safeParse(error).data?.status !== 422) {
         throw error;
       }
+
       pullRequest = await findOpen();
+
       if (pullRequest === undefined) {
         throw error;
       }

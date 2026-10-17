@@ -57,9 +57,11 @@ const FONT = Buffer.from([0x00, 0x01, 0xff, 0xfe, 0x0a]);
 
 const runGit = (cwd: string, ...args: string[]) => {
   const result = spawnSync("git", args, { cwd, encoding: "utf-8" });
+
   if (result.status !== 0) {
     throw new Error(`git ${args.join(" ")}: ${result.stderr}`);
   }
+
   return result.stdout.trim();
 };
 
@@ -80,6 +82,7 @@ const commitAll = (root: string, message: string) => {
     "--quiet",
     `--message=${message}`
   );
+
   return runGit(root, "rev-parse", "HEAD");
 };
 
@@ -121,6 +124,7 @@ const createFixture = (root: string): Fixture => {
     path.join(origin, ".claude/skills/ultracite")
   );
   write(origin, "skills-lock.json", lockFile({ ultracite: "u1" }));
+
   return { baseSha: commitAll(origin, "Initial commit"), origin };
 };
 
@@ -131,11 +135,13 @@ const updatedTree = (root: string, origin: string) => {
   applyUpdate(clone);
   rmSync(path.join(clone, "skills"), { recursive: true });
   commitAll(clone, "Update");
+
   return runGit(clone, "ls-tree", "-r", "--full-tree", "HEAD")
     .split("\n")
     .map((line) => {
       const [meta = "", file] = line.split("\t");
       const [mode, type, sha] = meta.split(" ");
+
       return { mode, path: file, sha, type };
     });
 };
@@ -157,12 +163,14 @@ const localSandbox = ({
   origin,
   update = (worktree) => {
     applyUpdate(worktree);
+
     return { exitCode: 0 };
   },
   cloneExitCode = 0,
 }: LocalSandboxOptions) => {
   const worktree = path.join(root, "sandbox", "repository");
   const commands: SandboxCommand[] = [];
+
   const localize = (value: string) =>
     value.replaceAll(SANDBOX_WORKTREE, worktree);
 
@@ -180,6 +188,7 @@ const localSandbox = ({
           ...update(worktree),
         });
       }
+
       if (command.cmd === "git" && args.includes("clone")) {
         if (cloneExitCode !== 0) {
           return Promise.resolve({
@@ -188,11 +197,15 @@ const localSandbox = ({
             stdout: "",
           });
         }
+
         mkdirSync(path.dirname(worktree), { recursive: true });
+
         const cloneArgs = args.map((arg) =>
           arg.startsWith("https://github.com/") ? `file://${origin}` : arg
         );
+
         const result = spawnSync("git", cloneArgs, { encoding: "utf-8" });
+
         return Promise.resolve({
           exitCode: result.status ?? 1,
           stderr: result.stderr,
@@ -206,6 +219,7 @@ const localSandbox = ({
         env: { ...process.env, ...command.env },
         maxBuffer: 64 * 1024 * 1024,
       });
+
       return Promise.resolve({
         exitCode: result.status ?? 1,
         stderr: result.stderr,
@@ -218,9 +232,12 @@ const localSandbox = ({
         new Error("The skills update writes no file through the sandbox")
       ),
   };
+
   let started = 0;
+
   const runner: SandboxRunner = (task) => {
     started += 1;
+
     return task(sandbox);
   };
 
@@ -244,6 +261,7 @@ const fakeGitHub = ({
   openPullRequestTree,
 }: GitHubOptions = {}) => {
   const writes: { route: string; body: unknown }[] = [];
+
   const fetchImpl = vi.fn<typeof fetch>((input, init) => {
     const url = new URL(String(input));
     const method = init?.method ?? "GET";
@@ -258,6 +276,7 @@ const fakeGitHub = ({
         Response.json({ default_branch: "main", private: isPrivate })
       );
     }
+
     if (route === `GET ${repository}/contents/skills-lock.json`) {
       return Promise.resolve(
         lock === null || url.searchParams.get("ref") !== "main"
@@ -269,6 +288,7 @@ const fakeGitHub = ({
             })
       );
     }
+
     if (route === `GET ${repository}/pulls`) {
       return Promise.resolve(
         Response.json(
@@ -286,17 +306,21 @@ const fakeGitHub = ({
         )
       );
     }
+
     if (route === `GET ${repository}/git/commits/pull-head`) {
       return Promise.resolve(Response.json({ tree: { sha: "pull-tree" } }));
     }
+
     if (route === `GET ${repository}/git/trees/pull-tree`) {
       return Promise.resolve(
         Response.json({ tree: openPullRequestTree, truncated: false })
       );
     }
+
     if (route.startsWith(`GET ${repository}/git/commits/`)) {
       return Promise.resolve(Response.json({ tree: { sha: "base-tree" } }));
     }
+
     if (route === `GET ${repository}/branches/${SKILLS_UPDATE_BRANCH}`) {
       return Promise.resolve(
         openPullRequestTree === undefined
@@ -320,7 +344,9 @@ const fakeGitHub = ({
       ],
       [`PATCH ${repository}/pulls/4000`, {}],
     ]);
+
     const response = responses.get(route);
+
     return Promise.resolve(
       response === undefined
         ? Response.json({ message: "Not Found" }, { status: 404 })
@@ -433,6 +459,7 @@ describe(updateAgentSkills, () => {
 
     const body = (route: string) =>
       github.writes.find((entry) => entry.route === route)?.body;
+
     // Every file the update wrote is text, so all of them go inline.
     expect(body(`POST ${repository}/git/trees`)).toStrictEqual({
       base_tree: "base-tree",
@@ -487,11 +514,13 @@ describe(updateAgentSkills, () => {
 
   it("uploads a binary file the update writes", async () => {
     const github = fakeGitHub();
+
     const sandbox = localSandbox({
       origin: fixture.origin,
       root,
       update: (worktree) => {
         write(worktree, ".agents/skills/fonts/Serif.ttf", Buffer.from([0xff]));
+
         return { exitCode: 0 };
       },
     });
@@ -504,6 +533,7 @@ describe(updateAgentSkills, () => {
 
     const body = (route: string) =>
       github.writes.find((entry) => entry.route === route)?.body;
+
     expect(body(`POST ${repository}/git/blobs`)).toStrictEqual({
       content: Buffer.from([0xff]).toString("base64"),
       encoding: "base64",
@@ -525,6 +555,7 @@ describe(updateAgentSkills, () => {
     const github = fakeGitHub({
       openPullRequestTree: updatedTree(root, fixture.origin),
     });
+
     const sandbox = localSandbox({ origin: fixture.origin, root });
 
     await expect(
@@ -550,6 +581,7 @@ describe(updateAgentSkills, () => {
         ? { ...entry, sha: "0".repeat(40) }
         : entry
     );
+
     const github = fakeGitHub({ openPullRequestTree: tree });
     const sandbox = localSandbox({ origin: fixture.origin, root });
 
@@ -567,11 +599,13 @@ describe(updateAgentSkills, () => {
 
   it("writes nothing when only paths outside the skills changed", async () => {
     const github = fakeGitHub();
+
     const sandbox = localSandbox({
       origin: fixture.origin,
       root,
       update: (worktree) => {
         write(worktree, "skills/canvas/SKILL.md", "# Canvas\n");
+
         return { exitCode: 0 };
       },
     });
@@ -592,6 +626,7 @@ describe(updateAgentSkills, () => {
 
   it("leaves the repository alone when the clone fails", async () => {
     const github = fakeGitHub();
+
     const sandbox = localSandbox({
       cloneExitCode: 128,
       origin: fixture.origin,
@@ -615,6 +650,7 @@ describe(updateAgentSkills, () => {
 
   it("leaves the repository alone when the update fails", async () => {
     const github = fakeGitHub();
+
     const sandbox = localSandbox({
       origin: fixture.origin,
       root,
@@ -668,6 +704,7 @@ describe(updateAgentSkills, () => {
   it("clones a public repository anonymously", async () => {
     const github = fakeGitHub();
     const sandbox = localSandbox({ origin: fixture.origin, root });
+
     const createReadToken = vi.fn<() => Promise<string>>(() =>
       Promise.resolve("ghs_read")
     );
@@ -710,6 +747,7 @@ describe(updateAgentSkillsEverywhere, () => {
 
   const appFetch = vi.fn<typeof fetch>((input) => {
     const url = new URL(String(input));
+
     const response = Response.json(
       url.pathname === "/app/installations"
         ? [{ id: 7, suspended_at: null }]
@@ -718,11 +756,15 @@ describe(updateAgentSkillsEverywhere, () => {
             total_count: installationRepositories.length,
           }
     );
+
     // The pagination plugin reads the URL of a fetched response.
     Object.defineProperty(response, "url", { value: url.href });
+
     return Promise.resolve(response);
   });
+
   const octokit = createGitHubClient({ fetch: appFetch });
+
   const app: GitHubApp = {
     getBotLogin: () => Promise.reject(new Error("unused")),
     getInstallationOctokit: () => Promise.resolve(octokit),
@@ -732,13 +774,16 @@ describe(updateAgentSkillsEverywhere, () => {
 
   it("runs on each unarchived repository and logs each outcome", async () => {
     const log = vi.fn<Log>();
+
     const job = vi.fn<typeof updateAgentSkills>(({ repo }) => {
       if (repo === "website") {
         return Promise.resolve({ status: "no-lock-file" });
       }
+
       if (repo === "agents") {
         return Promise.reject(new Error("GitHub is down"));
       }
+
       return Promise.resolve({
         exitCode: 1,
         output: "Failed to fetch skill",
@@ -768,6 +813,7 @@ describe(updateAgentSkillsEverywhere, () => {
       { dryRun: true, repo: "website" },
       { dryRun: true, repo: "agents" },
     ]);
+
     const common = {
       dryRun: true,
       installation: 7,
@@ -775,6 +821,7 @@ describe(updateAgentSkillsEverywhere, () => {
       modelInvoked: false,
       owner: "publira",
     };
+
     expect(log.mock.calls).toStrictEqual(
       expect.arrayContaining([
         [

@@ -53,6 +53,7 @@ export const formatLockFile = (
       { version, resolved, integrity, dependsOn },
     ])
   );
+
   return `${JSON.stringify({ features }, null, indent)}${finalNewline ? "\n" : ""}`;
 };
 
@@ -63,6 +64,7 @@ export const formatLockFile = (
  */
 export const parseLockFile = (text: string): LockFileParseResult => {
   let json: unknown;
+
   try {
     json = JSON.parse(text);
   } catch {
@@ -70,6 +72,7 @@ export const parseLockFile = (text: string): LockFileParseResult => {
   }
 
   const parsed = lockFileSchema.safeParse(json);
+
   if (!parsed.success) {
     return {
       reason: "it holds more or other than the Features' entries",
@@ -78,6 +81,7 @@ export const parseLockFile = (text: string): LockFileParseResult => {
   }
 
   const entries = Object.entries(parsed.data.features);
+
   const format = {
     finalNewline: text.endsWith("\n"),
     indent: /^\{\n(?<indent>[ \t]+)"/u.exec(text)?.groups?.indent ?? "  ",

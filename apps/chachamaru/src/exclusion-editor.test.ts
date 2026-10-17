@@ -24,6 +24,7 @@ describe(createModelExclusionEditor, () => {
         warnings: [],
       },
     });
+
     const editor = createModelExclusionEditor(model);
 
     await expect(

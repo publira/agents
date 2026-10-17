@@ -57,6 +57,7 @@ const fakeRegistry = (
     if (url.startsWith("https://ghcr.io/token?")) {
       return Promise.resolve(Response.json({ token: "anonymous" }));
     }
+
     if (url === MANIFEST_URL) {
       return Promise.resolve(
         authorization === "Bearer anonymous"
@@ -66,6 +67,7 @@ const fakeRegistry = (
           : challenge.clone()
       );
     }
+
     return Promise.resolve(new Response("", { status: 404 }));
   });
 
@@ -130,11 +132,14 @@ describe(resolveFeature, () => {
   it("tries a server error again", async () => {
     const registry = fakeRegistry();
     let failed = false;
+
     const fetchImpl = vi.fn<typeof fetch>((input, init) => {
       if (!failed) {
         failed = true;
+
         return Promise.resolve(new Response("", { status: 503 }));
       }
+
       return registry(input, init);
     });
 

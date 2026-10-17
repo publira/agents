@@ -44,10 +44,12 @@ export const createGitHubApp = ({
   requestPolicy,
 }: GitHubAppOptions): GitHubApp => {
   const request = fetchImpl === undefined ? undefined : { fetch: fetchImpl };
+
   const octokit = createOctokit(
     { auth: { appId, privateKey }, authStrategy: createAppAuth, request },
     requestPolicy
   );
+
   let botLogin: Promise<string> | undefined;
 
   const getInstallationOctokit = (installationId: number) =>
@@ -66,9 +68,11 @@ export const createGitHubApp = ({
   const fetchBotLogin = async () => {
     try {
       const { data } = await octokit.rest.apps.getAuthenticated();
+
       if (data?.slug === undefined) {
         throw new Error("GitHub did not return the App's slug");
       }
+
       return `${data.slug}[bot]`;
     } catch (error) {
       // Ask again next time rather than keep the failure.
@@ -80,6 +84,7 @@ export const createGitHubApp = ({
   return {
     getBotLogin: () => {
       botLogin ??= fetchBotLogin();
+
       return botLogin;
     },
     getInstallationOctokit,
@@ -88,6 +93,7 @@ export const createGitHubApp = ({
         owner,
         repo,
       });
+
       return getInstallationOctokit(data.id);
     },
     octokit,

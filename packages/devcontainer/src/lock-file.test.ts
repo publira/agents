@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { formatLockFile, parseLockFile } from "./lock-file.ts";
 
 const DIND = "ghcr.io/devcontainers/features/docker-in-docker";
+
 const DIGEST =
   "sha256:ad3d6d36d95ee7f880f61f98862257f3e70253d3faef09f86af42fb87ee60429";
 

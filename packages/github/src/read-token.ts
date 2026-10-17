@@ -20,5 +20,6 @@ export const createRepositoryReadToken = async (
     permissions: { contents: "read" },
     repositories: [repo],
   });
+
   return data.token;
 };

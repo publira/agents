@@ -80,9 +80,11 @@ describe(ensurePullRequest, () => {
 
   it("returns the pull request a concurrent run opened first", async () => {
     let lists = 0;
+
     const github = fakeGitHub({
       [`GET ${pulls}`]: dynamic(() => {
         lists += 1;
+
         return lists === 1 ? [] : [openPullRequest];
       }),
       [`POST ${pulls}`]: Response.json(
