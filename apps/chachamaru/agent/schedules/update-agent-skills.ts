@@ -20,6 +20,7 @@ export default defineSchedule({
 
     if (app === undefined) {
       scheduleLog("warn", "Schedule skipped: the GitHub App is not configured");
+
       return;
     }
 

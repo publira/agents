@@ -114,6 +114,7 @@ describe(fetchPublishTimes, () => {
       if (init?.signal) {
         await once(init.signal, "abort");
       }
+
       throw init?.signal?.reason;
     });
 

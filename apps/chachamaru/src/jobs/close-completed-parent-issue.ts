@@ -61,6 +61,7 @@ export const closeCompletedParentIssue = async ({
 }: CloseCompletedParentIssueOptions): Promise<CloseCompletedParentIssueResult> => {
   const issue = { issue_number: issueNumber, owner, repo };
   const { data } = await octokit.rest.issues.get(issue);
+
   // Listed only for an open issue, whose verdict depends on them.
   const subIssues =
     data.state === "open"
@@ -69,6 +70,7 @@ export const closeCompletedParentIssue = async ({
           per_page: 100,
         })
       : [];
+
   const verdict = evaluateParentIssue({
     closedByBot:
       data.closed_by?.login === author && data.state_reason === "completed",
@@ -79,9 +81,11 @@ export const closeCompletedParentIssue = async ({
   if (verdict.action === "leave") {
     return { reason: verdict.reason, status: "left" };
   }
+
   if (verdict.action === "close" && dryRun) {
     return { status: "would-close", subIssues: subIssues.length };
   }
+
   // The comment counts from the close it explains.
   const comment = (closedAt: string | null, updatedAt: string) => ({
     author,
@@ -97,6 +101,7 @@ export const closeCompletedParentIssue = async ({
 
     if (dryRun) {
       const existing = await findIssueComment(octokit, options);
+
       return existing === undefined
         ? { status: "would-comment" }
         : {
@@ -104,6 +109,7 @@ export const closeCompletedParentIssue = async ({
             status: "already-closed",
           };
     }
+
     return {
       comment: await ensureIssueComment(octokit, options),
       status: "already-closed",

@@ -47,6 +47,7 @@ const untilAborted = async (
   if (signal === undefined) {
     throw new Error("The call has no abort signal");
   }
+
   await once(signal, "abort");
   throw signal.reason;
 };
@@ -64,6 +65,7 @@ const fakeSandbox = () => {
     stopsAt: Date.now() + 240_000,
     writeFile: vi.fn<Sandbox["writeFile"]>(() => Promise.resolve()),
   };
+
   return sandbox;
 };
 
@@ -84,13 +86,16 @@ describe(createModelLintFindingsFixer, () => {
       toolCall("write_file", { content: "", path: "src/index.ts" }),
       reply,
     ];
+
     const model = new MockLanguageModelV4({
       doGenerate: () => {
         const step = steps.shift();
+
         return Promise.resolve(step ?? reply);
       },
       modelId: "openai/gpt-5.1-codex-mini",
     });
+
     const sandbox = fakeSandbox();
 
     await expect(
@@ -156,9 +161,11 @@ describe(createModelLintFindingsFixer, () => {
 
   it("refuses to return a file too large to read whole", async () => {
     const steps = [toolCall("read_file", { path: "dist/bundle.js" }), reply];
+
     const model = new MockLanguageModelV4({
       doGenerate: () => Promise.resolve(steps.shift() ?? reply),
     });
+
     const sandbox = fakeSandbox();
     vi.mocked(sandbox.run).mockResolvedValue({
       exitCode: 0,
@@ -176,15 +183,18 @@ describe(createModelLintFindingsFixer, () => {
   it("keeps what the model did when the deadline cuts a call short", async () => {
     // The first step writes a file; the second call hangs past the deadline.
     const steps = [toolCall("write_file", { content: "", path: "a.ts" })];
+
     const model = new MockLanguageModelV4({
       doGenerate: ({ abortSignal }) => {
         const step = steps.shift();
+
         return step === undefined
           ? untilAborted(abortSignal)
           : Promise.resolve(step);
       },
       modelId: "openai/gpt-5.1-codex-mini",
     });
+
     const sandbox = fakeSandbox();
 
     await expect(
@@ -210,9 +220,11 @@ describe(createModelLintFindingsFixer, () => {
 
   it("cuts a command off at the deadline", async () => {
     const steps = [toolCall("bash", { command: "sleep 600" }), reply];
+
     const model = new MockLanguageModelV4({
       doGenerate: () => Promise.resolve(steps.shift() ?? reply),
     });
+
     const sandbox = fakeSandbox();
 
     await createModelLintFindingsFixer(model)(

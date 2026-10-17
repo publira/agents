@@ -48,13 +48,16 @@ export const readSettings = (
     if (value === "") {
       return unset;
     }
+
     if (value === "true" || value === "false") {
       return value === "true";
     }
+
     log("error", "Setting is invalid; using the safe value", {
       setting: variable,
       value: invalid,
     });
+
     return invalid;
   };
 

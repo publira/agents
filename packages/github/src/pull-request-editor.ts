@@ -36,6 +36,7 @@ export const getPullRequestBodyEditor = async (
     }`,
     { number: pullNumber, owner, repo }
   );
+
   const { editor } = editorResponse.parse(response).repository.pullRequest;
 
   return editor === null ? null : restLogin(editor);

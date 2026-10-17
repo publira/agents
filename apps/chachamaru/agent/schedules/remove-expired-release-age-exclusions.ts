@@ -17,10 +17,12 @@ export default defineSchedule({
     const scheduleLog = withFields(log, {
       schedule: "remove-expired-release-age-exclusions",
     });
+
     const app = getGitHubApp();
 
     if (app === undefined) {
       scheduleLog("warn", "Schedule skipped: the GitHub App is not configured");
+
       return;
     }
 

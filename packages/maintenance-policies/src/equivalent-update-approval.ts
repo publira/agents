@@ -109,18 +109,23 @@ const botCommitKind = (
   if (subject === LINT_FINDINGS_FIX_COMMIT_SUBJECT) {
     return "model";
   }
+
   if (files.length === 0) {
     return undefined;
   }
+
   if (subject === LINT_FIX_COMMIT_SUBJECT) {
     return files.some(isLintFixRefusedPath) ? undefined : "lint-fix";
   }
+
   if (files.every((file) => allowedLockFiles.has(file))) {
     return "lock-file";
   }
+
   if (files.every((file) => matchesAnyPathPattern(generatedPaths, file))) {
     return "regeneration";
   }
+
   return undefined;
 };
 
@@ -148,11 +153,13 @@ export const evaluateRenovateCommits = (
   if (last === undefined) {
     return { result: "no-commits" };
   }
+
   if (last.sha !== headSha) {
     return { headSha: last.sha, result: "stale" };
   }
 
   const allowedLockFiles = lockFilesOf(bot?.changedFiles ?? []);
+
   // What Renovate changed, rather than the pull request's diff: a target
   // may restore a trigger that is also its output, which leaves the diff.
   const generatedPaths =
@@ -164,10 +171,12 @@ export const evaluateRenovateCommits = (
             authorLogin === RENOVATE_LOGIN ? files : []
           )
         ).flatMap(({ paths }) => paths);
+
   const botCommits = { "lint-fix": 0, "lock-file": 0, regeneration: 0 };
 
   for (const commit of commits) {
     const byBot = bot !== undefined && commit.authorLogin === bot.botLogin;
+
     const foreign = (
       problem: "author" | "committer" | "files" | "model" | "unverified"
     ) => ({ problem, result: "foreign-commit" as const, sha: commit.sha });
@@ -175,23 +184,29 @@ export const evaluateRenovateCommits = (
     if (commit.authorLogin !== RENOVATE_LOGIN && !byBot) {
       return foreign("author");
     }
+
     if (
       !COMMITTERS.has(commit.committerLogin ?? "") &&
       !(byBot && commit.committerLogin === bot.botLogin)
     ) {
       return foreign("committer");
     }
+
     if (!commit.verified) {
       return foreign("unverified");
     }
+
     if (byBot) {
       const kind = botCommitKind(commit, { allowedLockFiles, generatedPaths });
+
       if (kind === undefined) {
         return foreign("files");
       }
+
       if (kind === "model") {
         return foreign("model");
       }
+
       botCommits[kind] += 1;
     }
   }
@@ -349,6 +364,7 @@ export const findPrecedentApprovers = ({
       ? [user.login]
       : []
   );
+
   return [...new Set(approvers)];
 };
 

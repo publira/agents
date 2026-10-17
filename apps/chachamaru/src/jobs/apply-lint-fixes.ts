@@ -57,6 +57,7 @@ const SANDBOX_VCPUS = 4;
 
 const FETCH_TIMEOUT_MS = 60_000;
 const INSTALL_TIMEOUT_MS = 120_000;
+
 // One run of ultracite on publira/publira takes 51 to 64 seconds with four
 // vCPUs.
 const LINT_TIMEOUT_MS = 120_000;
@@ -314,6 +315,7 @@ const killedToolFailure = (
   result: SandboxCommandResult
 ): Failure | undefined => {
   const killed = readKilledLintTool(outputOf(result));
+
   return killed === undefined
     ? undefined
     : {
@@ -332,6 +334,7 @@ const listUntracked = async (sandbox: Sandbox) => {
     "--exclude-standard",
     "-z"
   );
+
   return new Set(output.split("\0").filter((path) => path !== ""));
 };
 
@@ -358,6 +361,7 @@ const fixFindingsInSandbox = async (
   { fixer, command, check, output }: FindingsRequest
 ): Promise<SandboxFindingsFix | Failure> => {
   const deadline = sandbox.stopsAt - CHECK_RESERVE_MS;
+
   if (deadline <= Date.now()) {
     return {
       reason: "the sandbox had no time left for the model",
@@ -369,6 +373,7 @@ const fixFindingsInSandbox = async (
   // app runtime, not in the sandbox.
   await sandbox.denyNetwork();
   const untracked = await listUntracked(sandbox);
+
   const diff = await git(
     sandbox,
     WORKTREE,
@@ -379,6 +384,7 @@ const fixFindingsInSandbox = async (
   );
 
   let fix: Awaited<ReturnType<LintFindingsFixer>>;
+
   try {
     fix = await fixer({
       command,
@@ -395,6 +401,7 @@ const fixFindingsInSandbox = async (
       status: "model-failed",
     };
   }
+
   const { model, stopped } = fix;
 
   // A file Git does not track is not committed, so the check must not see
@@ -402,6 +409,7 @@ const fixFindingsInSandbox = async (
   const written = [...(await listUntracked(sandbox))].filter(
     (path) => !untracked.has(path)
   );
+
   if (written.length > 0) {
     await git(
       sandbox,
@@ -419,6 +427,7 @@ const fixFindingsInSandbox = async (
   const after = await check();
   const changes = await stageChanges(sandbox, WORKTREE, { trackedOnly: true });
   const killed = killedToolFailure("check", after);
+
   if (killed !== undefined) {
     // The model ran, and the log says so, with what it changed.
     return {
@@ -431,7 +440,9 @@ const fixFindingsInSandbox = async (
       },
     };
   }
+
   const checkPassed = after.exitCode === 0;
+
   const verdict = evaluateLintFindingsFix({
     addedLines: parseAddedLines(
       await git(
@@ -491,6 +502,7 @@ const fixInSandbox = async (
     cmd: "git",
     timeoutMs: FETCH_TIMEOUT_MS,
   });
+
   const fetch = await sandbox.run({
     args: [
       ...readTokenOptions(readToken),
@@ -507,12 +519,15 @@ const fixInSandbox = async (
     env: { GIT_TERMINAL_PROMPT: "0" },
     timeoutMs: FETCH_TIMEOUT_MS,
   });
+
   if (fetch.exitCode !== 0) {
     return failure("fetch", fetch);
   }
+
   await git(sandbox, WORKTREE, "checkout", "--quiet", "--detach", "FETCH_HEAD");
 
   const { install, exec } = PACKAGE_MANAGER_ARGS[packageManager];
+
   const run = (args: readonly string[], timeoutMs: number) =>
     sandbox.run({
       args,
@@ -521,19 +536,23 @@ const fixInSandbox = async (
       env: { CI: "true", NO_COLOR: "1" },
       timeoutMs,
     });
+
   const checkArgs = [...exec, "ultracite", "check"];
   const check = () => run(checkArgs, LINT_TIMEOUT_MS);
 
   const installation = await run(install, INSTALL_TIMEOUT_MS);
+
   if (installation.exitCode !== 0) {
     return failure("install", installation);
   }
 
   const before = await check();
   const killedBefore = killedToolFailure("check", before);
+
   if (killedBefore !== undefined) {
     return killedBefore;
   }
+
   if (before.exitCode === 0) {
     return { status: "lint-passed" };
   }
@@ -544,6 +563,7 @@ const fixInSandbox = async (
   const changedBefore = await stageChanges(sandbox, WORKTREE, {
     trackedOnly: true,
   });
+
   if (changedBefore.length > 0) {
     return {
       paths: changedBefore.map(({ path }) => path),
@@ -553,22 +573,27 @@ const fixInSandbox = async (
 
   const fix = await run([...exec, "ultracite", "fix"], LINT_TIMEOUT_MS);
   const killedFix = killedToolFailure("fix", fix);
+
   if (killedFix !== undefined) {
     return killedFix;
   }
+
   if (!FIX_RAN_EXIT_CODES.has(fix.exitCode)) {
     return failure("fix", fix);
   }
 
   const after = await check();
   const killedAfter = killedToolFailure("check", after);
+
   if (killedAfter !== undefined) {
     return killedAfter;
   }
+
   // A fix rewrites the files it fixes, so a file Git does not track, such
   // as a cache the install or a tool wrote, is none of its doing.
   const changes = await stageChanges(sandbox, WORKTREE, { trackedOnly: true });
   const refused = changes.some(({ path }) => isLintFixRefusedPath(path));
+
   const blobs = refused
     ? new Map<string, Buffer>()
     : await readBlobs(
@@ -578,6 +603,7 @@ const fixInSandbox = async (
           file === undefined ? [] : [file.sha]
         )
       );
+
   const fixed = {
     blobs,
     changes,
@@ -589,12 +615,14 @@ const fixInSandbox = async (
   if (fixed.checkPassed || refused || fixer === undefined) {
     return fixed;
   }
+
   const findings = await fixFindingsInSandbox(sandbox, {
     check,
     command: checkCommand(packageManager),
     fixer,
     output: outputOf(after),
   });
+
   return findings.status === "failed" ? findings : { ...fixed, findings };
 };
 
@@ -619,10 +647,13 @@ const plan = async (
     ref: headSha,
     repo,
   });
+
   if (manifest === undefined) {
     return { reason: "the head has no package.json at its root" };
   }
+
   const setup = readLintSetup(manifest);
+
   if (setup.result === "skipped") {
     return { reason: setup.reason };
   }
@@ -631,9 +662,11 @@ const plan = async (
     ...(await getCommitChecks(octokit, { owner, ref: headSha, repo })),
     required: [],
   });
+
   if (checks.result === "pending") {
     return { reason: "the checks on the head are still running" };
   }
+
   if (checks.result !== "failed") {
     return { reason: "no check on the head failed" };
   }
@@ -659,6 +692,7 @@ const isBotLintFix = async (
     ref: headSha,
     repo,
   });
+
   return (
     head.author?.login === botLogin &&
     LINT_FIX_SUBJECTS.has(head.commit.message.split("\n", 1)[0] ?? "")
@@ -676,10 +710,13 @@ const contentOf =
     if (after === undefined) {
       return null;
     }
+
     const content = blobs.get(after.sha);
+
     if (content === undefined) {
       throw new Error(`The sandbox did not return ${path}`);
     }
+
     return content;
   };
 
@@ -702,6 +739,7 @@ const summarizeFindings = (fix: SandboxFindingsFix): FindingsFix => {
   if (fix.status === "not-asked") {
     return { invoked: false, paths: [], reason: fix.reason };
   }
+
   if (fix.status === "model-failed") {
     return {
       error: fix.error,
@@ -710,7 +748,9 @@ const summarizeFindings = (fix: SandboxFindingsFix): FindingsFix => {
       reason: "the model's run failed",
     };
   }
+
   const { model, stopped, changes, checkPassed, verdict } = fix;
+
   return {
     checkPassed,
     invoked: true,
@@ -778,6 +818,7 @@ const commitFindingsFix = async (
   fix: Extract<SandboxFindingsFix, { status: "checked" }>
 ): Promise<ApplyLintFixesResult> => {
   const findings = summarizeFindings(fix);
+
   const fixedByModel = {
     checkPassed: true,
     findings,
@@ -785,9 +826,11 @@ const commitFindingsFix = async (
     output: undefined,
     paths: findings.paths,
   };
+
   if (dryRun) {
     return { ...fixedByModel, status: "would-commit" };
   }
+
   const commit = await addCommitToBranch(octokit, {
     ...commitOf(fix.changes, fix.blobs),
     branch,
@@ -802,6 +845,7 @@ const commitFindingsFix = async (
     owner,
     repo,
   });
+
   return commit.status === "moved"
     ? { ...fixedByModel, status: "head-moved" }
     : { ...fixedByModel, commitSha: commit.sha, status: "committed" };
@@ -828,15 +872,18 @@ const commitAutomaticFix = async (
     packageManager,
     dryRun,
   } = settlement;
+
   const { blobs, changes, checkPassed } = fixed;
   const output = checkPassed ? undefined : fixed.output;
   const paths = changes.map(({ path }) => path);
+
   const findings =
     fixed.findings === undefined
       ? undefined
       : summarizeFindings(fixed.findings);
 
   const reportFindings = () => (findings === undefined ? {} : { findings });
+
   const tellMaintainers = async () =>
     findings === undefined || dryRun
       ? reportFindings()
@@ -870,6 +917,7 @@ const commitAutomaticFix = async (
   }
 
   const refusedPaths = paths.filter(isLintFixRefusedPath);
+
   if (refusedPaths.length > 0) {
     return {
       headSha,
@@ -881,6 +929,7 @@ const commitAutomaticFix = async (
   }
 
   const fixedPaths = { checkPassed, headSha, output, paths };
+
   if (dryRun) {
     return { ...fixedPaths, ...reportFindings(), status: "would-commit" };
   }
@@ -950,29 +999,36 @@ export const applyLintFixes = async (
     fixer,
     dryRun = false,
   } = options;
+
   const { data: pullRequest } = await octokit.rest.pulls.get({
     owner,
     pull_number: pullNumber,
     repo,
   });
+
   const headSha = pullRequest.head.sha;
+
   const skip = (reason: string) =>
     ({ headSha, reason, status: "skipped" }) as const;
 
   if (!isRenovate(pullRequest.user)) {
     return skip("Renovate did not open the pull request");
   }
+
   if (pullRequest.state !== "open") {
     return skip("the pull request is closed");
   }
+
   if (pullRequest.head.repo?.full_name !== pullRequest.base.repo.full_name) {
     return skip("its branch is in another repository");
   }
 
   const packageManager = await plan(options, headSha);
+
   if (isSkip(packageManager)) {
     return skip(packageManager.reason);
   }
+
   if (await isBotLintFix(options, headSha)) {
     return {
       headSha,
@@ -997,6 +1053,7 @@ export const applyLintFixes = async (
   const readToken = pullRequest.base.repo.private
     ? await createReadToken()
     : undefined;
+
   const fixed = await sandbox(
     (session) =>
       fixInSandbox(session, {
@@ -1020,6 +1077,7 @@ export const applyLintFixes = async (
       status: "refused",
     };
   }
+
   if (fixed.status !== "fixed") {
     return { ...fixed, headSha };
   }
@@ -1035,6 +1093,7 @@ export const applyLintFixes = async (
     pullNumber,
     repo,
   };
+
   // The model's changes, with the automatic fix's, make the check pass.
   return fixed.findings?.status === "checked" &&
     fixed.findings.verdict.result === "accepted"

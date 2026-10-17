@@ -65,6 +65,7 @@ const manifestSchema = z.looseObject({
             input: metadata,
             message: "is not JSON",
           });
+
           return z.NEVER;
         }
       })
@@ -77,13 +78,16 @@ const parseBearerChallenge = (header: string | null) => {
   if (header === null || !/^Bearer\s/iu.test(header)) {
     return;
   }
+
   const parameters = new Map(
     [...header.matchAll(/(?<key>\w+)="(?<value>[^"]*)"/gu)].map((match) => [
       match.groups?.key ?? "",
       match.groups?.value ?? "",
     ])
   );
+
   const realm = parameters.get("realm");
+
   return realm === undefined || !realm.startsWith("https://")
     ? undefined
     : { parameters, realm };
@@ -115,8 +119,10 @@ export const resolveFeature = async (
   ): Promise<Response> => {
     const again = async () => {
       await sleep(retryDelay * 2 ** retry);
+
       return request(url, headers, retry + 1);
     };
+
     let response: Response;
 
     try {
@@ -128,6 +134,7 @@ export const resolveFeature = async (
       if (retry < retries) {
         return again();
       }
+
       throw new Error(
         `${url.host} did not answer for ${name}: ${error instanceof Error ? error.message : String(error)}`,
         { cause: error }
@@ -142,6 +149,7 @@ export const resolveFeature = async (
   const manifestUrl = new URL(
     `https://${registry}/v2/${repository}/manifests/${tag}`
   );
+
   const accept = { accept: MANIFEST_MEDIA_TYPE };
   let response = await request(manifestUrl, accept);
 
@@ -149,25 +157,31 @@ export const resolveFeature = async (
     const challenge = parseBearerChallenge(
       response.headers.get("www-authenticate")
     );
+
     if (challenge === undefined) {
       throw new Error(`${registry} asks for credentials to read ${name}`);
     }
 
     const tokenUrl = new URL(challenge.realm);
+
     for (const key of ["service", "scope"]) {
       const value = challenge.parameters.get(key);
+
       if (value !== undefined) {
         tokenUrl.searchParams.set(key, value);
       }
     }
+
     const tokenResponse = await request(tokenUrl, {
       accept: "application/json",
     });
+
     if (!tokenResponse.ok) {
       throw new Error(
         `${tokenUrl.host} answered ${tokenResponse.status} for a token to read ${name}`
       );
     }
+
     const token = tokenSchema.parse(await tokenResponse.json());
 
     response = await request(manifestUrl, {
@@ -191,11 +205,13 @@ export const resolveFeature = async (
   }
 
   let json: unknown;
+
   try {
     json = JSON.parse(body.toString("utf-8"));
   } catch {
     throw new Error(`The manifest of ${name} is not JSON`);
   }
+
   const manifest = manifestSchema.safeParse(json);
 
   if (!manifest.success) {

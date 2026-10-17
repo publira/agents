@@ -12,6 +12,7 @@ const ISSUE_LABELS = `${REPOSITORY}/issues/70/labels`;
 
 const ASSISTED =
   "feat: add a maintenance policy\n\nAssisted-by: Claude Code:claude-opus-5-5";
+
 const UNASSISTED = "fix: handle a missing label";
 
 interface Scenario {
@@ -43,6 +44,7 @@ const fakeGitHub = ({
     const method = init?.method ?? "GET";
     const route = `${method} ${url.pathname}`;
     routes.push(route);
+
     if (method !== "GET") {
       writes.push({
         body:
@@ -61,19 +63,23 @@ const fakeGitHub = ({
             number: 70,
           });
         }
+
         case `GET ${PULL}/commits`: {
           return Response.json(
             messages.map((message) => ({ commit: { message } }))
           );
         }
+
         case `GET ${REPOSITORY}/labels/ai-assisted`: {
           return label === null
             ? Response.json({ message: "Not Found" }, { status: 404 })
             : Response.json({ ...label, name: "ai-assisted" });
         }
+
         case `POST ${ISSUE_LABELS}`: {
           return Response.json([{ name: "ai-assisted" }]);
         }
+
         case `DELETE ${ISSUE_LABELS}/ai-assisted`: {
           return removable
             ? Response.json([])
@@ -82,13 +88,16 @@ const fakeGitHub = ({
                 { status: 404 }
               );
         }
+
         default: {
           return Response.json({ message: "Not Found" }, { status: 404 });
         }
       }
     };
+
     const response = respond();
     Object.defineProperty(response, "url", { value: url.href });
+
     return Promise.resolve(response);
   });
 

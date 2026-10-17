@@ -51,6 +51,7 @@ export const verifyWebhookDelivery = async ({
   }
 
   let payload: unknown;
+
   try {
     payload = JSON.parse(body);
   } catch {

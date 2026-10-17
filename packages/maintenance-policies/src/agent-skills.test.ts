@@ -42,6 +42,7 @@ describe(diffSkillsLocks, () => {
       ultracite: entry("haydenbleasel/ultracite", "7660"),
       "web-design-guidelines": entry("vercel-labs/agent-skills", "1f2e"),
     });
+
     const after = lock({
       "frontend-design": entry("anthropics/skills", "8949"),
       "gh-stack": entry("github/gh-stack", "6a52"),

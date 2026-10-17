@@ -76,6 +76,7 @@ export const createVercelSandboxRunner =
   async (task, { timeoutMs, vcpus = DEFAULT_VCPUS }) => {
     // Counted from before the request, so never later than Vercel's count.
     const stopsAt = Date.now() + timeoutMs;
+
     // A sandbox that is not persistent keeps nothing once it stops.
     const sandbox = await VercelSandbox.create({
       persistent: false,
@@ -96,10 +97,12 @@ export const createVercelSandboxRunner =
             env: { ...env },
             timeoutMs: commandTimeoutMs,
           });
+
           const [stdout, stderr] = await Promise.all([
             command.stdout(),
             command.stderr(),
           ]);
+
           return { exitCode: command.exitCode, stderr, stdout };
         },
         stopsAt,

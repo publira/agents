@@ -23,6 +23,7 @@ export const parsePackageSelector = (selector: string): PackageSelector => {
     if (trimmed === "") {
       throw invalidSelector(selector);
     }
+
     return { name: trimmed, versions: [] };
   }
 

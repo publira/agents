@@ -70,6 +70,7 @@ export const evaluateAgentAssistanceLabel = ({
         : "no commit discloses an agent, and it is not labelled"
     );
   }
+
   if (!assisted) {
     return commitMessages.length < commitCount
       ? leave(
@@ -77,13 +78,16 @@ export const evaluateAgentAssistanceLabel = ({
         )
       : { action: "remove" };
   }
+
   if (labelState === "missing") {
     return leave(
       `the repository does not define the ${AI_ASSISTED_LABEL} label`
     );
   }
+
   if (labelState === "archived") {
     return leave(`the repository archived the ${AI_ASSISTED_LABEL} label`);
   }
+
   return { action: "add" };
 };

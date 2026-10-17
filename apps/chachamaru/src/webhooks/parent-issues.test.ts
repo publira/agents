@@ -31,6 +31,7 @@ const installationOctokit = createGitHubClient({
         : Response.json({ message: "Not Found" }, { status: 404 })
     ),
 });
+
 const repositoryOctokit = createGitHubClient();
 
 const issue = (repo: string, number: number) => ({
@@ -45,6 +46,7 @@ const setup = ({
   const close = vi.fn<typeof closeCompletedParentIssue>(() =>
     Promise.resolve({ reason: "it has no sub-issues", status: "left" })
   );
+
   const app: GitHubApp = {
     getBotLogin: () => Promise.resolve(BOT),
     getInstallationOctokit: () => Promise.resolve(installationOctokit),

@@ -58,8 +58,10 @@ export const fetchPublishTimes = async (
   const request = async (retry: number): Promise<Response> => {
     const again = async () => {
       await sleep(retryDelay * 2 ** retry);
+
       return request(retry + 1);
     };
+
     let response: Response;
 
     try {
@@ -71,6 +73,7 @@ export const fetchPublishTimes = async (
       if (retry < retries) {
         return again();
       }
+
       throw new Error(
         `The npm registry did not answer for ${JSON.stringify(name)}: ${error instanceof Error ? error.message : String(error)}`,
         { cause: error }
@@ -81,6 +84,7 @@ export const fetchPublishTimes = async (
       ? again()
       : response;
   };
+
   const response = await request(0);
 
   if (response.status === 404) {

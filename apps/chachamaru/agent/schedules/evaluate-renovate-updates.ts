@@ -23,10 +23,12 @@ export default defineSchedule({
     const scheduleLog = withFields(log, {
       schedule: "evaluate-renovate-updates",
     });
+
     const app = getGitHubApp();
 
     if (app === undefined) {
       scheduleLog("warn", "Schedule skipped: the GitHub App is not configured");
+
       return;
     }
 

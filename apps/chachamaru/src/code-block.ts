@@ -7,6 +7,8 @@ export const codeBlock = (text: string, language = ""): string => {
     0,
     ...Array.from(text.matchAll(/`+/gu), ([run]) => run.length)
   );
+
   const fence = "`".repeat(Math.max(3, longest + 1));
+
   return `${fence}${language}\n${text.endsWith("\n") ? text : `${text}\n`}${fence}`;
 };

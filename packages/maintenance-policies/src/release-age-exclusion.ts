@@ -49,6 +49,7 @@ const EXACT_VERSION =
 const isPublicNpmRegistry = (registryUrl: string): boolean => {
   try {
     const url = new URL(registryUrl);
+
     return (
       url.protocol === "https:" &&
       url.host === "registry.npmjs.org" &&
@@ -75,9 +76,11 @@ export const findReleaseAgeExclusionKeepReason = ({
   ) {
     return "unpinned";
   }
+
   if (!isPublicNpmRegistry(registryUrl)) {
     return "other-registry";
   }
+
   return undefined;
 };
 
@@ -106,6 +109,7 @@ export const evaluateReleaseAgeExclusion = ({
 
   for (const version of versions) {
     const time = publishTimes.get(version);
+
     if (time === undefined) {
       missingVersions.push(version);
     } else {

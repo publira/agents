@@ -40,6 +40,7 @@ export const readGitHubAppConfig = (
     const problems = result.error.issues.map(
       ({ message, path }) => `${path.join(".")} ${message}`
     );
+
     throw new Error(`The GitHub App is misconfigured: ${problems.join("; ")}`);
   }
 
@@ -62,5 +63,6 @@ export const getGitHubApp = (): GitHubApp | undefined => {
     const config = readGitHubAppConfig();
     app = config === undefined ? null : createGitHubApp(config);
   }
+
   return app ?? undefined;
 };

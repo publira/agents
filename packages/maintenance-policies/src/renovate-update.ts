@@ -94,6 +94,7 @@ const renovateUpdateSchema = z
   })
   .superRefine((update, context) => {
     const digestFields = DIGEST_FIELDS[update.updateType];
+
     const required =
       digestFields ?? (update.newVersion === undefined ? ["newVersion"] : []);
 
@@ -120,6 +121,7 @@ const payloadSchema = z
         input: payload,
         message: "is not JSON",
       });
+
       return z.NEVER;
     }
   })
@@ -193,6 +195,7 @@ export const parseRenovateUpdates = (
         result: "invalid",
       };
     }
+
     // A dependency declared in several package files repeats its update.
     updates.set(updateKey(parsed.data), parsed.data);
   }
@@ -230,6 +233,7 @@ export const formatRenovateUpdate = (update: RenovateUpdate): string => {
     update.currentDigest === undefined && update.newDigest === undefined
       ? ""
       : `@${update.currentDigest === undefined ? "" : shortDigest(update.currentDigest)}->${update.newDigest === undefined ? "" : shortDigest(update.newDigest)}`;
+
   const name =
     update.packageName === undefined || update.packageName === update.depName
       ? update.depName

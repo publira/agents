@@ -68,8 +68,10 @@ const fakeGitHub = ({
     const url = new URL(String(input));
     const method = init?.method ?? "GET";
     const route = `${method} ${decodeURIComponent(url.pathname)}`;
+
     const body =
       init?.body === undefined ? undefined : JSON.parse(String(init.body));
+
     routes.push(route);
 
     const respond = (): Json | Response | undefined => {
@@ -100,31 +102,40 @@ const fakeGitHub = ({
             },
           };
         }
+
         mutations.push({ name: mutation, variables: body.variables });
+
         if (mutation === "enablePullRequestAutoMerge" && enableErrors) {
           return {
             data: null,
             errors: enableErrors.map((message) => ({ message })),
           };
         }
+
         return { data: { [mutation]: { clientMutationId: null } } };
       }
+
       if (method !== "GET") {
         writes.push({ body, route });
       }
+
       switch (route) {
         case "GET /repos/publira/agents/pulls/31/reviews": {
           return reviews;
         }
+
         case "GET /repos/publira/agents/pulls/31/files": {
           return files;
         }
+
         case "GET /repos/publira/agents/rules/branches/main": {
           return rules;
         }
+
         case "PUT /repos/publira/agents/pulls/31/merge": {
           return mergeResponse;
         }
+
         default: {
           return undefined;
         }
@@ -133,10 +144,13 @@ const fakeGitHub = ({
 
     const result =
       respond() ?? Response.json({ message: "Not Found" }, { status: 404 });
+
     const response =
       result instanceof Response ? result : Response.json(result);
+
     // The pagination plugin reads the URL of the response.
     Object.defineProperty(response, "url", { value: url.href });
+
     return Promise.resolve(response);
   });
 
@@ -389,6 +403,7 @@ describe(autoMergeRenovateUpdate, () => {
     const github = fakeGitHub({
       reviews: [ownApproval({ state: "DISMISSED" })],
     });
+
     approvable.mockClear();
 
     await expect(run(github)).resolves.toMatchObject({

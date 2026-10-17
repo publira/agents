@@ -11,10 +11,13 @@ import type { LockedFeature } from "./devcontainer-lock-file.ts";
 
 const DIND = "ghcr.io/devcontainers/features/docker-in-docker";
 const GH_CLI = "ghcr.io/devcontainers/features/github-cli";
+
 const OLD_DIGEST =
   "sha256:ad3d6d36d95ee7f880f61f98862257f3e70253d3faef09f86af42fb87ee60429";
+
 const NEW_DIGEST =
   "sha256:1111111111111111111111111111111111111111111111111111111111111111";
+
 const GH_CLI_DIGEST =
   "sha256:bd7ab48a832228f633239277552c30b353867fef2e5b037e064b4e64f0b843f2";
 
@@ -134,11 +137,13 @@ const lockedDind: LockedFeature = {
   resolved: `${DIND}@${OLD_DIGEST}`,
   version: "4.1.2",
 };
+
 const lockedGhCli: LockedFeature = {
   integrity: GH_CLI_DIGEST,
   resolved: `${GH_CLI}@${GH_CLI_DIGEST}`,
   version: "1.1.3",
 };
+
 const syncedDind: LockedFeature = {
   integrity: NEW_DIGEST,
   resolved: `${DIND}@${NEW_DIGEST}`,
@@ -147,6 +152,7 @@ const syncedDind: LockedFeature = {
 
 const dindBump = findFeatureBumps([`${DIND}:4.1.2`], [`${DIND}:4.1.3`]);
 const bumps = dindBump.result === "bumped" ? dindBump.bumps : [];
+
 const resolved = new Map([
   [`${DIND}:4.1.3`, { dependsOn: [], digest: NEW_DIGEST, version: "4.1.3" }],
 ]);

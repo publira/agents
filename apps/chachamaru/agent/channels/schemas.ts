@@ -21,6 +21,7 @@ export default defineChannel({
   routes: [
     GET("/schemas/:name/:file", (request) => {
       const schema = SCHEMAS.get(new URL(request.url).pathname);
+
       return Promise.resolve(
         schema === undefined
           ? new Response("Not Found", { status: 404 })
