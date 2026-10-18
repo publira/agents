@@ -239,8 +239,8 @@ importers:
         specifier: 7.0.141
         version: 7.0.141(zod@4.6.7)
       eve:
-        specifier: 0.79.1
-        version: 0.79.1(ai@7.0.141(zod@4.6.7))
+        specifier: 0.80.0
+        version: 0.80.0(ai@7.0.141(zod@4.6.7))
       zod:
         specifier: 'catalog:'
         version: 4.6.7
@@ -1317,15 +1317,15 @@ packages:
   estree-walker@3.0.3:
     resolution: {integrity: sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==}
 
-  eve@0.79.1:
-    resolution: {integrity: sha512-7hbpSi6mCqsrq3W7C9Y8Z2vTny01hunaNilEFj2qy/DkotztaW+KD4BNwut3oz2iSQ8yryyl46XhOspQ6PmZOg==}
+  eve@0.80.0:
+    resolution: {integrity: sha512-ocFBHm5swGuTyW/JXW72Ze6wge8yI8Le6FoDuQG6me3QNyPckYKakxAjqlw53jasrIRfxvNxvjBVLQXGuEyB8g==}
     engines: {node: '>=24'}
     hasBin: true
     peerDependencies:
       '@opentelemetry/api': ^1.0.0
       ai: ^7.0.137
       braintrust: ^3.0.0
-      chat: ^4.41.0
+      chat: ^4.42.0
       dd-trace: ^6.13.0
       just-bash: ^3.1.0
       microsandbox: ^0.5.0
@@ -2978,7 +2978,7 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.9
 
-  eve@0.79.1(ai@7.0.141(zod@4.6.7)):
+  eve@0.80.0(ai@7.0.141(zod@4.6.7)):
     dependencies:
       ai: 7.0.141(zod@4.6.7)
       nitro: 3.0.260903-beta
