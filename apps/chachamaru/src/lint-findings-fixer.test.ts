@@ -154,6 +154,60 @@ describe(createModelLintFindingsFixer, () => {
     expect(sent).toContain("-# Comic Viewer \\n+# Comic Viewer");
   });
 
+  it("applies the patch of an apply_patch command itself", async () => {
+    const command = [
+      "cd /tmp/repository && apply_patch <<'PATCH'",
+      "*** Begin Patch",
+      "*** Update File: src/index.ts",
+      "-debugger;",
+      "+export {};",
+      "*** End Patch",
+      "PATCH",
+    ].join("\n");
+    const steps = [toolCall("bash", { command }), reply];
+    const model = new MockLanguageModelV4({
+      doGenerate: () => Promise.resolve(steps.shift() ?? reply),
+    });
+    const sandbox = fakeSandbox();
+
+    await createModelLintFindingsFixer(model)(request(sandbox));
+
+    expect(sandbox.run).not.toHaveBeenCalledWith(
+      expect.objectContaining({ cmd: "bash" })
+    );
+    expect(sandbox.writeFile).toHaveBeenCalledWith(
+      "/tmp/repository/src/index.ts",
+      "export {};\n"
+    );
+    expect(JSON.stringify(model.doGenerateCalls[1]?.prompt)).toContain(
+      "Exit code 0\\nApplied the patch to src/index.ts."
+    );
+  });
+
+  it("changes nothing when a patch does not apply", async () => {
+    const command = [
+      "apply_patch <<'PATCH'",
+      "*** Begin Patch",
+      "*** Update File: src/index.ts",
+      "-console.log(1);",
+      "+export {};",
+      "*** End Patch",
+      "PATCH",
+    ].join("\n");
+    const steps = [toolCall("bash", { command }), reply];
+    const model = new MockLanguageModelV4({
+      doGenerate: () => Promise.resolve(steps.shift() ?? reply),
+    });
+    const sandbox = fakeSandbox();
+
+    await createModelLintFindingsFixer(model)(request(sandbox));
+
+    expect(sandbox.writeFile).not.toHaveBeenCalled();
+    expect(JSON.stringify(model.doGenerateCalls[1]?.prompt)).toContain(
+      "Exit code 1\\nThe patch was not applied, and nothing changed: Cannot find these lines"
+    );
+  });
+
   it("refuses to return a file too large to read whole", async () => {
     const steps = [toolCall("read_file", { path: "dist/bundle.js" }), reply];
     const model = new MockLanguageModelV4({

@@ -4,6 +4,12 @@ import { generateText, stepCountIs, tool } from "ai";
 import type { LanguageModel } from "ai";
 import { z } from "zod";
 
+import {
+  applyHunks,
+  parsePatch,
+  readApplyPatchCommand,
+} from "./apply-patch.ts";
+import type { ApplyPatchCommand } from "./apply-patch.ts";
 import { codeBlock } from "./code-block.ts";
 import { LINT_FINDINGS_MODEL } from "./models.ts";
 import type { Sandbox } from "./sandbox-runner.ts";
@@ -112,11 +118,56 @@ const sandboxTools = ({
   const commandTimeout = () =>
     Math.max(0, Math.min(COMMAND_TIMEOUT_MS, deadline - Date.now()));
 
+  // Codex models edit files by running `apply_patch` in bash, which has no
+  // such command, so the tool applies the patch itself, as Codex does.
+  // Every file is patched before any is written, so a patch that does not
+  // apply changes nothing.
+  const applyPatch = async ({ directory, patch }: ApplyPatchCommand) => {
+    const base = path.posix.resolve(worktree, directory ?? ".");
+    let patched: { file: string; content: string }[];
+    try {
+      const files = parsePatch(patch).map(({ path: file, hunks }) => ({
+        file: path.posix.resolve(base, file),
+        hunks,
+      }));
+      const reads = await Promise.all(
+        files.map(({ file }) =>
+          sandbox.run({
+            args: ["--", file],
+            cmd: "cat",
+            timeoutMs: commandTimeout(),
+          })
+        )
+      );
+      patched = files.map(({ file, hunks }, index) => {
+        const read = reads[index];
+        if (read?.exitCode !== 0) {
+          throw new Error(`Cannot read ${file}: ${read?.stderr}`);
+        }
+        return { content: applyHunks(read.stdout, hunks), file };
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return `Exit code 1\nThe patch was not applied, and nothing changed: ${message}`;
+    }
+    await Promise.all(
+      patched.map(({ file, content }) => sandbox.writeFile(file, content))
+    );
+    const files = patched.map(({ file }) =>
+      path.posix.relative(worktree, file)
+    );
+    return `Exit code 0\nApplied the patch to ${files.join(", ")}.`;
+  };
+
   return {
     bash: tool({
       description:
         "Run a command with bash in the repository's directory. Returns its exit code and the end of its output.",
       async execute({ command }) {
+        const applyPatchCommand = readApplyPatchCommand(command);
+        if (applyPatchCommand !== undefined) {
+          return applyPatch(applyPatchCommand);
+        }
         const result = await sandbox.run({
           args: ["-c", command],
           cmd: "bash",
