@@ -21,6 +21,7 @@ export const readRepositoryFile = async (
     ref,
     repo,
   });
+
   const location = `${owner}/${repo}/${path}`;
 
   if (Array.isArray(data) || data.type !== "file") {
@@ -51,6 +52,7 @@ export const readOptionalRepositoryFile = async (
     if (requestFailure.safeParse(error).data?.status === 404) {
       return undefined;
     }
+
     throw error;
   }
 };

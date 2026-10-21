@@ -258,6 +258,7 @@ const readCleanupProposal = async ({
       repo,
     }),
   ]);
+
   const [commit] = comparison.commits;
   const model = commit?.commit.message.match(ASSISTED_BY)?.groups?.model;
 
@@ -303,6 +304,7 @@ const findExistingCleanup = async ({
       baseSha,
       head: open.head.sha,
     });
+
     return proposal !== undefined &&
       isCleanup(proposal.proposed, proposal.model)
       ? { model: proposal.model, status: "open" as const }
@@ -357,8 +359,10 @@ export const removeExpiredReleaseAgeExclusions = async ({
 }: RemoveExpiredReleaseAgeExclusionsOptions): Promise<RemoveExpiredReleaseAgeExclusionsResult> => {
   const getDefaultBranch = async () => {
     const { data } = await octokit.rest.repos.get({ owner, repo });
+
     return data.default_branch;
   };
+
   const baseBranch = base ?? (await getDefaultBranch());
   const read = await readManifest(octokit, { branch: baseBranch, owner, repo });
 
@@ -381,6 +385,7 @@ export const removeExpiredReleaseAgeExclusions = async ({
     npmrc: await readOptionalRepositoryFile(octokit, { ...at, path: ".npmrc" }),
     registry,
   });
+
   const expired = reports.flatMap(({ selector, verdict }) =>
     verdict.action === "expired"
       ? [{ availableAt: verdict.availableAt, selector }]
@@ -392,11 +397,13 @@ export const removeExpiredReleaseAgeExclusions = async ({
   }
 
   const selectors = expired.map(({ selector }) => selector);
+
   const verify = (edited: string) =>
     verifyReleaseAgeExclusionRemoval(source, edited, selectors);
 
   const removal = removeReleaseAgeExclusions(source, selectors);
   const ruleEdit = removal.result === "edited" ? removal.source : undefined;
+
   const ensureCleanupPullRequest = (model: string | undefined) =>
     ensurePullRequest(octokit, {
       base: baseBranch,
@@ -453,11 +460,13 @@ export const removeExpiredReleaseAgeExclusions = async ({
         `${owner}/${repo}: the rules cannot remove the expired entries (${removal.reason}), and no editor was given`
       );
     }
+
     const edit = await editor({
       lines: removal.block.lines,
       reason: removal.reason,
       selectors,
     });
+
     edited = deleteBlockLines(source, removal.block, edit.lineNumbers);
     ({ model } = edit);
   }
@@ -559,16 +568,20 @@ export const removeExpiredReleaseAgeExclusionsEverywhere = async ({
           owner,
           repo,
         });
+
         // Whether the model was asked, which a failure's line tells too: an
         // edit it chose can still fail the checks, or the call can time out.
         let modelInvoked = false;
+
         const trackedEditor: ExclusionEditor | undefined =
           editor === undefined
             ? undefined
             : (request) => {
                 modelInvoked = true;
+
                 return editor(request);
               };
+
         try {
           const result = await job({
             base: defaultBranch,
@@ -580,6 +593,7 @@ export const removeExpiredReleaseAgeExclusionsEverywhere = async ({
             registry,
             repo,
           });
+
           repositoryLog("info", "Release age exclusions checked", {
             ...summarizeCleanupResult(result),
             modelInvoked,

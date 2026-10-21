@@ -571,6 +571,7 @@ describe(evaluateRenovateUpdate, () => {
 // Applies the lint fixes with `fix` in place of the job.
 const fixWith = async (fix: typeof applyLintFixes) => {
   const log = vi.fn<Log>();
+
   const deferred = await fixLintAndLog({
     dryRun: true,
     fix,
@@ -582,6 +583,7 @@ const fixWith = async (fix: typeof applyLintFixes) => {
     repo: "agents",
     reviewer: BOT,
   });
+
   return { deferred, log };
 };
 
@@ -654,10 +656,12 @@ const sandbox: SandboxRunner = () =>
 // An App installed on publira/agents, whose open pull requests are `pulls`.
 const fakeApp = (pulls: readonly { number: number; user: object }[]) => {
   const requests: string[] = [];
+
   const octokit = createGitHubClient({
     fetch: (input) => {
       const url = new URL(String(input));
       requests.push(`${url.pathname}${url.search}`);
+
       const response = Response.json(
         url.pathname === "/installation/repositories"
           ? {
@@ -673,10 +677,13 @@ const fakeApp = (pulls: readonly { number: number; user: object }[]) => {
             }
           : pulls
       );
+
       Object.defineProperty(response, "url", { value: url.href });
+
       return Promise.resolve(response);
     },
   });
+
   const app: GitHubApp = {
     getBotLogin: () => Promise.resolve(BOT),
     getInstallationOctokit: () => Promise.resolve(octokit),
@@ -684,17 +691,21 @@ const fakeApp = (pulls: readonly { number: number; user: object }[]) => {
     octokit: createGitHubClient({
       fetch: (input) => {
         const url = new URL(String(input));
+
         const response = Response.json(
           url.pathname === "/app/installations"
             ? [{ id: 1, suspended_at: null }]
             : { message: "Not Found" },
           { status: url.pathname === "/app/installations" ? 200 : 404 }
         );
+
         Object.defineProperty(response, "url", { value: url.href });
+
         return Promise.resolve(response);
       },
     }),
   };
+
   return { app, requests };
 };
 
@@ -707,6 +718,7 @@ const regenerateSlowly = (state: { running: number; mostRunning: number }) =>
     state.mostRunning = Math.max(state.mostRunning, state.running);
     await sleep(5);
     state.running -= 1;
+
     return pullNumber === 33
       ? {
           headSha: HEAD,
@@ -736,8 +748,10 @@ const sweepWithSandbox = async () => {
     ...pullNumbers.map((number) => ({ number, user: renovate })),
     { number: 40, user: maintainer },
   ]);
+
   const state = { mostRunning: 0, running: 0 };
   const regenerate = regenerateSlowly(state);
+
   // Fixes the lint of #35 only.
   const fixLint = vi.fn<typeof applyLintFixes>(({ pullNumber }) =>
     Promise.resolve(
@@ -757,9 +771,11 @@ const sweepWithSandbox = async () => {
           }
     )
   );
+
   const evaluate = vi.fn<typeof evaluateRenovateUpdate>(() =>
     Promise.resolve()
   );
+
   const log = vi.fn<Log>();
 
   await evaluateRenovateUpdatesEverywhere({
@@ -811,9 +827,11 @@ describe(evaluateRenovateUpdatesEverywhere, () => {
       { number: 31, user: renovate },
       { number: 32, user: maintainer },
     ]);
+
     const evaluate = vi.fn<typeof evaluateRenovateUpdate>(() =>
       Promise.resolve()
     );
+
     const log = vi.fn<Log>();
 
     await evaluateRenovateUpdatesEverywhere({
@@ -843,9 +861,11 @@ describe(evaluateRenovateUpdatesEverywhere, () => {
 
   it("leaves the generated output alone without a sandbox", async () => {
     const { app } = fakeApp([{ number: 31, user: renovate }]);
+
     const evaluate = vi.fn<typeof evaluateRenovateUpdate>(() =>
       Promise.resolve()
     );
+
     const regenerate = vi.fn<typeof regenerateGeneratedOutput>();
     const fixLint = vi.fn<typeof applyLintFixes>();
 

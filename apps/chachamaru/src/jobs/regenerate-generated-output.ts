@@ -188,6 +188,7 @@ const regenerateInSandbox = async (
     cmd: "git",
     timeoutMs: GIT_TIMEOUT_MS,
   });
+
   const fetch = await sandbox.run({
     args: [
       ...readTokenOptions(readToken),
@@ -204,9 +205,11 @@ const regenerateInSandbox = async (
     env: { GIT_TERMINAL_PROMPT: "0" },
     timeoutMs: FETCH_TIMEOUT_MS,
   });
+
   if (fetch.exitCode !== 0) {
     return failure("fetch", fetch);
   }
+
   await git(sandbox, WORKTREE, "checkout", "--quiet", "--detach", "FETCH_HEAD");
 
   const shell = (script: string, timeoutMs: number) =>
@@ -221,17 +224,20 @@ const regenerateInSandbox = async (
   for (const command of target.setup) {
     // oxlint-disable-next-line no-await-in-loop -- each builds on the last
     const setup = await shell(command, target.setupTimeout * 1000);
+
     if (setup.exitCode !== 0) {
       return failure("setup", setup);
     }
   }
 
   const regeneration = await shell(target.command, target.timeout * 1000);
+
   if (regeneration.exitCode !== 0) {
     return failure("command", regeneration);
   }
 
   const changes = await stageChanges(sandbox, WORKTREE);
+
   const blobs = await readBlobs(
     sandbox,
     WORKTREE,
@@ -270,10 +276,13 @@ const readConfig = async (
     ref: baseSha,
     repo,
   });
+
   if (source === undefined) {
     return { reason: `the base branch has no ${REGENERATION_CONFIG_PATH}` };
   }
+
   const parsed = parseRegenerationConfig(source);
+
   return parsed.result === "valid" ? parsed.config : { reason: parsed.reason };
 };
 
@@ -286,15 +295,18 @@ const readEnv = async (
   if (workflowEnv === undefined) {
     return {};
   }
+
   const workflow = await readOptionalRepositoryFile(octokit, {
     owner,
     path: workflowEnv,
     ref: headSha,
     repo,
   });
+
   if (workflow === undefined) {
     return { reason: `the head has no ${workflowEnv}` };
   }
+
   try {
     return readWorkflowEnv(workflow);
   } catch (error) {
@@ -324,9 +336,11 @@ const completedTargets = (
   { botLogin, headSha }: { botLogin: string; headSha: string }
 ): ReadonlySet<string> => {
   const completed = new Set<string>();
+
   if (commits.at(-1)?.sha !== headSha) {
     return completed;
   }
+
   for (const { author, commit } of commits.toReversed()) {
     if (
       author?.login !== botLogin ||
@@ -334,15 +348,18 @@ const completedTargets = (
     ) {
       break;
     }
+
     const names = [...commit.message.matchAll(REGENERATED_TARGET_LINE)].map(
       ({ groups }) => groups?.name ?? ""
     );
+
     for (const name of names.length === 0
       ? [DEFAULT_REGENERATION_TARGET_NAME]
       : names) {
       completed.add(name);
     }
   }
+
   return completed;
 };
 
@@ -358,6 +375,7 @@ const plan = async (
 ): Promise<Plan | Skip> => {
   const { octokit, owner, repo, botLogin } = options;
   const config = await readConfig(options, baseSha);
+
   if (isSkip(config)) {
     return config;
   }
@@ -373,19 +391,24 @@ const plan = async (
     botLogin,
     headSha,
   });
+
   const renovateFiles = await Promise.all(
     comparison.commits
       // As the approval reads them: by the author's login.
       .filter(({ author }) => author?.login === RENOVATE_LOGIN)
       .map(({ sha }) => listChangedFiles(octokit, { owner, repo, sha }))
   );
+
   const triggered = triggeredRegenerationTargets(config, renovateFiles.flat());
+
   if (triggered.length === 0) {
     return {
       reason: "Renovate's commits change no file that calls for a regeneration",
     };
   }
+
   const targets = triggered.filter(({ name }) => !completed.has(name));
+
   return targets.length === 0
     ? { reason: "the head is the bot's regeneration already" }
     : { targets };
@@ -423,11 +446,14 @@ const regenerateTarget = async (
   target: RegenerationTarget
 ): Promise<TargetRun> => {
   const { owner, repo, sandbox } = options;
+
   try {
     const env = await readEnv(options, target, headSha);
+
     if (isSkip(env)) {
       return { reason: env.reason, status: "skipped", target: target.name };
     }
+
     const regenerated = await sandbox(
       (session) =>
         regenerateInSandbox(session, {
@@ -440,16 +466,20 @@ const regenerateTarget = async (
         }),
       { timeoutMs: sandboxTimeoutMs(target) }
     );
+
     if (regenerated.status === "failed") {
       return { ...regenerated, target: target.name };
     }
 
     const isGenerated = ({ path }: GitFileChange) =>
       matchesAnyPathPattern(target.paths, path);
+
     const committed = regenerated.changes.filter(isGenerated);
+
     const ignoredPaths = regenerated.changes
       .filter((change) => !isGenerated(change))
       .map(({ path }) => path);
+
     return committed.length === 0
       ? { ignoredPaths, status: "unchanged", target: target.name }
       : {
@@ -475,10 +505,13 @@ const contentOf =
     if (after === undefined) {
       return null;
     }
+
     const content = blobs.get(after.sha);
+
     if (content === undefined) {
       throw new Error(`The sandbox did not return ${path}`);
     }
+
     return content;
   };
 
@@ -516,21 +549,26 @@ export const regenerateGeneratedOutput = async (
     createReadToken,
     dryRun = false,
   } = options;
+
   const { data: pullRequest } = await octokit.rest.pulls.get({
     owner,
     pull_number: pullNumber,
     repo,
   });
+
   const headSha = pullRequest.head.sha;
+
   const skip = (reason: string) =>
     ({ headSha, reason, status: "skipped" }) as const;
 
   if (!isRenovate(pullRequest.user)) {
     return skip("Renovate did not open the pull request");
   }
+
   if (pullRequest.state !== "open") {
     return skip("the pull request is closed");
   }
+
   if (pullRequest.head.repo?.full_name !== pullRequest.base.repo.full_name) {
     return skip("its branch is in another repository");
   }
@@ -539,6 +577,7 @@ export const regenerateGeneratedOutput = async (
     baseSha: pullRequest.base.sha,
     headSha,
   });
+
   if (isSkip(planned)) {
     return skip(planned.reason);
   }
@@ -546,14 +585,17 @@ export const regenerateGeneratedOutput = async (
   const readToken = pullRequest.base.repo.private
     ? await createReadToken()
     : undefined;
+
   const runs = await Promise.all(
     planned.targets.map((target) =>
       regenerateTarget({ headSha, options, readToken }, target)
     )
   );
+
   const regenerated = runs.filter(
     (run): run is Regenerated => run.status === "regenerated"
   );
+
   const evaluated = (
     outcome: (
       paths: RegeneratedPaths
@@ -586,6 +628,7 @@ export const regenerateGeneratedOutput = async (
   const committed = regenerated.flatMap(({ blobs, committed: changes }) =>
     changes.map((change) => ({ blobs, change }))
   );
+
   const commit = await addCommitToBranch(octokit, {
     branch: pullRequest.head.ref,
     files: Object.fromEntries(

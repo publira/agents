@@ -57,6 +57,7 @@ export const createModelExclusionEditor =
       output: Output.object({ name: "edit", schema: outputSchema }),
       prompt: prompt(request),
     });
+
     // The model that answered, for the Assisted-by trailer.
     return { lineNumbers: output.deleteLines, model: response.modelId };
   };

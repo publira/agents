@@ -16,6 +16,7 @@ const deliveryHeaders = (overrides: Record<string, string | null> = {}) => {
     "x-github-event": "pull_request",
     "x-hub-signature-256": sign(body),
   });
+
   for (const [name, value] of Object.entries(overrides)) {
     if (value === null) {
       headers.delete(name);
@@ -23,6 +24,7 @@ const deliveryHeaders = (overrides: Record<string, string | null> = {}) => {
       headers.set(name, value);
     }
   }
+
   return headers;
 };
 

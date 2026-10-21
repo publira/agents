@@ -39,6 +39,7 @@ export const labelAgentAssistedPullRequest = async ({
   dryRun = false,
 }: LabelAgentAssistedPullRequestOptions): Promise<LabelAgentAssistedPullRequestResult> => {
   const pull = { owner, pull_number: pullNumber, repo };
+
   const [{ data }, commits, labelState] = await Promise.all([
     octokit.rest.pulls.get(pull),
     octokit.paginate(octokit.rest.pulls.listCommits, {
@@ -47,6 +48,7 @@ export const labelAgentAssistedPullRequest = async ({
     }),
     getRepositoryLabelState(octokit, { name: AI_ASSISTED_LABEL, owner, repo }),
   ]);
+
   const verdict = evaluateAgentAssistanceLabel({
     commitCount: data.commits,
     commitMessages: commits.map(({ commit }) => commit.message),
@@ -54,33 +56,39 @@ export const labelAgentAssistedPullRequest = async ({
     labelState,
     labels: data.labels.map(({ name }) => name),
   });
+
   const counted = { commits: commits.length };
 
   if (verdict.action === "leave") {
     return { ...counted, reason: verdict.reason, status: "left" };
   }
+
   if (verdict.action === "add") {
     if (dryRun) {
       return { ...counted, status: "would-add" };
     }
+
     await octokit.rest.issues.addLabels({
       issue_number: pullNumber,
       labels: [AI_ASSISTED_LABEL],
       owner,
       repo,
     });
+
     return { ...counted, status: "added" };
   }
 
   if (dryRun) {
     return { ...counted, status: "would-remove" };
   }
+
   const removed = await removeIssueLabel(octokit, {
     issueNumber: pullNumber,
     name: AI_ASSISTED_LABEL,
     owner,
     repo,
   });
+
   return removed
     ? { ...counted, status: "removed" }
     : { ...counted, reason: "the label is already gone", status: "left" };

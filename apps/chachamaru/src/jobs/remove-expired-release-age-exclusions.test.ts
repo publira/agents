@@ -31,6 +31,7 @@ minimumReleaseAgeExclude:
 `;
 
 const nextPackument = { time: { "16.3.8": "2026-09-30T08:00:00.000Z" } };
+
 const packuments = new Map([
   ["/@next%2fenv", nextPackument],
   ["/next", nextPackument],
@@ -89,6 +90,7 @@ const fake = ({
   closedChangedFiles = ["pnpm-workspace.yaml"],
 }: FakeOptions = {}) => {
   const writes: { route: string; body: unknown }[] = [];
+
   const fetchImpl = vi.fn<typeof fetch>((input, init) => {
     const url = new URL(String(input));
     const method = init?.method ?? "GET";
@@ -96,6 +98,7 @@ const fake = ({
 
     if (url.hostname === "registry.npmjs.org") {
       const packument = packuments.get(url.pathname);
+
       return Promise.resolve(
         packument === undefined
           ? new Response("Not Found", { status: 404 })
@@ -123,7 +126,9 @@ const fake = ({
             ["pull-head", openPullRequest],
             ["closed-head", closedPullRequest],
           ]);
+
           const ref = url.searchParams.get("ref") ?? "";
+
           return fileResponse(
             versions.has(ref) ? versions.get(ref) : (manifest ?? undefined)
           );
@@ -149,6 +154,7 @@ const fake = ({
                   ]
             );
           }
+
           return Response.json(
             openPullRequest === undefined
               ? []
@@ -215,6 +221,7 @@ const fake = ({
           }),
       ],
     ]);
+
     const respond = responses.get(route);
 
     return Promise.resolve(
@@ -396,6 +403,7 @@ describe(removeExpiredReleaseAgeExclusions, () => {
       ...first.options,
       now: AFTER_EXPIRY,
     });
+
     const github = fake({
       openPullRequest: cleanedManifest,
       openPullRequestText: pullRequestTextSchema.parse(first.writes[3]?.body),
@@ -616,6 +624,7 @@ describe(removeExpiredReleaseAgeExclusions, () => {
 
     it("lets the editor choose the lines, then checks them", async () => {
       const github = fake({ manifest });
+
       const editor = vi.fn<ExclusionEditor>(() =>
         Promise.resolve({ lineNumbers: [3], model: MODEL })
       );
@@ -707,6 +716,7 @@ describe(removeExpiredReleaseAgeExclusions, () => {
 
     it("replaces an open pull request whose commit names no model", async () => {
       const github = fake({ manifest, openPullRequest: modelEdited });
+
       const editor = vi.fn<ExclusionEditor>(() =>
         Promise.resolve({ lineNumbers: [3], model: MODEL })
       );
@@ -758,6 +768,7 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
 
   const appFetch = vi.fn<typeof fetch>((input) => {
     const url = new URL(String(input));
+
     const response = Response.json(
       url.pathname === "/app/installations"
         ? [{ id: 42, suspended_at: null }]
@@ -766,11 +777,15 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
             total_count: installationRepositories.length,
           }
     );
+
     // The pagination plugin reads the URL of a fetched response.
     Object.defineProperty(response, "url", { value: url.href });
+
     return Promise.resolve(response);
   });
+
   const octokit = createGitHubClient({ fetch: appFetch });
+
   const app: GitHubApp = {
     getBotLogin: () => Promise.reject(new Error("unused")),
     getInstallationOctokit: () => Promise.resolve(octokit),
@@ -780,6 +795,7 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
 
   it("runs on each unarchived repository and logs each outcome", async () => {
     const log = vi.fn<Log>();
+
     const job = vi.fn<typeof removeExpiredReleaseAgeExclusions>(({ repo }) =>
       repo === "website"
         ? Promise.reject(new Error("The registry is down"))
@@ -794,12 +810,14 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
       { base: "main", owner: "publira", repo: "website" },
       { base: "trunk", owner: "publira", repo: "publira" },
     ]);
+
     const logged = {
       dryRun: false,
       installation: 42,
       job: "remove-expired-release-age-exclusions",
       owner: "publira",
     };
+
     expect(log.mock.calls.toSorted()).toStrictEqual([
       [
         "error",
@@ -834,6 +852,7 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
 
   it("plans each cleanup in a dry run", async () => {
     const log = vi.fn<Log>();
+
     const job = vi.fn<typeof removeExpiredReleaseAgeExclusions>(() =>
       Promise.resolve({ reports: [], status: "nothing-expired" })
     );
@@ -858,18 +877,21 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
 
   it("logs the entries, the model it asked, and the pull request it opened", async () => {
     const log = vi.fn<Log>();
+
     const editor = vi.fn<ExclusionEditor>(() =>
       Promise.resolve({
         lineNumbers: [2],
         model: "openai/gpt-5.2",
       })
     );
+
     const job = vi.fn<typeof removeExpiredReleaseAgeExclusions>(
       async ({ editor: given, repo }) => {
         // Only the website's cleanup needs the model this time.
         if (repo === "website") {
           await given?.({ lines: [], reason: "test", selectors: [] });
         }
+
         return repo === "website"
           ? {
               committed: true,
@@ -949,14 +971,17 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
 
   it("tells whether the model was asked when the cleanup fails", async () => {
     const log = vi.fn<Log>();
+
     const editor = vi.fn<ExclusionEditor>(() =>
       Promise.reject(new Error("The operation was aborted due to timeout"))
     );
+
     const job = vi.fn<typeof removeExpiredReleaseAgeExclusions>(
       async ({ editor: given, repo }) => {
         if (repo === "website") {
           await given?.({ lines: [], reason: "test", selectors: [] });
         }
+
         throw new Error("The registry is down");
       }
     );
@@ -990,6 +1015,7 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
 
   it("logs a declined cleanup with its pull request", async () => {
     const log = vi.fn<Log>();
+
     const job = vi.fn<typeof removeExpiredReleaseAgeExclusions>(({ repo }) =>
       Promise.resolve(
         repo === "website"

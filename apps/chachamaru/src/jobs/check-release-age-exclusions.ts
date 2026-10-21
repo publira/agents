@@ -63,12 +63,15 @@ export const judgeReleaseAgeExclusions = ({
 }: JudgeReleaseAgeExclusionsOptions): Promise<ReleaseAgeExclusionReport[]> => {
   // Several entries can pin versions of the same package.
   const publishTimesByName = new Map<string, Promise<Map<string, Date>>>();
+
   const getPublishTimes = (name: string) => {
     let publishTimes = publishTimesByName.get(name);
+
     if (publishTimes === undefined) {
       publishTimes = fetchPublishTimes(name, registry);
       publishTimesByName.set(name, publishTimes);
     }
+
     return publishTimes;
   };
 
@@ -76,6 +79,7 @@ export const judgeReleaseAgeExclusions = ({
     manifest.minimumReleaseAgeExclude.map(
       async (selector): Promise<ReleaseAgeExclusionReport> => {
         const { name, versions } = selectorOf(selector);
+
         const reason = findReleaseAgeExclusionKeepReason({
           name,
           registryUrl: resolvePackageRegistry(name, { manifest, npmrc }),

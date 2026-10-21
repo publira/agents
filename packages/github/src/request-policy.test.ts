@@ -11,8 +11,10 @@ const requestPolicy = { retryDelay: 0 };
 /** Fails `failures` times as `failure` answers, then succeeds. */
 const flaky = (failures: number, failure: () => Response) => {
   let attempts = 0;
+
   return dynamic(() => {
     attempts += 1;
+
     return attempts <= failures ? failure() : { name: "agents" };
   });
 };
@@ -25,6 +27,7 @@ describe("the request policy", () => {
     const github = fakeGitHub({
       "GET /repos/publira/agents": flaky(2, serverError),
     });
+
     const octokit = createGitHubClient({ fetch: github.fetch, requestPolicy });
 
     await expect(
@@ -37,6 +40,7 @@ describe("the request policy", () => {
     const github = fakeGitHub({
       "GET /repos/publira/agents": flaky(3, serverError),
     });
+
     const octokit = createGitHubClient({ fetch: github.fetch, requestPolicy });
 
     await expect(
@@ -54,6 +58,7 @@ describe("the request policy", () => {
         )
       ),
     });
+
     const octokit = createGitHubClient({ fetch: github.fetch, requestPolicy });
 
     await expect(
@@ -70,6 +75,7 @@ describe("the request policy", () => {
         )
       ),
     });
+
     const octokit = createGitHubClient({ fetch: github.fetch, requestPolicy });
 
     await expect(
@@ -93,6 +99,7 @@ describe("the request policy", () => {
         )
       ),
     });
+
     const octokit = createGitHubClient({ fetch: github.fetch, requestPolicy });
 
     await expect(
@@ -118,6 +125,7 @@ describe("the request policy", () => {
         Response.json({ message: "Forbidden" }, { headers, status })
       ),
     });
+
     const octokit = createGitHubClient({ fetch: github.fetch, requestPolicy });
 
     await expect(
@@ -135,6 +143,7 @@ describe("the request policy", () => {
         )
       ),
     });
+
     const octokit = createGitHubClient({ fetch: github.fetch, requestPolicy });
 
     await expect(
@@ -147,6 +156,7 @@ describe("the request policy", () => {
     const github = fakeGitHub({
       "POST /repos/publira/agents/pulls/31/reviews": flaky(1, serverError),
     });
+
     const octokit = createGitHubClient({ fetch: github.fetch, requestPolicy });
 
     await expect(
@@ -172,16 +182,20 @@ describe("the request policy", () => {
 
   it("times out an attempt that takes too long, and tries it again", async () => {
     let attempts = 0;
+
     const octokit = createGitHubClient({
       fetch: async (_input, init) => {
         attempts += 1;
+
         // The second attempt answers; the first waits until it is aborted.
         if (attempts > 1) {
           return Response.json({ name: "agents" });
         }
+
         if (init?.signal) {
           await once(init.signal, "abort");
         }
+
         throw init?.signal?.reason;
       },
       requestPolicy: { ...requestPolicy, timeout: 10 },

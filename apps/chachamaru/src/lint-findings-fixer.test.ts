@@ -51,6 +51,7 @@ const untilAborted = async (
   if (signal === undefined) {
     throw new Error("The call has no abort signal");
   }
+
   await once(signal, "abort");
   throw signal.reason;
 };
@@ -79,6 +80,7 @@ const fakeSandbox = () => {
     stopsAt: Date.now() + 240_000,
     writeFile: vi.fn<Sandbox["writeFile"]>(() => Promise.resolve()),
   };
+
   return sandbox;
 };
 
@@ -99,13 +101,16 @@ describe(createModelLintFindingsFixer, () => {
       toolCall("write_file", { content: "", path: "src/index.ts" }),
       reply,
     ];
+
     const model = new MockLanguageModelV4({
       doGenerate: () => {
         const step = steps.shift();
+
         return Promise.resolve(step ?? reply);
       },
       modelId: "openai/gpt-5.1-codex-mini",
     });
+
     const sandbox = fakeSandbox();
 
     await expect(
@@ -188,10 +193,13 @@ describe(createModelLintFindingsFixer, () => {
       "*** End Patch",
       "PATCH",
     ].join("\n");
+
     const steps = [toolCall("bash", { command }), reply];
+
     const model = new MockLanguageModelV4({
       doGenerate: () => Promise.resolve(steps.shift() ?? reply),
     });
+
     const sandbox = fakeSandbox();
 
     await createModelLintFindingsFixer(model)(request(sandbox));
@@ -223,10 +231,13 @@ describe(createModelLintFindingsFixer, () => {
       "*** End Patch",
       "PATCH",
     ].join("\n");
+
     const steps = [toolCall("bash", { command }), reply];
+
     const model = new MockLanguageModelV4({
       doGenerate: () => Promise.resolve(steps.shift() ?? reply),
     });
+
     const sandbox = fakeSandbox();
 
     await createModelLintFindingsFixer(model)(request(sandbox));
@@ -247,10 +258,13 @@ describe(createModelLintFindingsFixer, () => {
       "*** End Patch",
       "PATCH",
     ].join("\n");
+
     const steps = [toolCall("bash", { command }), reply];
+
     const model = new MockLanguageModelV4({
       doGenerate: () => Promise.resolve(steps.shift() ?? reply),
     });
+
     const sandbox = fakeSandbox();
 
     await createModelLintFindingsFixer(model)(request(sandbox));
@@ -263,9 +277,11 @@ describe(createModelLintFindingsFixer, () => {
 
   it("refuses to return a file too large to read whole", async () => {
     const steps = [toolCall("read_file", { path: "dist/bundle.js" }), reply];
+
     const model = new MockLanguageModelV4({
       doGenerate: () => Promise.resolve(steps.shift() ?? reply),
     });
+
     const sandbox = fakeSandbox();
     vi.mocked(sandbox.run).mockResolvedValue({
       exitCode: 0,
@@ -283,15 +299,18 @@ describe(createModelLintFindingsFixer, () => {
   it("keeps what the model did when the deadline cuts a call short", async () => {
     // The first step writes a file; the second call hangs past the deadline.
     const steps = [toolCall("write_file", { content: "", path: "a.ts" })];
+
     const model = new MockLanguageModelV4({
       doGenerate: ({ abortSignal }) => {
         const step = steps.shift();
+
         return step === undefined
           ? untilAborted(abortSignal)
           : Promise.resolve(step);
       },
       modelId: "openai/gpt-5.1-codex-mini",
     });
+
     const sandbox = fakeSandbox();
 
     await expect(
@@ -323,9 +342,11 @@ describe(createModelLintFindingsFixer, () => {
 
   it("cuts a command off at the deadline", async () => {
     const steps = [toolCall("bash", { command: "sleep 600" }), reply];
+
     const model = new MockLanguageModelV4({
       doGenerate: () => Promise.resolve(steps.shift() ?? reply),
     });
+
     const sandbox = fakeSandbox();
 
     await createModelLintFindingsFixer(model)(
@@ -341,11 +362,14 @@ describe(createModelLintFindingsFixer, () => {
       cause: rateLimited("0"),
       statusCode: 429,
     });
+
     // More refusals than the AI SDK's own retries would take.
     const calls = [refused, rateLimited("0"), rateLimited("0")];
+
     const model = new MockLanguageModelV4({
       doGenerate: () => {
         const error = calls.shift();
+
         return error === undefined
           ? Promise.resolve(reply)
           : Promise.reject(error);
@@ -373,9 +397,11 @@ describe(createModelLintFindingsFixer, () => {
 
   it("waits out the rate limit only until the deadline", async () => {
     const steps = [toolCall("write_file", { content: "", path: "a.ts" })];
+
     const model = new MockLanguageModelV4({
       doGenerate: () => {
         const step = steps.shift();
+
         return step === undefined
           ? Promise.reject(rateLimited("60"))
           : Promise.resolve(step);
@@ -425,12 +451,14 @@ describe(createModelLintFindingsFixer, () => {
     const model = new MockLanguageModelV4({
       doGenerate: toolCall("bash", { command: "pnpm exec ultracite check" }),
     });
+
     const sandbox = fakeSandbox();
     vi.useFakeTimers({ toFake: ["Date"] });
     // The first command takes longer than the model may keep starting
     // steps, by the clock alone.
     vi.mocked(sandbox.run).mockImplementation(() => {
       vi.setSystemTime(Date.now() + 91_000);
+
       return Promise.resolve({
         exitCode: 1,
         stderr: "",

@@ -31,6 +31,7 @@ export const combineWebhookHandlers = (
   ...sets: readonly WebhookHandlers[]
 ): WebhookHandlers => {
   const byEvent = new Map<string, WebhookHandler[]>();
+
   for (const handlers of sets) {
     for (const [name, handler] of Object.entries(handlers)) {
       byEvent.set(name, [...(byEvent.get(name) ?? []), handler]);
@@ -44,7 +45,9 @@ export const combineWebhookHandlers = (
         const results = await Promise.allSettled(
           handlers.map((handler) => handler(delivery, context))
         );
+
         const failed = results.find((result) => result.status === "rejected");
+
         if (failed !== undefined) {
           throw failed.reason;
         }
@@ -72,6 +75,7 @@ const payloadSummary = z.object({
 
 const summarize = ({ id, name, payload }: WebhookDelivery): LogFields => {
   const { data } = payloadSummary.safeParse(payload);
+
   return {
     action: data?.action,
     delivery: id,
@@ -98,12 +102,14 @@ export const receiveWebhook = async (
 ): Promise<Response> => {
   if (app === undefined || webhookSecret === undefined) {
     log("error", "Webhook received, but the GitHub App is not configured");
+
     return new Response("The GitHub App is not configured\n", {
       status: 503,
     });
   }
 
   let delivery: WebhookDelivery;
+
   try {
     delivery = await verifyWebhookDelivery({
       body: await request.text(),
@@ -114,24 +120,29 @@ export const receiveWebhook = async (
     if (!(error instanceof WebhookVerificationError)) {
       throw error;
     }
+
     log("warn", "Webhook rejected", {
       delivery: request.headers.get("x-github-delivery"),
       reason: error.message,
     });
+
     return new Response(`${error.message}\n`, { status: 401 });
   }
 
   const fields = summarize(delivery);
+
   const handler = Object.hasOwn(handlers, delivery.name)
     ? handlers[delivery.name]
     : undefined;
 
   if (handler === undefined) {
     log("info", "Webhook ignored: no handler for the event", fields);
+
     return new Response(null, { status: 204 });
   }
 
   log("info", "Webhook accepted", fields);
+
   const handle = async () => {
     try {
       // The handler's lines name the delivery they come from.
@@ -147,6 +158,7 @@ export const receiveWebhook = async (
       });
     }
   };
+
   waitUntil(handle());
 
   return new Response(null, { status: 202 });

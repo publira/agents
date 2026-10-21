@@ -50,12 +50,15 @@ export const createAgentAssistedPullRequestHandlers = ({
     if (!EVALUATED_ACTIONS.has(payload.action)) {
       return;
     }
+
     const { dryRun } = read(log);
+
     const location = {
       owner: payload.repository.owner.login,
       pullNumber: payload.pull_request.number,
       repo: payload.repository.name,
     };
+
     const jobLog = withFields(log, {
       dryRun,
       installation: payload.installation.id,
@@ -71,6 +74,7 @@ export const createAgentAssistedPullRequestHandlers = ({
         dryRun,
         octokit: await app.getInstallationOctokit(payload.installation.id),
       });
+
       jobLog(
         "info",
         "Agent assistance label evaluated",

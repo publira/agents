@@ -164,6 +164,7 @@ const fakeGitHub = ({
 
   const respondWithPermission = (route: string) => {
     const login = PERMISSION_ROUTE.exec(route)?.groups?.login;
+
     return login === undefined
       ? undefined
       : permissionResponse(permissions[login] ?? "read", permissionRefusal);
@@ -174,6 +175,7 @@ const fakeGitHub = ({
     if (route !== "POST /graphql") {
       return;
     }
+
     if (body.query.includes("minimizeComment")) {
       if (minimizeRefused) {
         return {
@@ -181,9 +183,12 @@ const fakeGitHub = ({
           errors: [{ message: "Resource not accessible by integration" }],
         };
       }
+
       minimized.push(String(body.variables.id));
+
       return { data: { minimizeComment: { clientMutationId: null } } };
     }
+
     if (body.query.includes("reviews(")) {
       return {
         data: {
@@ -215,16 +220,20 @@ const fakeGitHub = ({
             type: "file",
           };
     }
+
     if (route === "GET /repos/publira/agents/pulls/31/files") {
       return pullFiles.map((filename) => ({ filename }));
     }
+
     const commit =
       /^GET \/repos\/publira\/agents\/commits\/(?<sha>[^/]+)$/u.exec(route)
         ?.groups?.sha;
+
     if (commit !== undefined) {
       // In pages of `per_page` files, as GitHub lists them.
       const perPage = Number(url.searchParams.get("per_page") ?? 300);
       const page = Number(url.searchParams.get("page") ?? 1);
+
       return {
         files: (commitFiles[commit] ?? [])
           .slice((page - 1) * perPage, page * perPage)
@@ -238,8 +247,10 @@ const fakeGitHub = ({
     const url = new URL(String(input));
     const method = init?.method ?? "GET";
     const route = `${method} ${decodeURIComponent(url.pathname)}`;
+
     const body =
       init?.body === undefined ? undefined : JSON.parse(String(init.body));
+
     routes.push(route);
 
     if (method !== "GET" && route !== "POST /graphql") {
@@ -251,6 +262,7 @@ const fakeGitHub = ({
         case "GET /repos/publira/agents/pulls/31": {
           const head = heads[Math.min(reads, heads.length - 1)];
           reads += 1;
+
           return {
             base: {
               ref: "main",
@@ -275,19 +287,25 @@ const fakeGitHub = ({
             ...pullRequest,
           };
         }
+
         case "GET /repos/publira/agents/pulls/31/reviews": {
           reviewReads += 1;
+
           return reviewReads === 1 ? ownReviews : ownReviewsLater;
         }
+
         case "GET /repos/publira/agents/pulls/31/commits": {
           return commits;
         }
+
         case `GET /repos/publira/agents/commits/${HEAD}/check-runs`: {
           return { check_runs: checkRuns, total_count: checkRuns.length };
         }
+
         case `GET /repos/publira/agents/commits/${HEAD}/statuses`: {
           return statuses;
         }
+
         case "GET /repos/publira/agents/rules/branches/main": {
           return [
             {
@@ -300,23 +318,29 @@ const fakeGitHub = ({
             },
           ];
         }
+
         case "GET /orgs/publira/repos": {
           return [{ name: "agents" }, { name: "website" }];
         }
+
         case "GET /repos/publira/agents/pulls": {
           return [];
         }
+
         case "GET /repos/publira/website/pulls": {
           return url.searchParams.get("head") ===
             "publira:renovate/turbo-monorepo"
             ? precedents
             : [];
         }
+
         case "GET /repos/publira/website/pulls/120/reviews": {
           return precedentReviews;
         }
+
         case "POST /graphql": {
           const { number, repo } = body.variables;
+
           return {
             data: {
               repository: {
@@ -325,6 +349,7 @@ const fakeGitHub = ({
             },
           };
         }
+
         case "POST /repos/publira/agents/pulls/31/reviews": {
           return {
             commit_id: body.commit_id,
@@ -333,9 +358,11 @@ const fakeGitHub = ({
             user: { login: BOT },
           };
         }
+
         case "POST /repos/publira/agents/pulls/31/reviews/99/events": {
           return { id: 99, state: "APPROVED" };
         }
+
         case "PUT /repos/publira/agents/pulls/31/reviews/99/dismissals": {
           return alreadyDismissed
             ? Response.json(
@@ -344,6 +371,7 @@ const fakeGitHub = ({
               )
             : { id: 99, state: "DISMISSED" };
         }
+
         default: {
           return undefined;
         }
@@ -356,10 +384,13 @@ const fakeGitHub = ({
       respondWithFiles(route, url) ??
       respond() ??
       Response.json({ message: "Not Found" }, { status: 404 });
+
     const response =
       result instanceof Response ? result : Response.json(result);
+
     // The pagination plugin reads the URL of the response.
     Object.defineProperty(response, "url", { value: url.href });
+
     return Promise.resolve(response);
   });
 
@@ -436,6 +467,7 @@ describe(approveEquivalentRenovateUpdate, () => {
       committer: { login: BOT },
       sha: HEAD,
     };
+
     const github = fakeGitHub({
       commitFiles: { [HEAD]: [".devcontainer/devcontainer-lock.json"] },
       commits: [renovateCommit("renovate"), lockFileCommit],
@@ -465,6 +497,7 @@ describe(approveEquivalentRenovateUpdate, () => {
       { length: 100 },
       (_, index) => `.devcontainer/feature-${index}/devcontainer-lock.json`
     );
+
     const github = fakeGitHub({
       commitFiles: { [HEAD]: [...lockFiles, "README.md"] },
       commits: [
@@ -540,6 +573,7 @@ describe(approveEquivalentRenovateUpdate, () => {
       committer: { login: BOT },
       sha: HEAD,
     };
+
     const scenario = {
       commitFiles: {
         [HEAD]: ["server/internal/proto/gen/api.pb.go"],

@@ -33,6 +33,7 @@ const pathPattern = z
       const path = pattern.endsWith(DIRECTORY_SUFFIX)
         ? pattern.slice(0, -DIRECTORY_SUFFIX.length)
         : pattern;
+
       return (
         path !== "" &&
         !path.includes("*") &&
@@ -54,7 +55,9 @@ const reachesWorkflows = (pattern: string) => {
   if (!pattern.endsWith(DIRECTORY_SUFFIX)) {
     return pattern.startsWith(WORKFLOWS_DIRECTORY);
   }
+
   const directory = pattern.slice(0, -DIRECTORY_SUFFIX.length + 1);
+
   return (
     directory.startsWith(WORKFLOWS_DIRECTORY) ||
     WORKFLOWS_DIRECTORY.startsWith(directory)
@@ -147,6 +150,7 @@ const checkTimeouts = (
   context: z.RefinementCtx
 ) => {
   const total = regenerationSeconds(config);
+
   // A limit over the maximum on its own is reported at its field.
   if (
     total > MAX_REGENERATION_SECONDS &&
@@ -180,11 +184,13 @@ const directoryOf = (pattern: string) =>
 const pathPatternsOverlap = (left: string, right: string): boolean => {
   const leftDirectory = directoryOf(left);
   const rightDirectory = directoryOf(right);
+
   if (leftDirectory === undefined) {
     return rightDirectory === undefined
       ? left === right
       : left.startsWith(rightDirectory);
   }
+
   return rightDirectory === undefined
     ? right.startsWith(leftDirectory)
     : leftDirectory.startsWith(rightDirectory) ||
@@ -217,6 +223,7 @@ const regenerationTargets = z
     const declared = Object.entries(targets).flatMap(([name, { paths }]) =>
       paths.map((pattern, index) => ({ index, name, pattern }))
     );
+
     for (const [position, path] of declared.entries()) {
       const other = declared
         .slice(0, position)
@@ -224,6 +231,7 @@ const regenerationTargets = z
           ({ name, pattern }) =>
             name !== path.name && pathPatternsOverlap(pattern, path.pattern)
         );
+
       if (other !== undefined) {
         context.addIssue({
           code: "custom",
@@ -241,6 +249,7 @@ const regenerationTargets = z
           (path) =>
             path.name !== name && pathPatternsOverlap(trigger, path.pattern)
         );
+
         if (output !== undefined) {
           context.addIssue({
             code: "custom",
@@ -295,6 +304,7 @@ export const parseRegenerationConfig = (
   source: string
 ): RegenerationConfigParseResult => {
   let value: unknown;
+
   try {
     value = parse(source);
   } catch (error) {
@@ -306,10 +316,12 @@ export const parseRegenerationConfig = (
 
   // Parsed by the shape it has, so the reason names the field.
   const map = z.record(z.string(), z.unknown()).safeParse(value);
+
   const parsed =
     map.success && Object.hasOwn(map.data, "targets")
       ? regenerationTargets.safeParse(value)
       : regenerationTarget.safeParse(value);
+
   if (parsed.success) {
     return {
       config: {
@@ -324,6 +336,7 @@ export const parseRegenerationConfig = (
       result: "valid",
     };
   }
+
   return {
     reason: `${REGENERATION_CONFIG_PATH}: ${z.prettifyError(parsed.error).replaceAll("\n", " ")}`,
     result: "invalid",
@@ -367,11 +380,13 @@ const workflow = z.looseObject({
  */
 export const readWorkflowEnv = (source: string): Record<string, string> => {
   const parsed = workflow.safeParse(parse(source));
+
   if (!parsed.success) {
     throw new Error(
       `The workflow's env block is not a map of values: ${z.prettifyError(parsed.error)}`
     );
   }
+
   return Object.fromEntries(
     Object.entries(parsed.data.env ?? {}).map(([name, value]) => [
       name,

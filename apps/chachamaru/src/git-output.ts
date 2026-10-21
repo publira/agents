@@ -24,9 +24,11 @@ const fileOf = (mode: string, sha: string, path: string) => {
   if (mode === NO_FILE) {
     return;
   }
+
   if (mode !== "100644" && mode !== "100755" && mode !== "120000") {
     throw new Error(`${path} has mode ${mode}, which is not a file's`);
   }
+
   return { mode, sha } satisfies GitFile;
 };
 
@@ -80,7 +82,9 @@ export const parseStagedFiles = (output: string): Map<string, GitFile> => {
     if (entry === "") {
       continue;
     }
+
     const groups = STAGED_ENTRY.exec(entry)?.groups;
+
     if (
       groups?.mode === undefined ||
       groups.sha === undefined ||
@@ -89,8 +93,10 @@ export const parseStagedFiles = (output: string): Map<string, GitFile> => {
     ) {
       throw new Error(`Unexpected git ls-files output: ${entry}`);
     }
+
     if (groups.mode !== "160000") {
       const file = fileOf(groups.mode, groups.sha, groups.path);
+
       if (file !== undefined) {
         files.set(groups.path, file);
       }
@@ -109,6 +115,7 @@ const headerPath = (field: string) => {
   if (!field.startsWith('"')) {
     return field;
   }
+
   try {
     return String(JSON.parse(field));
   } catch {
@@ -135,15 +142,18 @@ export const parseAddedLines = (output: string): AddedLine[] => {
       path = target.startsWith("b/") ? target.slice(2) : undefined;
     } else if (line.startsWith("@@ ")) {
       const start = HUNK_HEADER.exec(line)?.groups?.start;
+
       if (start === undefined) {
         throw new Error(`Unexpected git diff hunk header: ${line}`);
       }
+
       lineNumber = Number(start);
       inHunk = true;
     } else if (inHunk && line.startsWith("+")) {
       if (path !== undefined) {
         added.push({ lineNumber, path, text: line.slice(1) });
       }
+
       lineNumber += 1;
     } else if (inHunk && line.startsWith(" ")) {
       lineNumber += 1;
@@ -167,11 +177,13 @@ export const parseCatFileBatch = (output: Uint8Array): Map<string, Buffer> => {
 
   while (offset < bytes.length) {
     const newline = bytes.indexOf(0x0a, offset);
+
     const header = bytes.toString(
       "utf-8",
       offset,
       newline === -1 ? bytes.length : newline
     );
+
     const groups = BATCH_HEADER.exec(header)?.groups;
 
     if (

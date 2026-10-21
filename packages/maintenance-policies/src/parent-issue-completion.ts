@@ -42,6 +42,7 @@ export const evaluateParentIssue = ({
   if (state !== "open") {
     return closedByBot ? { action: "comment" } : leave("it is already closed");
   }
+
   if (subIssues.length === 0) {
     return leave("it has no sub-issues");
   }
@@ -53,5 +54,6 @@ export const evaluateParentIssue = ({
       `${open.length} of its ${subIssues.length} sub-issues ${open.length === 1 ? "is" : "are"} open`
     );
   }
+
   return { action: "close" };
 };

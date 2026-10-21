@@ -22,7 +22,9 @@ export const listChangedFiles = async (
     ref: sha,
     repo,
   });
+
   const files = (data.files ?? []).map(({ filename }) => filename);
+
   return files.length < FILES_PER_PAGE
     ? files
     : [
