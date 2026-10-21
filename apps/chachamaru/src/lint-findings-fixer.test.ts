@@ -1,5 +1,6 @@
 import { once } from "node:events";
 
+import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
 
@@ -50,6 +51,17 @@ const untilAborted = async (
   await once(signal, "abort");
   throw signal.reason;
 };
+
+// AI Gateway's answer to a call over the rate limit.
+const rateLimited = (retryAfter: string) =>
+  new APICallError({
+    isRetryable: true,
+    message: "Rate limit exceeded",
+    requestBodyValues: {},
+    responseHeaders: { "retry-after": retryAfter },
+    statusCode: 429,
+    url: "https://ai-gateway.vercel.sh/v4/ai/language-model",
+  });
 
 const fakeSandbox = () => {
   const sandbox: Sandbox = {
@@ -221,6 +233,55 @@ describe(createModelLintFindingsFixer, () => {
 
     const [command] = vi.mocked(sandbox.run).mock.calls[0] ?? [];
     expect(command?.timeoutMs).toBeLessThanOrEqual(10_000);
+  });
+
+  it("makes a call AI Gateway refused for the rate limit again when it says", async () => {
+    const refused = Object.assign(new Error("Rate limit exceeded"), {
+      cause: rateLimited("0"),
+      statusCode: 429,
+    });
+    // More refusals than the AI SDK's own retries would take.
+    const calls = [refused, rateLimited("0"), rateLimited("0")];
+    const model = new MockLanguageModelV4({
+      doGenerate: () => {
+        const error = calls.shift();
+        return error === undefined
+          ? Promise.resolve(reply)
+          : Promise.reject(error);
+      },
+      modelId: "openai/gpt-5.1-codex-mini",
+    });
+
+    await expect(
+      createModelLintFindingsFixer(model)(request(fakeSandbox()))
+    ).resolves.toStrictEqual({
+      model: "openai/gpt-5.1-codex-mini",
+      stopped: false,
+    });
+    expect(model.doGenerateCalls).toHaveLength(4);
+  });
+
+  it("waits out the rate limit only until the deadline", async () => {
+    const steps = [toolCall("write_file", { content: "", path: "a.ts" })];
+    const model = new MockLanguageModelV4({
+      doGenerate: () => {
+        const step = steps.shift();
+        return step === undefined
+          ? Promise.reject(rateLimited("60"))
+          : Promise.resolve(step);
+      },
+      modelId: "openai/gpt-5.1-codex-mini",
+    });
+
+    await expect(
+      createModelLintFindingsFixer(model)(
+        request(fakeSandbox(), Date.now() + 100)
+      )
+    ).resolves.toStrictEqual({
+      model: "openai/gpt-5.1-codex-mini",
+      stopped: true,
+    });
+    expect(model.doGenerateCalls).toHaveLength(2);
   });
 
   it("fails when the model call fails", async () => {

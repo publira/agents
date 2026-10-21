@@ -1,6 +1,14 @@
 import path from "node:path";
+import { setTimeout } from "node:timers/promises";
 
-import { generateText, stepCountIs, tool } from "ai";
+import {
+  APICallError,
+  gateway,
+  generateText,
+  stepCountIs,
+  tool,
+  wrapLanguageModel,
+} from "ai";
 import type { LanguageModel } from "ai";
 import { z } from "zod";
 
@@ -25,6 +33,9 @@ const COMMAND_OUTPUT_LIMIT = 20_000;
 // How large a file `read_file` returns whole. A larger file is not cut
 // short, which the model could write back without its end, but refused.
 const READ_LIMIT = 200_000;
+
+// How long a rate-limited call waits when AI Gateway does not say.
+const RATE_LIMIT_WAIT_MS = 60_000;
 
 const instructions = `You fix lint findings in a repository whose lint tools were updated. The repository uses ultracite, which runs oxlint and oxfmt. The check you are given fails, and \`ultracite fix\` has already fixed what it can on its own. Fix the remaining findings in the code so that the check passes.
 
@@ -161,6 +172,60 @@ const sandboxTools = ({
   };
 };
 
+// A model, rather than a model ID, which the rate limit's wrapper needs.
+type ModelObject = Exclude<LanguageModel, string>;
+
+// A call AI Gateway refused for the rate limit, with the seconds it says to
+// wait, from the error itself or the API call error it wraps.
+const rateLimitedCall = z.object({
+  cause: z
+    .custom<APICallError>((value) => APICallError.isInstance(value))
+    .optional(),
+  responseHeaders: z.record(z.string(), z.string()).optional(),
+  statusCode: z.literal(429),
+});
+
+/**
+ * The model, with its calls that AI Gateway refuses for the rate limit made
+ * again once it says they may be, as long as the run has the time. On the
+ * free tier the team may make 5 requests a minute to a model, and a run
+ * makes one for each step, so a run that waited only as long as the AI SDK
+ * does, a few seconds and never for a minute, failed or ran out of time.
+ */
+const waitingOutRateLimits = (model: ModelObject) =>
+  wrapLanguageModel({
+    middleware: {
+      specificationVersion: "v4",
+      wrapGenerate: ({ doGenerate, params }) => {
+        const generate = async (): Promise<
+          Awaited<ReturnType<typeof doGenerate>>
+        > => {
+          try {
+            return await doGenerate();
+          } catch (error) {
+            const refused = rateLimitedCall.safeParse(error);
+            if (!refused.success) {
+              throw error;
+            }
+            const { cause, responseHeaders } = refused.data;
+            const seconds = Number(
+              (responseHeaders ?? cause?.responseHeaders)?.["retry-after"]
+            );
+            // The deadline's abort ends the wait, as it ends a call.
+            await setTimeout(
+              Number.isFinite(seconds) ? seconds * 1000 : RATE_LIMIT_WAIT_MS,
+              undefined,
+              { signal: params.abortSignal }
+            );
+            return generate();
+          }
+        };
+        return generate();
+      },
+    },
+    model,
+  });
+
 /**
  * A {@link LintFindingsFixer} that runs a model in a loop of tool calls. It
  * sees the check's command and output and the automatic fix's diff, and
@@ -168,7 +233,7 @@ const sandboxTools = ({
  * release notes, the commit messages, or the comments.
  */
 export const createModelLintFindingsFixer =
-  (model: LanguageModel = LINT_FINDINGS_MODEL): LintFindingsFixer =>
+  (model: ModelObject = gateway(LINT_FINDINGS_MODEL)): LintFindingsFixer =>
   async (request) => {
     const lastStep = Math.min(Date.now() + WORK_MS, request.deadline);
     const abortSignal = AbortSignal.timeout(
@@ -181,7 +246,7 @@ export const createModelLintFindingsFixer =
       const { finishReason, response } = await generateText({
         abortSignal,
         instructions,
-        model,
+        model: waitingOutRateLimits(model),
         onStepEnd: (step) => {
           answered = step.response.modelId;
         },
