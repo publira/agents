@@ -1,5 +1,6 @@
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
+import { stripVTControlCharacters } from "node:util";
 
 import {
   APICallError,
@@ -249,7 +250,13 @@ const sandboxTools = ({
           timeoutMs: commandTimeout(),
         });
 
-        return `Exit code ${result.exitCode}\n${tail(`${result.stdout}${result.stderr}`)}`;
+        // As in the job, the escape sequences of colored output would only
+        // take up tokens.
+        const output = stripVTControlCharacters(
+          `${result.stdout}${result.stderr}`
+        );
+
+        return `Exit code ${result.exitCode}\n${tail(output)}`;
       },
       inputSchema: z.object({ command: z.string().min(1) }),
     }),

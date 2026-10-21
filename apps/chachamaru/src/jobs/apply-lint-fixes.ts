@@ -1,3 +1,5 @@
+import { stripVTControlCharacters } from "node:util";
+
 import {
   addCommitToBranch,
   ensureIssueComment,
@@ -304,8 +306,11 @@ type SandboxResult =
       findings?: SandboxFindingsFix;
     };
 
+// The tools color their output in the sandbox even with NO_COLOR set, and
+// the escape sequences show as text in a comment and only take up the
+// model's tokens.
 const outputOf = ({ stdout, stderr }: SandboxCommandResult) =>
-  `${stdout}${stderr}`;
+  stripVTControlCharacters(`${stdout}${stderr}`);
 
 // The output a failed command leaves keeps its start, where a tool's own
 // message is, such as a panic, before the trace of the command that ran it.
