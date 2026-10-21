@@ -61,9 +61,13 @@ const INSTALL_TIMEOUT_MS = 120_000;
 // vCPUs.
 const LINT_TIMEOUT_MS = 120_000;
 
-// How much of the sandbox's life the model leaves the job, to check its
-// changes and read them back: the check, and the Git commands around it.
-const CHECK_RESERVE_MS = LINT_TIMEOUT_MS + 15_000;
+// How long `ultracite fix` may take on the files the model changed only.
+const MODEL_FILES_FIX_TIMEOUT_MS = 30_000;
+
+// How much of the sandbox's life the model leaves the job, to fix and check
+// its changes and read them back: the fix of the files it changed, the
+// check, and the Git commands around them.
+const CHECK_RESERVE_MS = MODEL_FILES_FIX_TIMEOUT_MS + LINT_TIMEOUT_MS + 15_000;
 
 /**
  * How long the sandbox may live, within the 800 seconds the project allows
@@ -335,11 +339,26 @@ const listUntracked = async (sandbox: Sandbox) => {
   return new Set(output.split("\0").filter((path) => path !== ""));
 };
 
+// The files Git tracks that differ from the index, except deleted ones.
+const listChangedFromIndex = async (sandbox: Sandbox) => {
+  const output = await git(
+    sandbox,
+    WORKTREE,
+    "diff",
+    "--name-only",
+    "--diff-filter=d",
+    "-z"
+  );
+  return output.split("\0").filter((path) => path !== "");
+};
+
 interface FindingsRequest {
   fixer: LintFindingsFixer;
   /** The check's command, as the model is told it. */
   command: string;
   check: () => Promise<SandboxCommandResult>;
+  /** Runs `ultracite fix` on the given files only. */
+  fixFiles: (paths: readonly string[]) => Promise<SandboxCommandResult>;
   /** The check's output after the automatic fix. */
   output: string;
 }
@@ -355,7 +374,7 @@ interface FindingsRequest {
  */
 const fixFindingsInSandbox = async (
   sandbox: Sandbox,
-  { fixer, command, check, output }: FindingsRequest
+  { fixer, command, check, fixFiles, output }: FindingsRequest
 ): Promise<SandboxFindingsFix | Failure> => {
   const deadline = sandbox.stopsAt - CHECK_RESERVE_MS;
   if (deadline <= Date.now()) {
@@ -416,9 +435,16 @@ const fixFindingsInSandbox = async (
     );
   }
 
+  // The formatter, not the model, formats what the model changed: the
+  // automatic fix runs again on the files it changed against the index,
+  // which holds the automatic fix's own changes.
+  const edited = await listChangedFromIndex(sandbox);
+  const fixedEdits = edited.length > 0 ? await fixFiles(edited) : undefined;
   const after = await check();
   const changes = await stageChanges(sandbox, WORKTREE, { trackedOnly: true });
-  const killed = killedToolFailure("check", after);
+  const killed =
+    (fixedEdits && killedToolFailure("fix", fixedEdits)) ??
+    killedToolFailure("check", after);
   if (killed !== undefined) {
     // The model ran, and the log says so, with what it changed.
     return {
@@ -592,6 +618,8 @@ const fixInSandbox = async (
   const findings = await fixFindingsInSandbox(sandbox, {
     check,
     command: checkCommand(packageManager),
+    fixFiles: (paths) =>
+      run([...exec, "ultracite", "fix", ...paths], MODEL_FILES_FIX_TIMEOUT_MS),
     fixer,
     output: outputOf(after),
   });
