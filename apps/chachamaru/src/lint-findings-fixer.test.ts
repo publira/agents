@@ -4,7 +4,10 @@ import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
 
-import { createModelLintFindingsFixer } from "./lint-findings-fixer.ts";
+import {
+  createModelLintFindingsFixer,
+  LintFindingsRunError,
+} from "./lint-findings-fixer.ts";
 import type { Sandbox } from "./sandbox-runner.ts";
 
 const usage = {
@@ -109,6 +112,12 @@ describe(createModelLintFindingsFixer, () => {
       createModelLintFindingsFixer(model)(request(sandbox))
     ).resolves.toStrictEqual({
       model: "openai/gpt-5.1-codex-mini",
+      run: {
+        failedCalls: [],
+        reply: "Removed the debugger statement.",
+        steps: 4,
+        toolCalls: ["bash (exit 1)", "read_file", "write_file"],
+      },
       stopped: false,
     });
 
@@ -150,7 +159,10 @@ describe(createModelLintFindingsFixer, () => {
 
     await expect(
       createModelLintFindingsFixer(model)(request(fakeSandbox()))
-    ).resolves.toMatchObject({ stopped: true });
+    ).resolves.toMatchObject({
+      run: { steps: 40, stopReason: "steps" },
+      stopped: true,
+    });
     expect(model.doGenerateCalls).toHaveLength(40);
   });
 
@@ -203,6 +215,12 @@ describe(createModelLintFindingsFixer, () => {
       createModelLintFindingsFixer(model)(request(sandbox, Date.now() + 100))
     ).resolves.toStrictEqual({
       model: "openai/gpt-5.1-codex-mini",
+      run: {
+        failedCalls: ["no status: The operation was aborted due to timeout"],
+        steps: 1,
+        stopReason: "deadline",
+        toolCalls: ["write_file"],
+      },
       stopped: true,
     });
     expect(sandbox.writeFile).toHaveBeenCalledWith("/tmp/repository/a.ts", "");
@@ -256,6 +274,15 @@ describe(createModelLintFindingsFixer, () => {
       createModelLintFindingsFixer(model)(request(fakeSandbox()))
     ).resolves.toStrictEqual({
       model: "openai/gpt-5.1-codex-mini",
+      run: {
+        failedCalls: Array.from(
+          { length: 3 },
+          () => "429: Rate limit exceeded"
+        ),
+        reply: "Removed the debugger statement.",
+        steps: 1,
+        toolCalls: [],
+      },
       stopped: false,
     });
     expect(model.doGenerateCalls).toHaveLength(4);
@@ -279,18 +306,66 @@ describe(createModelLintFindingsFixer, () => {
       )
     ).resolves.toStrictEqual({
       model: "openai/gpt-5.1-codex-mini",
+      run: {
+        failedCalls: ["429: Rate limit exceeded"],
+        steps: 1,
+        stopReason: "deadline",
+        toolCalls: ["write_file"],
+      },
       stopped: true,
     });
     expect(model.doGenerateCalls).toHaveLength(2);
   });
 
-  it("fails when the model call fails", async () => {
+  it("fails when the model call fails, with the calls that failed", async () => {
     const model = new MockLanguageModelV4({
-      doGenerate: () => Promise.reject(new Error("The gateway is down")),
+      doGenerate: () =>
+        Promise.reject(
+          Object.assign(new Error("The gateway is down"), { statusCode: 503 })
+        ),
     });
 
-    await expect(
-      createModelLintFindingsFixer(model)(request(fakeSandbox()))
-    ).rejects.toThrow("The gateway is down");
+    const failure = createModelLintFindingsFixer(model)(request(fakeSandbox()));
+
+    await expect(failure).rejects.toThrow(LintFindingsRunError);
+    await expect(failure).rejects.toMatchObject({
+      message: "The gateway is down",
+      run: {
+        failedCalls: ["503: The gateway is down"],
+        steps: 0,
+        toolCalls: [],
+      },
+    });
+  });
+
+  it("records that the time to start steps ran out", async () => {
+    const model = new MockLanguageModelV4({
+      doGenerate: toolCall("bash", { command: "pnpm exec ultracite check" }),
+    });
+    const sandbox = fakeSandbox();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // The first command takes longer than the model may keep starting
+    // steps, by the clock alone.
+    vi.mocked(sandbox.run).mockImplementation(() => {
+      vi.setSystemTime(Date.now() + 91_000);
+      return Promise.resolve({
+        exitCode: 1,
+        stderr: "",
+        stdout: "debugger statement\n",
+      });
+    });
+
+    try {
+      await expect(
+        createModelLintFindingsFixer(model)(
+          request(sandbox, Date.now() + 200_000)
+        )
+      ).resolves.toMatchObject({
+        run: { steps: 1, stopReason: "time" },
+        stopped: true,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

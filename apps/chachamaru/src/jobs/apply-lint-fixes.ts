@@ -25,7 +25,11 @@ import { AGENT_NAME } from "../agent-name.ts";
 import { codeBlock } from "../code-block.ts";
 import { parseAddedLines } from "../git-output.ts";
 import type { GitFileChange } from "../git-output.ts";
-import type { LintFindingsFixer } from "../lint-findings-fixer.ts";
+import { LintFindingsRunError } from "../lint-findings-fixer.ts";
+import type {
+  LintFindingsFixer,
+  LintFindingsModelRun,
+} from "../lint-findings-fixer.ts";
 import { loggableFailure } from "../log.ts";
 import type { LogFields } from "../log.ts";
 import {
@@ -165,6 +169,8 @@ export interface FindingsFix {
   paths: string[];
   /** Why the model's run failed. */
   error?: string;
+  /** What the model did, whether its run finished or failed. */
+  run?: LintFindingsModelRun;
   /**
    * Why the changes are not committed, when they are refused, or why the
    * model was not asked.
@@ -262,13 +268,14 @@ type SandboxFindingsFix =
       status: "checked";
       model: string;
       stopped: boolean;
+      run: LintFindingsModelRun;
       changes: GitFileChange[];
       /** The blobs of the files it changed, when the policy accepts them. */
       blobs: Map<string, Buffer>;
       checkPassed: boolean;
       verdict: LintFindingsFixVerdict;
     }
-  | { status: "model-failed"; error: string }
+  | { status: "model-failed"; error: string; run?: LintFindingsModelRun }
   | { status: "not-asked"; reason: string };
 
 /** A command the sandbox could not run to the end; see the result. */
@@ -411,10 +418,11 @@ const fixFindingsInSandbox = async (
     // The automatic fix still stands, and the head counts as tried.
     return {
       error: loggableFailure.safeParse(error).data?.error ?? "unknown error",
+      ...(error instanceof LintFindingsRunError && { run: error.run }),
       status: "model-failed",
     };
   }
-  const { model, stopped } = fix;
+  const { model, stopped, run } = fix;
 
   // A file Git does not track is not committed, so the check must not see
   // one that the model wrote.
@@ -453,6 +461,7 @@ const fixFindingsInSandbox = async (
         invoked: true,
         model,
         paths: changes.map(({ path }) => path),
+        run,
         stopped,
       },
     };
@@ -491,6 +500,7 @@ const fixFindingsInSandbox = async (
     changes,
     checkPassed,
     model,
+    run,
     status: "checked",
     stopped,
     verdict,
@@ -736,14 +746,16 @@ const summarizeFindings = (fix: SandboxFindingsFix): FindingsFix => {
       invoked: true,
       paths: [],
       reason: "the model's run failed",
+      ...(fix.run !== undefined && { run: fix.run }),
     };
   }
-  const { model, stopped, changes, checkPassed, verdict } = fix;
+  const { model, stopped, run, changes, checkPassed, verdict } = fix;
   return {
     checkPassed,
     invoked: true,
     model,
     paths: changes.map(({ path }) => path),
+    run,
     stopped,
     ...(verdict.result === "refused" && {
       reason: verdict.reason,
@@ -1070,6 +1082,14 @@ export const applyLintFixes = async (
     : commitAutomaticFix(settlement, fixed);
 };
 
+const modelRunFields = (run: LintFindingsModelRun | undefined): LogFields => ({
+  modelFailedCalls: run?.failedCalls,
+  modelReply: run?.reply,
+  modelSteps: run?.steps,
+  modelStopReason: run?.stopReason,
+  modelToolCalls: run?.toolCalls,
+});
+
 const findingsFields = (findings: FindingsFix | undefined): LogFields => ({
   comment: findings?.comment?.id,
   commentCreated: findings?.comment?.created,
@@ -1081,6 +1101,7 @@ const findingsFields = (findings: FindingsFix | undefined): LogFields => ({
   modelReason: findings?.reason,
   modelRefusedPaths: findings?.refusedPaths,
   modelStopped: findings?.stopped,
+  ...modelRunFields(findings?.run),
   suppressions: findings?.suppressions,
 });
 

@@ -37,6 +37,10 @@ const READ_LIMIT = 200_000;
 // How long a rate-limited call waits when AI Gateway does not say.
 const RATE_LIMIT_WAIT_MS = 60_000;
 
+// How much of the model's last reply and of a failed call's message the log
+// keeps.
+const LOGGED_TEXT_LIMIT = 500;
+
 const instructions = `You fix lint findings in a repository whose lint tools were updated. The repository uses ultracite, which runs oxlint and oxfmt. The check you are given fails, and \`ultracite fix\` has already fixed what it can on its own. Fix the remaining findings in the code so that the check passes.
 
 You work in an isolated sandbox with the bash, read_file, and write_file tools. The repository is checked out in the sandbox, and the sandbox has no network access: the dependencies are installed, but nothing can be downloaded.
@@ -85,6 +89,30 @@ export interface LintFindingsFixRequest {
   deadline: number;
 }
 
+/** What the model did in a run, for the log. */
+export interface LintFindingsModelRun {
+  /** How many steps the model finished. */
+  steps: number;
+  /**
+   * What stopped the model before it finished: the deadline, the number of
+   * steps, or the time it may keep starting steps; none when it finished.
+   */
+  stopReason?: "deadline" | "steps" | "time";
+  /** The start of the model's last reply, when it finished on its own. */
+  reply?: string;
+  /**
+   * The tools the model called, in order, with a command's exit code, as
+   * `read_file` or `bash (exit 1)`; not their input or output, which can
+   * hold the repository's content.
+   */
+  toolCalls: string[];
+  /**
+   * The model calls that failed, in order, whether or not they were made
+   * again, as the status and the start of the message.
+   */
+  failedCalls: string[];
+}
+
 export interface LintFindingsFixResult {
   /** The model that made the changes, for the Assisted-by trailer. */
   model: string;
@@ -93,13 +121,26 @@ export interface LintFindingsFixResult {
    * before it finished.
    */
   stopped: boolean;
+  run: LintFindingsModelRun;
+}
+
+/** The failure of a model's run, with what the model did before it. */
+export class LintFindingsRunError extends Error {
+  readonly run: LintFindingsModelRun;
+
+  constructor(message: string, run: LintFindingsModelRun, cause: unknown) {
+    super(message, { cause });
+    this.name = "LintFindingsRunError";
+    this.run = run;
+  }
 }
 
 /**
  * Has a model change the files of a checked-out repository, in a sandbox,
  * to fix the lint findings the automatic fix leaves. The job checks the
- * result afterwards; nothing the model says is relied on. It rejects when
- * the model's run fails before any of its steps is done.
+ * result afterwards; nothing the model says is relied on. It rejects, with
+ * a {@link LintFindingsRunError}, when the model's run fails before any of
+ * its steps is done.
  */
 export type LintFindingsFixer = (
   request: LintFindingsFixRequest
@@ -172,7 +213,7 @@ const sandboxTools = ({
   };
 };
 
-// A model, rather than a model ID, which the rate limit's wrapper needs.
+// A model, rather than a model ID, which middleware needs.
 type ModelObject = Exclude<LanguageModel, string>;
 
 // A call AI Gateway refused for the rate limit, with the seconds it says to
@@ -226,6 +267,50 @@ const waitingOutRateLimits = (model: ModelObject) =>
     model,
   });
 
+const cut = (text: string) => text.slice(0, LOGGED_TEXT_LIMIT);
+
+// A model call's failure, as AI Gateway and the AI SDK report it.
+const failedCall = z.object({
+  message: z.string(),
+  statusCode: z.number().optional(),
+});
+
+/** The model, with each of its calls that fails recorded in `failedCalls`. */
+const recordingFailedCalls = (model: ModelObject, failedCalls: string[]) =>
+  wrapLanguageModel({
+    middleware: {
+      specificationVersion: "v4",
+      wrapGenerate: async ({ doGenerate }) => {
+        try {
+          return await doGenerate();
+        } catch (error) {
+          const failure = failedCall.safeParse(error).data;
+          failedCalls.push(
+            cut(
+              `${failure?.statusCode ?? "no status"}: ${failure?.message ?? "unknown error"}`
+            )
+          );
+          throw error;
+        }
+      },
+    },
+    model,
+  });
+
+const EXIT_CODE = /^Exit code (?<code>-?\d+)/u;
+
+// The tools a step called, with a command's exit code.
+const toolCallsOf = (
+  results: readonly { toolName: string; output: unknown }[]
+) =>
+  results.map(({ toolName, output }) => {
+    const code =
+      toolName === "bash"
+        ? EXIT_CODE.exec(String(output))?.groups?.code
+        : undefined;
+    return code === undefined ? toolName : `${toolName} (exit ${code})`;
+  });
+
 /**
  * A {@link LintFindingsFixer} that runs a model in a loop of tool calls. It
  * sees the check's command and output and the automatic fix's diff, and
@@ -241,30 +326,48 @@ export const createModelLintFindingsFixer =
     );
     // The model that answered the last step done, for a run cut off later.
     let answered: string | undefined;
+    const run: LintFindingsModelRun = {
+      failedCalls: [],
+      steps: 0,
+      toolCalls: [],
+    };
 
     try {
-      const { finishReason, response } = await generateText({
+      const { finishReason, response, text } = await generateText({
         abortSignal,
         instructions,
-        model: waitingOutRateLimits(model),
+        // The failed calls are recorded before the rate limit's are made again.
+        model: waitingOutRateLimits(
+          recordingFailedCalls(model, run.failedCalls)
+        ),
         onStepEnd: (step) => {
           answered = step.response.modelId;
+          run.steps += 1;
+          run.toolCalls.push(...toolCallsOf(step.toolResults));
         },
         prompt: prompt(request),
         stopWhen: [stepCountIs(MAX_STEPS), () => Date.now() >= lastStep],
         tools: sandboxTools(request),
       });
       // A model stopped by a condition ends on a step that called tools.
-      return {
-        model: response.modelId,
-        stopped: finishReason === "tool-calls",
-      };
+      const stopped = finishReason === "tool-calls";
+      if (stopped) {
+        run.stopReason = run.steps >= MAX_STEPS ? "steps" : "time";
+      } else {
+        run.reply = cut(text);
+      }
+      return { model: response.modelId, run, stopped };
     } catch (error) {
       // What the model changed before the deadline cut it off is checked
       // like a finished fix.
       if (abortSignal.aborted && answered !== undefined) {
-        return { model: answered, stopped: true };
+        run.stopReason = "deadline";
+        return { model: answered, run, stopped: true };
       }
-      throw error;
+      throw new LintFindingsRunError(
+        error instanceof Error ? error.message : String(error),
+        run,
+        error
+      );
     }
   };
