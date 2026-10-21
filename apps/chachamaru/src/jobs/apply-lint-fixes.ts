@@ -188,10 +188,11 @@ export interface FindingsFix {
 
 /**
  * How many of the bot's findings comments on earlier heads it minimized as
- * outdated, or why it could not.
+ * outdated, why it left them, or why it could not.
  */
 export type OutdatedComments =
   | { minimized: number }
+  | { skipped: string }
   | { error: string; status?: number };
 
 interface FixedPaths {
@@ -876,13 +877,27 @@ interface Settlement {
 /**
  * Minimizes the bot's findings comments on the pull request as outdated:
  * those posted before the given one, or, once a commit passes the check,
- * all of them.
+ * all of them. It does so only while the pull request's head is still the
+ * given one, the head the run commented on or its commit: a run that a
+ * newer head overtook could otherwise minimize that head's comment, posted
+ * before its own.
  */
 const minimizeOutdatedFindings = async (
   { octokit, owner, repo, pullNumber, botLogin }: Settlement,
+  head: string,
   commentId?: number
 ): Promise<OutdatedComments> => {
   try {
+    const { data: pullRequest } = await octokit.rest.pulls.get({
+      owner,
+      pull_number: pullNumber,
+      repo,
+    });
+
+    if (pullRequest.head.sha !== head) {
+      return { skipped: "the head moved" };
+    }
+
     return {
       minimized: await minimizeOutdatedIssueComments(octokit, {
         author: botLogin,
@@ -942,7 +957,10 @@ const commitFindingsFix = async (
     : {
         ...fixedByModel,
         commitSha: commit.sha,
-        outdatedComments: await minimizeOutdatedFindings(settlement),
+        outdatedComments: await minimizeOutdatedFindings(
+          settlement,
+          commit.sha
+        ),
         status: "committed",
       };
 };
@@ -980,7 +998,8 @@ const commitAutomaticFix = async (
 
   const reportFindings = () => (findings === undefined ? {} : { findings });
 
-  const tellMaintainers = async () => {
+  // The head is the one the pull request has after the commit, if any.
+  const tellMaintainers = async (head: string) => {
     if (findings === undefined || dryRun) {
       return reportFindings();
     }
@@ -1004,6 +1023,7 @@ const commitAutomaticFix = async (
       ...(comment.created && {
         outdatedComments: await minimizeOutdatedFindings(
           settlement,
+          head,
           comment.id
         ),
       }),
@@ -1014,7 +1034,7 @@ const commitAutomaticFix = async (
     return checkPassed
       ? { headSha, status: "lint-passed" }
       : {
-          ...(await tellMaintainers()),
+          ...(await tellMaintainers(headSha)),
           headSha,
           output,
           reason: "the automatic fix changed nothing",
@@ -1054,8 +1074,13 @@ const commitAutomaticFix = async (
     : {
         ...fixedPaths,
         ...(checkPassed
-          ? { outdatedComments: await minimizeOutdatedFindings(settlement) }
-          : await tellMaintainers()),
+          ? {
+              outdatedComments: await minimizeOutdatedFindings(
+                settlement,
+                commit.sha
+              ),
+            }
+          : await tellMaintainers(commit.sha)),
         commitSha: commit.sha,
         status: "committed",
       };
@@ -1234,10 +1259,18 @@ const findingsFields = (findings: FindingsFix | undefined): LogFields => ({
 
 const outdatedCommentsFields = (
   outdated: OutdatedComments | undefined
-): LogFields =>
-  outdated !== undefined && "error" in outdated
-    ? { minimizeError: outdated.error, minimizeErrorStatus: outdated.status }
+): LogFields => {
+  if (outdated !== undefined && "error" in outdated) {
+    return {
+      minimizeError: outdated.error,
+      minimizeErrorStatus: outdated.status,
+    };
+  }
+
+  return outdated !== undefined && "skipped" in outdated
+    ? { minimizeSkipped: outdated.skipped }
     : { minimizedComments: outdated?.minimized };
+};
 
 /** The fields of a result to log, without file contents. */
 export const summarizeLintFixResult = (

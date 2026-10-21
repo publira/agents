@@ -343,6 +343,8 @@ interface GitHubOptions {
   comments?: readonly string[];
   /** Whether GitHub refuses to minimize a comment. */
   minimizeRefused?: boolean;
+  /** The head the pull request moves to after the job first reads it. */
+  headMovesTo?: string;
 }
 
 const file = (content: string) =>
@@ -372,6 +374,7 @@ const fakeGitHub = ({
   moved = false,
   comments: initialComments = [],
   minimizeRefused = false,
+  headMovesTo,
 }: GitHubOptions) => {
   const writes: { route: string; body: unknown }[] = [];
   const reads: string[] = [];
@@ -385,6 +388,10 @@ const fakeGitHub = ({
 
   // The comments minimized through GraphQL, by ID.
   const minimized = new Set<number>();
+  // The pull request's head: the fixture's, until the job's commit or
+  // another push moves it.
+  let head = fixture.headSha;
+  let headReads = 0;
 
   // GraphQL's list of the comments, oldest first, all on one page, and its
   // mutation that minimizes one.
@@ -422,6 +429,43 @@ const fakeGitHub = ({
     });
   };
 
+  const pullRequest = () => {
+    headReads += 1;
+
+    if (headReads > 1 && headMovesTo !== undefined) {
+      head = headMovesTo;
+    }
+
+    return Response.json({
+      base: {
+        ref: "main",
+        repo: { full_name: "publira/comic-viewer", private: isPrivate },
+        sha: "base",
+      },
+      head: {
+        ref: BRANCH,
+        repo: { full_name: "publira/comic-viewer" },
+        sha: head,
+      },
+      number: 31,
+      state: "open",
+      user,
+    });
+  };
+
+  const updateBranch = () => {
+    if (moved) {
+      return Response.json(
+        { message: "Update is not a fast forward" },
+        { status: 422 }
+      );
+    }
+
+    head = "new-commit";
+
+    return Response.json({});
+  };
+
   const respond = (...[input, init]: Parameters<typeof fetch>) => {
     const url = new URL(String(input));
     const method = init?.method ?? "GET";
@@ -436,23 +480,7 @@ const fakeGitHub = ({
 
     switch (route) {
       case `GET ${repository}/pulls/31`: {
-        return Promise.resolve(
-          Response.json({
-            base: {
-              ref: "main",
-              repo: { full_name: "publira/comic-viewer", private: isPrivate },
-              sha: "base",
-            },
-            head: {
-              ref: BRANCH,
-              repo: { full_name: "publira/comic-viewer" },
-              sha: fixture.headSha,
-            },
-            number: 31,
-            state: "open",
-            user,
-          })
-        );
+        return Promise.resolve(pullRequest());
       }
 
       case `GET ${repository}/contents/package.json`: {
@@ -499,14 +527,7 @@ const fakeGitHub = ({
       }
 
       case `PATCH ${repository}/git/refs/heads/${BRANCH}`: {
-        return Promise.resolve(
-          moved
-            ? Response.json(
-                { message: "Update is not a fast forward" },
-                { status: 422 }
-              )
-            : Response.json({})
-        );
+        return Promise.resolve(updateBranch());
       }
 
       case `GET ${repository}/issues/31/comments`: {
@@ -1481,6 +1502,32 @@ describe("applyLintFixes with a model for the findings", () => {
     expect(github.minimized()).toStrictEqual([1]);
   });
 
+  it("leaves the earlier comments when a newer head overtook the run", async () => {
+    commitToFixture(fixture, { "README.md": "# Comic Viewer\n" });
+
+    const github = fakeGitHub({
+      comments: [
+        "<!-- chachamaru-lint-findings head=newer -->\nThe check fails.",
+      ],
+      fixture,
+      headMovesTo: "newer",
+    });
+
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+
+    const { fixer } = modelWriting(sandbox, {
+      "src/index.ts":
+        "export const read = () => {\n  debugger;\n  return 1;\n};\n",
+    });
+
+    await expect(run(github, sandbox, { fixer })).resolves.toMatchObject({
+      findings: { comment: { created: true, id: 101 } },
+      outdatedComments: { skipped: "the head moved" },
+      status: "unfixed",
+    });
+    expect(github.minimized()).toStrictEqual([]);
+  });
+
   it("keeps its comment when GitHub refuses to minimize the earlier ones", async () => {
     commitToFixture(fixture, { "README.md": "# Comic Viewer\n" });
 
@@ -1595,7 +1642,7 @@ describe(summarizeLintFixResult, () => {
     });
   });
 
-  it("logs how many earlier comments it minimized, or why it could not", () => {
+  it("logs how many earlier comments it minimized, or why it did not", () => {
     const committed = {
       checkPassed: true,
       commitSha: "fixed",
@@ -1617,6 +1664,12 @@ describe(summarizeLintFixResult, () => {
         outdatedComments: { error: "Forbidden", status: 403 },
       })
     ).toMatchObject({ minimizeError: "Forbidden", minimizeErrorStatus: 403 });
+    expect(
+      summarizeLintFixResult({
+        ...committed,
+        outdatedComments: { skipped: "the head moved" },
+      })
+    ).toMatchObject({ minimizeSkipped: "the head moved" });
   });
 
   it("logs that the model was not asked, and why", () => {
