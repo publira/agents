@@ -31,6 +31,12 @@ import { applyLintFixes, summarizeLintFixResult } from "./apply-lint-fixes.ts";
 import type { ApplyLintFixesResult } from "./apply-lint-fixes.ts";
 
 const BOT = "chachamaru-bot[bot]";
+
+const graphqlRequest = z.object({
+  query: z.string(),
+  variables: z.record(z.string(), z.unknown()),
+});
+
 const BRANCH = "renovate/oxc";
 const repository = "/repos/publira/comic-viewer";
 
@@ -338,6 +344,10 @@ interface GitHubOptions {
   moved?: boolean;
   /** The bodies of the bot's comments on the pull request. */
   comments?: readonly string[];
+  /** Whether GitHub refuses to minimize a comment. */
+  minimizeRefused?: boolean;
+  /** The head the pull request moves to after the job first reads it. */
+  headMovesTo?: string;
 }
 
 const file = (content: string) =>
@@ -366,6 +376,8 @@ const fakeGitHub = ({
   },
   moved = false,
   comments: initialComments = [],
+  minimizeRefused = false,
+  headMovesTo,
 }: GitHubOptions) => {
   const writes: { route: string; body: unknown }[] = [];
   const reads: string[] = [];
@@ -376,6 +388,86 @@ const fakeGitHub = ({
     id: index + 1,
     user: { login: BOT },
   }));
+
+  // The comments minimized through GraphQL, by ID.
+  const minimized = new Set<number>();
+  // The pull request's head: the fixture's, until the job's commit or
+  // another push moves it.
+  let head = fixture.headSha;
+  let headReads = 0;
+
+  // GraphQL's list of the comments, oldest first, all on one page, and its
+  // mutation that minimizes one.
+  const graphql = ({ query, variables }: z.infer<typeof graphqlRequest>) => {
+    if (query.includes("minimizeComment")) {
+      if (minimizeRefused) {
+        return Response.json(
+          { message: "Resource not accessible by integration" },
+          { status: 403 }
+        );
+      }
+
+      minimized.add(Number(String(variables.id).slice("IC_".length)));
+
+      return Response.json({ data: { minimizeComment: {} } });
+    }
+
+    return Response.json({
+      data: {
+        repository: {
+          issueOrPullRequest: {
+            comments: {
+              nodes: comments.map(({ body: text, id }) => ({
+                author: { __typename: "Bot", login: "chachamaru-bot" },
+                body: text,
+                fullDatabaseId: String(id),
+                id: `IC_${id}`,
+                isMinimized: minimized.has(id),
+              })),
+              pageInfo: { endCursor: null, hasNextPage: false },
+            },
+          },
+        },
+      },
+    });
+  };
+
+  const pullRequest = () => {
+    headReads += 1;
+
+    if (headReads > 1 && headMovesTo !== undefined) {
+      head = headMovesTo;
+    }
+
+    return Response.json({
+      base: {
+        ref: "main",
+        repo: { full_name: "publira/comic-viewer", private: isPrivate },
+        sha: "base",
+      },
+      head: {
+        ref: BRANCH,
+        repo: { full_name: "publira/comic-viewer" },
+        sha: head,
+      },
+      number: 31,
+      state: "open",
+      user,
+    });
+  };
+
+  const updateBranch = () => {
+    if (moved) {
+      return Response.json(
+        { message: "Update is not a fast forward" },
+        { status: 422 }
+      );
+    }
+
+    head = "new-commit";
+
+    return Response.json({});
+  };
 
   const respond = (...[input, init]: Parameters<typeof fetch>) => {
     const url = new URL(String(input));
@@ -391,23 +483,7 @@ const fakeGitHub = ({
 
     switch (route) {
       case `GET ${repository}/pulls/31`: {
-        return Promise.resolve(
-          Response.json({
-            base: {
-              ref: "main",
-              repo: { full_name: "publira/comic-viewer", private: isPrivate },
-              sha: "base",
-            },
-            head: {
-              ref: BRANCH,
-              repo: { full_name: "publira/comic-viewer" },
-              sha: fixture.headSha,
-            },
-            number: 31,
-            state: "open",
-            user,
-          })
-        );
+        return Promise.resolve(pullRequest());
       }
 
       case `GET ${repository}/contents/package.json`: {
@@ -454,14 +530,7 @@ const fakeGitHub = ({
       }
 
       case `PATCH ${repository}/git/refs/heads/${BRANCH}`: {
-        return Promise.resolve(
-          moved
-            ? Response.json(
-                { message: "Update is not a fast forward" },
-                { status: 422 }
-              )
-            : Response.json({})
-        );
+        return Promise.resolve(updateBranch());
       }
 
       case `GET ${repository}/issues/31/comments`: {
@@ -490,7 +559,11 @@ const fakeGitHub = ({
   };
 
   const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
-    const response = await respond(input, init);
+    const response =
+      new URL(String(input)).pathname === "/graphql"
+        ? graphql(graphqlRequest.parse(JSON.parse(String(init?.body))))
+        : await respond(input, init);
+
     // The pagination reads the URL a page came from.
     Object.defineProperty(response, "url", { value: String(input) });
 
@@ -498,6 +571,8 @@ const fakeGitHub = ({
   });
 
   return {
+    /** The IDs of the comments minimized, in order. */
+    minimized: () => [...minimized],
     octokit: createGitHubClient({ fetch: fetchImpl }),
     reads,
     writes,
@@ -572,6 +647,7 @@ describe(applyLintFixes, () => {
       checkPassed: true,
       commitSha: "new-commit",
       headSha: fixture.headSha,
+      outdatedComments: { minimized: 0 },
       output: undefined,
       paths: ["README.md"],
       status: "committed",
@@ -605,6 +681,23 @@ describe(applyLintFixes, () => {
         route: `PATCH ${repository}/git/refs/heads/${BRANCH}`,
       },
     ]);
+  });
+
+  it("minimizes its findings comments once the automatic fix passes the check", async () => {
+    const github = fakeGitHub({
+      comments: [
+        "<!-- chachamaru-lint-findings head=earlier -->\nThe check fails.",
+      ],
+      fixture,
+    });
+
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+
+    await expect(run(github, sandbox)).resolves.toMatchObject({
+      outdatedComments: { minimized: 1 },
+      status: "committed",
+    });
+    expect(github.minimized()).toStrictEqual([1]);
   });
 
   it("asks for a sandbox with the memory oxlint maps for its JS plugins", async () => {
@@ -1016,6 +1109,7 @@ describe("applyLintFixes with a model for the findings", () => {
         stopped: false,
       },
       headSha: fixture.headSha,
+      outdatedComments: { minimized: 0 },
       output: undefined,
       paths: ["README.md", "src/index.ts"],
       status: "committed",
@@ -1152,6 +1246,7 @@ describe("applyLintFixes with a model for the findings", () => {
         run: failedRun,
       },
       headSha: fixture.headSha,
+      outdatedComments: { minimized: 0 },
       output: "debugger statement\n",
       paths: ["README.md"],
       status: "committed",
@@ -1186,6 +1281,7 @@ describe("applyLintFixes with a model for the findings", () => {
         reason: "the sandbox had no time left for the model",
       },
       headSha: fixture.headSha,
+      outdatedComments: { minimized: 0 },
       output: "debugger statement\n",
       paths: ["README.md"],
       status: "committed",
@@ -1253,6 +1349,7 @@ describe("applyLintFixes with a model for the findings", () => {
         suppressions: ["src/index.ts:1"],
       },
       headSha: fixture.headSha,
+      outdatedComments: { minimized: 0 },
       output: "debugger statement\n",
       paths: ["README.md"],
       status: "committed",
@@ -1371,6 +1468,7 @@ describe("applyLintFixes with a model for the findings", () => {
         suppressions: [],
       },
       headSha: fixture.headSha,
+      outdatedComments: { minimized: 0 },
       output: "debugger statement\n",
       reason: "the automatic fix changed nothing",
       status: "unfixed",
@@ -1378,6 +1476,104 @@ describe("applyLintFixes with a model for the findings", () => {
     expect(github.writes.map(({ route }) => route)).toStrictEqual([
       `POST ${repository}/issues/31/comments`,
     ]);
+  });
+
+  it("minimizes its comments on earlier heads once it comments on this one", async () => {
+    commitToFixture(fixture, { "README.md": "# Comic Viewer\n" });
+
+    const github = fakeGitHub({
+      comments: [
+        "<!-- chachamaru-lint-findings head=earlier -->\nThe check fails.",
+        "Thanks for the update.",
+      ],
+      fixture,
+    });
+
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+
+    const { fixer } = modelWriting(sandbox, {
+      "src/index.ts":
+        "export const read = () => {\n  debugger;\n  return 1;\n};\n",
+    });
+
+    await expect(run(github, sandbox, { fixer })).resolves.toMatchObject({
+      findings: { comment: { created: true, id: 102 } },
+      outdatedComments: { minimized: 1 },
+      status: "unfixed",
+    });
+    expect(github.minimized()).toStrictEqual([1]);
+  });
+
+  it("minimizes its findings comments once the model's fix passes the check", async () => {
+    const github = fakeGitHub({
+      comments: [
+        "<!-- chachamaru-lint-findings head=earlier -->\nThe check fails.",
+      ],
+      fixture,
+    });
+
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+    const { fixer } = modelWriting(sandbox, { "src/index.ts": FIXED_SCRIPT });
+
+    await expect(run(github, sandbox, { fixer })).resolves.toMatchObject({
+      outdatedComments: { minimized: 1 },
+      status: "committed",
+    });
+    expect(github.minimized()).toStrictEqual([1]);
+  });
+
+  it("leaves the earlier comments when a newer head overtook the run", async () => {
+    commitToFixture(fixture, { "README.md": "# Comic Viewer\n" });
+
+    const github = fakeGitHub({
+      comments: [
+        "<!-- chachamaru-lint-findings head=newer -->\nThe check fails.",
+      ],
+      fixture,
+      headMovesTo: "newer",
+    });
+
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+
+    const { fixer } = modelWriting(sandbox, {
+      "src/index.ts":
+        "export const read = () => {\n  debugger;\n  return 1;\n};\n",
+    });
+
+    await expect(run(github, sandbox, { fixer })).resolves.toMatchObject({
+      findings: { comment: { created: true, id: 101 } },
+      outdatedComments: { skipped: "the head moved" },
+      status: "unfixed",
+    });
+    expect(github.minimized()).toStrictEqual([]);
+  });
+
+  it("keeps its comment when GitHub refuses to minimize the earlier ones", async () => {
+    commitToFixture(fixture, { "README.md": "# Comic Viewer\n" });
+
+    const github = fakeGitHub({
+      comments: [
+        "<!-- chachamaru-lint-findings head=earlier -->\nThe check fails.",
+      ],
+      fixture,
+      minimizeRefused: true,
+    });
+
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+
+    const { fixer } = modelWriting(sandbox, {
+      "src/index.ts":
+        "export const read = () => {\n  debugger;\n  return 1;\n};\n",
+    });
+
+    await expect(run(github, sandbox, { fixer })).resolves.toMatchObject({
+      findings: { comment: { created: true, id: 101 } },
+      outdatedComments: {
+        error: expect.stringContaining("Resource not accessible"),
+        status: 403,
+      },
+      status: "unfixed",
+    });
   });
 
   it("checks without the files Git does not track that the model wrote", async () => {
@@ -1442,6 +1638,7 @@ describe(summarizeLintFixResult, () => {
       commit: undefined,
       exitCode: undefined,
       headSha: "head",
+      minimizedComments: undefined,
       model: undefined,
       modelCheckPassed: undefined,
       modelError: undefined,
@@ -1463,6 +1660,36 @@ describe(summarizeLintFixResult, () => {
       step: undefined,
       suppressions: undefined,
     });
+  });
+
+  it("logs how many earlier comments it minimized, or why it did not", () => {
+    const committed = {
+      checkPassed: true,
+      commitSha: "fixed",
+      headSha: "head",
+      output: undefined,
+      paths: ["README.md"],
+      status: "committed" as const,
+    };
+
+    expect(
+      summarizeLintFixResult({
+        ...committed,
+        outdatedComments: { minimized: 2 },
+      })
+    ).toMatchObject({ minimizedComments: 2 });
+    expect(
+      summarizeLintFixResult({
+        ...committed,
+        outdatedComments: { error: "Forbidden", status: 403 },
+      })
+    ).toMatchObject({ minimizeError: "Forbidden", minimizeErrorStatus: 403 });
+    expect(
+      summarizeLintFixResult({
+        ...committed,
+        outdatedComments: { skipped: "the head moved" },
+      })
+    ).toMatchObject({ minimizeSkipped: "the head moved" });
   });
 
   it("logs that the model was not asked, and why", () => {
