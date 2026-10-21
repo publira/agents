@@ -1,5 +1,7 @@
 import type { Octokit } from "@octokit/rest";
+import { z } from "zod";
 
+import { graphqlActor, restLogin } from "./actor.ts";
 import { requestFailure } from "./request-error.ts";
 
 export interface IssueLocation {
@@ -166,4 +168,125 @@ export const ensureIssueComment = async (
   }
 
   return { created: false, id: earliest.id };
+};
+
+export interface MinimizeOutdatedIssueCommentsOptions extends IssueLocation {
+  /** The login whose comments are minimized, such as the App's bot login. */
+  author: string;
+  /**
+   * Only comments whose body contains this are minimized, such as the start
+   * of a hidden HTML comment that marks what kind of report they are.
+   */
+  marker: string;
+  /**
+   * The comment the author just posted. Only its earlier comments are
+   * minimized, so a later one, such as on a newer head, stays as it is.
+   * Without it, every comment with the marker is.
+   */
+  commentId?: number;
+}
+
+const commentNodes = z.object({
+  nodes: z.array(
+    z.object({
+      author: graphqlActor.nullable(),
+      body: z.string(),
+      fullDatabaseId: z.string().nullable(),
+      id: z.string(),
+      isMinimized: z.boolean(),
+    })
+  ),
+  pageInfo: z.object({
+    endCursor: z.string().nullable(),
+    hasNextPage: z.boolean(),
+  }),
+});
+
+const commentsResponse = z.object({
+  repository: z.object({
+    issueOrPullRequest: z.object({ comments: commentNodes }),
+  }),
+});
+
+type CommentNode = z.infer<typeof commentNodes>["nodes"][number];
+
+const listCommentNodes = async (
+  octokit: Octokit,
+  location: IssueLocation,
+  after: string | null = null
+): Promise<CommentNode[]> => {
+  const { owner, repo, issueNumber } = location;
+
+  const response = await octokit.graphql(
+    `query ($owner: String!, $repo: String!, $number: Int!, $after: String) {
+      repository(owner: $owner, name: $repo) {
+        issueOrPullRequest(number: $number) {
+          ... on Issue { comments(first: 100, after: $after) { ...page } }
+          ... on PullRequest { comments(first: 100, after: $after) { ...page } }
+        }
+      }
+    }
+    fragment page on IssueCommentConnection {
+      nodes {
+        id
+        fullDatabaseId
+        body
+        isMinimized
+        author { __typename login }
+      }
+      pageInfo { hasNextPage endCursor }
+    }`,
+    { after, number: issueNumber, owner, repo }
+  );
+
+  const { nodes, pageInfo } =
+    commentsResponse.parse(response).repository.issueOrPullRequest.comments;
+
+  return pageInfo.hasNextPage
+    ? [
+        ...nodes,
+        ...(await listCommentNodes(octokit, location, pageInfo.endCursor)),
+      ]
+    : nodes;
+};
+
+/**
+ * Minimizes, as outdated, the author's comments on an issue or a pull
+ * request that contain the marker, posted before the given one, or all of
+ * them without one. A minimized comment stays readable when expanded.
+ * Comments already minimized, later ones, and those of other users are left
+ * as they are. Returns how many it minimized.
+ */
+export const minimizeOutdatedIssueComments = async (
+  octokit: Octokit,
+  options: MinimizeOutdatedIssueCommentsOptions
+): Promise<number> => {
+  const { author, marker, commentId } = options;
+  const comments = await listCommentNodes(octokit, options);
+
+  const outdated = comments.filter(
+    (comment) =>
+      comment.author !== null &&
+      restLogin(comment.author) === author &&
+      comment.body.includes(marker) &&
+      !comment.isMinimized &&
+      // Comment IDs grow with each comment posted.
+      (commentId === undefined ||
+        (comment.fullDatabaseId !== null &&
+          BigInt(comment.fullDatabaseId) < BigInt(commentId)))
+  );
+
+  for (const { id } of outdated) {
+    // oxlint-disable-next-line no-await-in-loop -- GitHub asks for writes one at a time
+    await octokit.graphql(
+      `mutation ($id: ID!) {
+        minimizeComment(input: { subjectId: $id, classifier: OUTDATED }) {
+          clientMutationId
+        }
+      }`,
+      { id }
+    );
+  }
+
+  return outdated.length;
 };

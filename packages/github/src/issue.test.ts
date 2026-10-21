@@ -7,6 +7,7 @@ import {
   ensureIssueComment,
   getParentIssue,
   issueLocationOf,
+  minimizeOutdatedIssueComments,
 } from "./issue.ts";
 
 const comments = "/repos/publira/agents/issues/51/comments";
@@ -236,5 +237,177 @@ describe(ensureIssueComment, () => {
         ensureIssueComment(createGitHubClient({ fetch: github.fetch }), marked)
       ).resolves.toStrictEqual({ created: true, id: 100 });
     });
+  });
+});
+
+interface CommentNode {
+  id: string;
+  fullDatabaseId: string | null;
+  body: string;
+  isMinimized: boolean;
+  author: { __typename: string; login: string } | null;
+}
+
+const graphqlRequest = z.object({
+  query: z.string(),
+  variables: z.record(z.string(), z.unknown()),
+});
+
+const findingsMarker = "<!-- chachamaru-lint-findings head=";
+
+/**
+ * The comments of pull request 51 as GitHub's GraphQL API lists them, oldest
+ * first, `perPage` at a time, and minimizes them on request.
+ */
+const commentNodeStore = (initial: Partial<CommentNode>[], perPage = 100) => {
+  const store: CommentNode[] = initial.map((comment, index) => ({
+    author: { __typename: "Bot", login: "chachamaru-bot" },
+    body: `${findingsMarker}head${index + 1} -->\nThe check still fails.`,
+    fullDatabaseId: String(index + 1),
+    id: `IC_${index + 1}`,
+    isMinimized: false,
+    ...comment,
+  }));
+
+  const graphql = dynamic(({ body: request }) => {
+    const { query, variables } = graphqlRequest.parse(request);
+
+    if (query.includes("minimizeComment")) {
+      const comment = store.find(({ id }) => id === variables.id);
+
+      if (comment === undefined) {
+        return { data: null, errors: [{ message: "Could not resolve" }] };
+      }
+
+      comment.isMinimized = true;
+
+      return { data: { minimizeComment: { clientMutationId: null } } };
+    }
+
+    const start = variables.after === null ? 0 : Number(variables.after);
+    const end = start + perPage;
+
+    return {
+      data: {
+        repository: {
+          issueOrPullRequest: {
+            comments: {
+              nodes: store.slice(start, end).map((comment) => ({ ...comment })),
+              pageInfo: {
+                endCursor: String(end),
+                hasNextPage: end < store.length,
+              },
+            },
+          },
+        },
+      },
+    };
+  });
+
+  return { github: fakeGitHub({ "POST /graphql": graphql }), store };
+};
+
+const minimized = (requests: { body: unknown }[]) =>
+  requests.flatMap(({ body: request }) => {
+    const { query, variables } = graphqlRequest.parse(request);
+
+    return query.includes("minimizeComment") ? [variables.id] : [];
+  });
+
+describe(minimizeOutdatedIssueComments, () => {
+  const location = {
+    author: bot,
+    issueNumber: 51,
+    marker: findingsMarker,
+    owner: "publira",
+    repo: "agents",
+  };
+
+  it("minimizes the author's comments with the marker as outdated", async () => {
+    const { github, store } = commentNodeStore([{}, {}]);
+
+    await expect(
+      minimizeOutdatedIssueComments(
+        createGitHubClient({ fetch: github.fetch }),
+        location
+      )
+    ).resolves.toBe(2);
+    expect(store.map(({ isMinimized }) => isMinimized)).toStrictEqual([
+      true,
+      true,
+    ]);
+    expect(github.requests.at(-1)?.body).toMatchObject({
+      query: expect.stringContaining("classifier: OUTDATED"),
+      variables: { id: "IC_2" },
+    });
+  });
+
+  it("leaves the given comment and the ones after it", async () => {
+    const { github } = commentNodeStore([{}, {}, {}, {}]);
+
+    await expect(
+      minimizeOutdatedIssueComments(
+        createGitHubClient({ fetch: github.fetch }),
+        { ...location, commentId: 3 }
+      )
+    ).resolves.toBe(2);
+    expect(minimized(github.requests)).toStrictEqual(["IC_1", "IC_2"]);
+  });
+
+  it("compares comment IDs as numbers", async () => {
+    const { github } = commentNodeStore([
+      { fullDatabaseId: "9" },
+      { fullDatabaseId: "12345678901234567890" },
+      { fullDatabaseId: null },
+    ]);
+
+    await minimizeOutdatedIssueComments(
+      createGitHubClient({ fetch: github.fetch }),
+      { ...location, commentId: 10 }
+    );
+
+    expect(minimized(github.requests)).toStrictEqual(["IC_1"]);
+  });
+
+  it.each([
+    ["another user", { author: { __typename: "User", login: "ykzts" } }],
+    ["another bot", { author: { __typename: "Bot", login: "vercel" } }],
+    ["a deleted account", { author: null }],
+    ["the author, without the marker", { body: "Thanks for the update." }],
+    ["the author, already minimized", { isMinimized: true }],
+  ])("leaves a comment by %s", async (_label, overrides) => {
+    const { github } = commentNodeStore([overrides]);
+
+    await expect(
+      minimizeOutdatedIssueComments(
+        createGitHubClient({ fetch: github.fetch }),
+        location
+      )
+    ).resolves.toBe(0);
+    expect(minimized(github.requests)).toStrictEqual([]);
+  });
+
+  it("reads every page of the comments", async () => {
+    const { github } = commentNodeStore([{}, {}, {}], 2);
+
+    await expect(
+      minimizeOutdatedIssueComments(
+        createGitHubClient({ fetch: github.fetch }),
+        location
+      )
+    ).resolves.toBe(3);
+    expect(minimized(github.requests)).toStrictEqual(["IC_1", "IC_2", "IC_3"]);
+  });
+
+  it("changes nothing when run again", async () => {
+    const { github } = commentNodeStore([{}, {}]);
+    const octokit = createGitHubClient({ fetch: github.fetch });
+
+    await minimizeOutdatedIssueComments(octokit, location);
+
+    await expect(
+      minimizeOutdatedIssueComments(octokit, location)
+    ).resolves.toBe(0);
+    expect(minimized(github.requests)).toStrictEqual(["IC_1", "IC_2"]);
   });
 });

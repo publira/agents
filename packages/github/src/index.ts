@@ -59,6 +59,7 @@ export type {
   EnsureIssueCommentOptions,
   EnsureIssueCommentResult,
   IssueLocation,
+  MinimizeOutdatedIssueCommentsOptions,
 } from "./issue.ts";
 
 export {
@@ -66,6 +67,7 @@ export {
   findIssueComment,
   getParentIssue,
   issueLocationOf,
+  minimizeOutdatedIssueComments,
 } from "./issue.ts";
 
 export type { RepositoryLabelState } from "./label.ts";

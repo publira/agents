@@ -3,6 +3,7 @@ import {
   ensureIssueComment,
   findIssueComment,
   getCommitChecks,
+  minimizeOutdatedIssueComments,
   readOptionalRepositoryFile,
 } from "@publira/github";
 import type { EnsureIssueCommentResult, Octokit } from "@publira/github";
@@ -185,6 +186,14 @@ export interface FindingsFix {
   comment?: EnsureIssueCommentResult;
 }
 
+/**
+ * How many of the bot's findings comments on earlier heads it minimized as
+ * outdated, or why it could not.
+ */
+export type OutdatedComments =
+  | { minimized: number }
+  | { error: string; status?: number };
+
 interface FixedPaths {
   /** The files the commit takes. */
   paths: string[];
@@ -194,6 +203,11 @@ interface FixedPaths {
   output: string | undefined;
   /** What a model did with the findings the automatic fix left. */
   findings?: FindingsFix;
+  /**
+   * The earlier findings comments, minimized once the bot posted one for
+   * this head or committed a fix that passes the check.
+   */
+  outdatedComments?: OutdatedComments;
 }
 
 export type ApplyLintFixesResult =
@@ -230,6 +244,8 @@ export type ApplyLintFixesResult =
       reason: string;
       output: string | undefined;
       findings?: FindingsFix;
+      /** The earlier findings comments, once it posted one for this head. */
+      outdatedComments?: OutdatedComments;
     }
   | {
       /**
@@ -739,10 +755,13 @@ const isBotLintFix = async (
   );
 };
 
+// The start of the hidden mark of every findings comment, whatever its head.
+const FINDINGS_MARKER_START = "<!-- chachamaru-lint-findings head=";
+
 // The hidden mark of the comment that tells the maintainers the model could
 // not fix the findings on a head, which also records that it tried.
 const findingsMarker = (headSha: string) =>
-  `<!-- chachamaru-lint-findings head=${headSha} -->`;
+  `${FINDINGS_MARKER_START}${headSha} -->`;
 
 const contentOf =
   (blobs: ReadonlyMap<string, Buffer>) =>
@@ -854,11 +873,41 @@ interface Settlement {
   dryRun: boolean;
 }
 
+/**
+ * Minimizes the bot's findings comments on the pull request as outdated:
+ * those posted before the given one, or, once a commit passes the check,
+ * all of them.
+ */
+const minimizeOutdatedFindings = async (
+  { octokit, owner, repo, pullNumber, botLogin }: Settlement,
+  commentId?: number
+): Promise<OutdatedComments> => {
+  try {
+    return {
+      minimized: await minimizeOutdatedIssueComments(octokit, {
+        author: botLogin,
+        commentId,
+        issueNumber: pullNumber,
+        marker: FINDINGS_MARKER_START,
+        owner,
+        repo,
+      }),
+    };
+  } catch (error) {
+    // The commit or the comment stands; the earlier comments only stay
+    // expanded.
+    return loggableFailure.safeParse(error).data ?? { error: "unknown" };
+  }
+};
+
 /** Commits the model's changes, with the automatic fix's, to the branch. */
 const commitFindingsFix = async (
-  { octokit, owner, repo, branch, headSha, packageManager, dryRun }: Settlement,
+  settlement: Settlement,
   fix: Extract<SandboxFindingsFix, { status: "checked" }>
 ): Promise<ApplyLintFixesResult> => {
+  const { octokit, owner, repo, branch, headSha, packageManager, dryRun } =
+    settlement;
+
   const findings = summarizeFindings(fix);
 
   const fixedByModel = {
@@ -890,7 +939,12 @@ const commitFindingsFix = async (
 
   return commit.status === "moved"
     ? { ...fixedByModel, status: "head-moved" }
-    : { ...fixedByModel, commitSha: commit.sha, status: "committed" };
+    : {
+        ...fixedByModel,
+        commitSha: commit.sha,
+        outdatedComments: await minimizeOutdatedFindings(settlement),
+        status: "committed",
+      };
 };
 
 /**
@@ -926,25 +980,35 @@ const commitAutomaticFix = async (
 
   const reportFindings = () => (findings === undefined ? {} : { findings });
 
-  const tellMaintainers = async () =>
-    findings === undefined || dryRun
-      ? reportFindings()
-      : {
-          findings: {
-            ...findings,
-            comment: await ensureIssueComment(octokit, {
-              author: botLogin,
-              body: findingsComment(headSha, findings, {
-                command: checkCommand(packageManager),
-                output: fixed.output,
-              }),
-              issueNumber: pullNumber,
-              marker: findingsMarker(headSha),
-              owner,
-              repo,
-            }),
-          },
-        };
+  const tellMaintainers = async () => {
+    if (findings === undefined || dryRun) {
+      return reportFindings();
+    }
+
+    const comment = await ensureIssueComment(octokit, {
+      author: botLogin,
+      body: findingsComment(headSha, findings, {
+        command: checkCommand(packageManager),
+        output: fixed.output,
+      }),
+      issueNumber: pullNumber,
+      marker: findingsMarker(headSha),
+      owner,
+      repo,
+    });
+
+    return {
+      findings: { ...findings, comment },
+      // A run that found the comment posted left the earlier ones to the run
+      // that posted it.
+      ...(comment.created && {
+        outdatedComments: await minimizeOutdatedFindings(
+          settlement,
+          comment.id
+        ),
+      }),
+    };
+  };
 
   if (changes.length === 0) {
     return checkPassed
@@ -989,7 +1053,9 @@ const commitAutomaticFix = async (
     ? { ...fixedPaths, ...reportFindings(), status: "head-moved" }
     : {
         ...fixedPaths,
-        ...(await tellMaintainers()),
+        ...(checkPassed
+          ? { outdatedComments: await minimizeOutdatedFindings(settlement) }
+          : await tellMaintainers()),
         commitSha: commit.sha,
         status: "committed",
       };
@@ -1166,11 +1232,21 @@ const findingsFields = (findings: FindingsFix | undefined): LogFields => ({
   suppressions: findings?.suppressions,
 });
 
+const outdatedCommentsFields = (
+  outdated: OutdatedComments | undefined
+): LogFields =>
+  outdated !== undefined && "error" in outdated
+    ? { minimizeError: outdated.error, minimizeErrorStatus: outdated.status }
+    : { minimizedComments: outdated?.minimized };
+
 /** The fields of a result to log, without file contents. */
 export const summarizeLintFixResult = (
   result: ApplyLintFixesResult
 ): LogFields => ({
   ...findingsFields("findings" in result ? result.findings : undefined),
+  ...outdatedCommentsFields(
+    "outdatedComments" in result ? result.outdatedComments : undefined
+  ),
   checkPassed: "checkPassed" in result ? result.checkPassed : undefined,
   commit: result.status === "committed" ? result.commitSha : undefined,
   exitCode: result.status === "failed" ? result.exitCode : undefined,
