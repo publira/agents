@@ -21,6 +21,7 @@ const source = [
 
 const apply = (content: string, text: string) => {
   const [file] = parsePatch(text);
+
   return applyHunks(content, file?.hunks ?? []);
 };
 

@@ -36,10 +36,13 @@ const parseSkillsLock = (source: string | undefined) => {
   if (source === undefined) {
     return {};
   }
+
   const result = skillsLock.safeParse(JSON.parse(source));
+
   if (!result.success) {
     throw new Error(`${SKILLS_LOCK_FILE} is not a skills lock file`);
   }
+
   return result.data.skills;
 };
 
@@ -65,9 +68,11 @@ export const diffSkillsLocks = (
         ? []
         : [{ change: "removed", name, source: was.source }];
     }
+
     if (was === undefined) {
       return [{ change: "added", name, source: is.source }];
     }
+
     return isDeepStrictEqual(was, is)
       ? []
       : [{ change: "updated", name, source: is.source }];

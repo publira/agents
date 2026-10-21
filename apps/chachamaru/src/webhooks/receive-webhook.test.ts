@@ -44,6 +44,7 @@ const webhookRequest = ({
 const setup = (handlers: Record<string, WebhookHandler> = {}) => {
   const tasks: Promise<unknown>[] = [];
   const log = vi.fn<Log>();
+
   return {
     log,
     // Every line the request logged, as written.
@@ -167,6 +168,7 @@ describe(combineWebhookHandlers, () => {
     const first = vi.fn<WebhookHandler>(() => Promise.resolve());
     const second = vi.fn<WebhookHandler>(() => Promise.resolve());
     const other = vi.fn<WebhookHandler>(() => Promise.resolve());
+
     const handlers = combineWebhookHandlers(
       { pull_request: first },
       { issues: other, pull_request: second }
@@ -183,6 +185,7 @@ describe(combineWebhookHandlers, () => {
   it("runs the other handlers when one fails, then passes the failure on", async () => {
     const failure = new Error("Not Found");
     const second = vi.fn<WebhookHandler>(() => Promise.resolve());
+
     const handlers = combineWebhookHandlers(
       { pull_request: () => Promise.reject(failure) },
       { pull_request: second }

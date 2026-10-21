@@ -70,9 +70,11 @@ echo touched > notes.txt
 
 const runGit = (cwd: string, ...args: string[]) => {
   const result = spawnSync("git", args, { cwd, encoding: "utf-8" });
+
   if (result.status !== 0) {
     throw new Error(`git ${args.join(" ")}: ${result.stderr}`);
   }
+
   return result.stdout.trim();
 };
 
@@ -93,6 +95,7 @@ const commitAll = (root: string, message: string) => {
     "--quiet",
     `--message=${message}`
   );
+
   return runGit(root, "rev-parse", "HEAD");
 };
 
@@ -121,6 +124,7 @@ const createFixture = (root: string): Fixture => {
   const baseSha = commitAll(origin, "Initial commit");
   write(origin, "buf.gen.yaml", "v2");
   const headSha = commitAll(origin, "chore(deps): update buf.gen.yaml");
+
   return { baseSha, headSha, origin };
 };
 
@@ -145,6 +149,7 @@ const localSandbox = ({
 }: LocalSandboxOptions) => {
   const commands: SandboxCommand[] = [];
   const started: SandboxOptions[] = [];
+
   const directoryOf = (index: number) =>
     path.join(root, "sandbox", String(index));
 
@@ -152,6 +157,7 @@ const localSandbox = ({
     const worktree = path.join(directoryOf(index), "repository");
     const home = path.join(directoryOf(index), "home");
     mkdirSync(home, { recursive: true });
+
     const localize = (value: string) =>
       value.replaceAll(SANDBOX_WORKTREE, worktree);
 
@@ -173,6 +179,7 @@ const localSandbox = ({
             stdout: "",
           });
         }
+
         const result = spawnSync(
           command.cmd,
           args.map((arg) =>
@@ -185,6 +192,7 @@ const localSandbox = ({
             maxBuffer: 64 * 1024 * 1024,
           }
         );
+
         return Promise.resolve({
           exitCode: result.status ?? 1,
           stderr: result.stderr,
@@ -202,6 +210,7 @@ const localSandbox = ({
   const runner: SandboxRunner = (task, options) => {
     const sandbox = createSandbox(started.length);
     started.push(options);
+
     if (refuse !== undefined) {
       // The task's first script tells which target it regenerates.
       const probe: Sandbox = {
@@ -212,8 +221,10 @@ const localSandbox = ({
             ? Promise.reject(new Error("Sandbox quota exceeded"))
             : sandbox.run(command),
       };
+
       return task(probe);
     }
+
     return task(sandbox);
   };
 
@@ -265,6 +276,7 @@ const fakeGitHub = ({
   moved = false,
 }: GitHubOptions) => {
   const writes: { route: string; body: unknown }[] = [];
+
   const commits = [
     {
       author: "renovate[bot]",
@@ -307,16 +319,19 @@ const fakeGitHub = ({
           })
         );
       }
+
       case `GET ${repository}/contents/.chachamaru/regenerate.yml`: {
         return Promise.resolve(
           config === null || ref !== fixture.baseSha ? notFound() : file(config)
         );
       }
+
       case `GET ${repository}/contents/.github/workflows/ci.yml`: {
         return Promise.resolve(
           ref === fixture.headSha ? file(WORKFLOW) : notFound()
         );
       }
+
       case `GET ${repository}/compare/${fixture.baseSha}...${fixture.headSha}`: {
         return Promise.resolve(
           Response.json({
@@ -332,18 +347,23 @@ const fakeGitHub = ({
           })
         );
       }
+
       case `GET ${repository}/git/commits/${fixture.headSha}`: {
         return Promise.resolve(Response.json({ tree: { sha: "head-tree" } }));
       }
+
       case `POST ${repository}/git/blobs`: {
         return Promise.resolve(Response.json({ sha: "image-blob" }));
       }
+
       case `POST ${repository}/git/trees`: {
         return Promise.resolve(Response.json({ sha: "new-tree" }));
       }
+
       case `POST ${repository}/git/commits`: {
         return Promise.resolve(Response.json({ sha: "new-commit" }));
       }
+
       case `PATCH ${repository}/git/refs/heads/${BRANCH}`: {
         return Promise.resolve(
           moved
@@ -354,10 +374,12 @@ const fakeGitHub = ({
             : Response.json({})
         );
       }
+
       default: {
         const listed = commits.find(
           ({ sha }) => route === `GET ${repository}/commits/${sha}`
         );
+
         return Promise.resolve(
           listed === undefined
             ? notFound()
@@ -642,6 +664,7 @@ describe(regenerateGeneratedOutput, () => {
       config: `${CONFIG}setupTimeout: 300\ntimeout: 300\n`,
       fixture,
     });
+
     const sandbox = localSandbox({ origin: fixture.origin, root });
 
     await expect(run(github, sandbox)).resolves.toMatchObject({
@@ -688,6 +711,7 @@ describe(regenerateGeneratedOutput, () => {
 
   it("leaves the pull request alone when the fetch fails", async () => {
     const github = fakeGitHub({ fixture });
+
     const sandbox = localSandbox({
       fetchExitCode: 128,
       origin: fixture.origin,
@@ -715,8 +739,10 @@ describe(regenerateGeneratedOutput, () => {
     command: mkdir -p ios gen && echo pinned > ios/Package.resolved && echo stray > gen/stray.txt
     paths:
       - ios/**`;
+
     const targets = (pins = PINS) =>
       `targets:\n  codegen:\n${CONFIG.replaceAll(/^(?=.)/gmu, "    ")}  ${pins}\n`;
+
     const both = ["buf.gen.yaml", "mobile/pubspec.lock"];
 
     it("commits each target's own paths in one commit", async () => {
@@ -769,6 +795,7 @@ describe(regenerateGeneratedOutput, () => {
         config: targets(),
         fixture,
       });
+
       const sandbox = localSandbox({ origin: fixture.origin, root });
 
       await expect(run(github, sandbox)).resolves.toMatchObject({
@@ -784,6 +811,7 @@ describe(regenerateGeneratedOutput, () => {
         config: targets(PINS.replace(/command: .*/u, "command: exit 5")),
         fixture,
       });
+
       const sandbox = localSandbox({ origin: fixture.origin, root });
 
       await expect(run(github, sandbox)).resolves.toMatchObject({
@@ -820,6 +848,7 @@ describe(regenerateGeneratedOutput, () => {
           },
         ],
       });
+
       const sandbox = localSandbox({ origin: fixture.origin, root });
 
       await expect(run(github, sandbox)).resolves.toMatchObject({
@@ -842,6 +871,7 @@ describe(regenerateGeneratedOutput, () => {
           },
         ],
       });
+
       const sandbox = localSandbox({ origin: fixture.origin, root });
 
       await expect(
@@ -878,6 +908,7 @@ describe(regenerateGeneratedOutput, () => {
 
     it("commits one target's output when another's sandbox fails", async () => {
       const github = fakeGitHub({ changed: both, config: targets(), fixture });
+
       const sandbox = localSandbox({
         origin: fixture.origin,
         refuse: "ios/Package.resolved",
@@ -907,6 +938,7 @@ describe(regenerateGeneratedOutput, () => {
         ),
         fixture,
       });
+
       const sandbox = localSandbox({ origin: fixture.origin, root });
 
       await expect(run(github, sandbox)).resolves.toMatchObject({

@@ -35,6 +35,7 @@ const fakeFetch = () =>
 
     if (url.hostname === "api.github.com") {
       const content = files.get(url.pathname);
+
       return Promise.resolve(
         content === undefined
           ? Response.json({ message: "Not Found" }, { status: 404 })
@@ -47,6 +48,7 @@ const fakeFetch = () =>
     }
 
     const packument = packuments.get(url.pathname);
+
     return Promise.resolve(
       packument === undefined
         ? new Response("Not Found", { status: 404 })
@@ -118,6 +120,7 @@ describe(checkReleaseAgeExclusions, () => {
       .map(([input]) => new URL(String(input)))
       .filter((url) => url.hostname === "registry.npmjs.org")
       .map((url) => url.pathname);
+
     expect(registryPaths.toSorted()).toStrictEqual([
       "/@next%2fenv",
       "/next",

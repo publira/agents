@@ -126,6 +126,7 @@ const regenerateAndLog = async ({
     pullRequest: pullNumber,
     repo,
   });
+
   try {
     const result = await regenerate({
       ...regeneration,
@@ -136,7 +137,9 @@ const regenerateAndLog = async ({
       pullNumber,
       repo,
     });
+
     const deferred = regenerationMovesHead(result);
+
     for (const summary of summarizeRegenerationResult(result)) {
       if (summary.status === "error") {
         // The target's output stays as it is, like a regeneration that threw.
@@ -152,6 +155,7 @@ const regenerateAndLog = async ({
         );
       }
     }
+
     return deferred;
   } catch (error) {
     // The output stays as it is; the repository's CI tells whether it is
@@ -161,6 +165,7 @@ const regenerateAndLog = async ({
       "Generated output regeneration failed",
       loggableFailure.safeParse(error).data
     );
+
     return false;
   }
 };
@@ -206,6 +211,7 @@ export const fixLintAndLog = async ({
     pullRequest: pullNumber,
     repo,
   });
+
   try {
     const result = await fix({
       ...lintFix,
@@ -217,6 +223,7 @@ export const fixLintAndLog = async ({
       pullNumber,
       repo,
     });
+
     const deferred = DEFERRING_LINT_FIX_STATUSES.has(result.status);
     lintFixLog(
       result.status === "failed" || result.status === "refused"
@@ -225,6 +232,7 @@ export const fixLintAndLog = async ({
       "Lint fix evaluated",
       { ...summarizeLintFixResult(result), evaluationDeferred: deferred }
     );
+
     return deferred;
   } catch (error) {
     // The files stay as they are, and CI keeps rejecting them.
@@ -233,6 +241,7 @@ export const fixLintAndLog = async ({
       "Lint fix failed",
       loggableFailure.safeParse(error).data
     );
+
     return false;
   }
 };
@@ -266,6 +275,7 @@ export const evaluateRenovateUpdate = async ({
   } = {},
 }: EvaluateRenovateUpdateOptions): Promise<void> => {
   const fields = { dryRun, owner, pullRequest: pullNumber, repo };
+
   const location = {
     dryRun,
     octokit,
@@ -279,6 +289,7 @@ export const evaluateRenovateUpdate = async ({
     ...fields,
     job: "sync-devcontainer-lock-file",
   });
+
   try {
     const result = await syncLockFile({
       dryRun,
@@ -287,11 +298,13 @@ export const evaluateRenovateUpdate = async ({
       pullNumber,
       repo,
     });
+
     const deferred = DEFERRING_SYNC_STATUSES.has(result.status);
     syncLog("info", "Dev Container lock file sync evaluated", {
       ...summarizeLockFileSyncResult(result),
       evaluationDeferred: deferred,
     });
+
     if (deferred) {
       return;
     }
@@ -325,6 +338,7 @@ export const evaluateRenovateUpdate = async ({
     ...fields,
     job: "approve-equivalent-renovate-update",
   });
+
   try {
     const result = await approve({ ...location, reviewer });
     const summary = summarizeApprovalResult(result);
@@ -346,12 +360,14 @@ export const evaluateRenovateUpdate = async ({
     ...fields,
     job: "auto-merge-renovate-update",
   });
+
   try {
     const result = await autoMerge({
       ...location,
       enabled: renovateAutoMerge,
       reviewer,
     });
+
     // Every outcome, `disabled` included, so the logs tell why a pull
     // request was not merged.
     autoMergeLog(
@@ -444,6 +460,7 @@ export const evaluateRenovateUpdatesEverywhere = async ({
     listAppRepositories(app),
     app.getBotLogin(),
   ]);
+
   const precedentScanCache = createPrecedentScanCache();
 
   await Promise.all(
@@ -453,8 +470,10 @@ export const evaluateRenovateUpdatesEverywhere = async ({
         const repositoryLog = withFields(log, {
           installation: installationId,
         });
+
         try {
           const octokit = await app.getInstallationOctokit(installationId);
+
           const pulls = await octokit.paginate(octokit.rest.pulls.list, {
             head: headRef === undefined ? undefined : `${owner}:${headRef}`,
             owner,
@@ -466,6 +485,7 @@ export const evaluateRenovateUpdatesEverywhere = async ({
           const renovatePulls = pulls
             .filter(({ user }) => isRenovate(user))
             .map(({ number }) => number);
+
           const deferred = new Set<number>();
 
           if (sandbox !== undefined) {
@@ -474,6 +494,7 @@ export const evaluateRenovateUpdatesEverywhere = async ({
                 createRepositoryReadToken(app, { installationId, repo }),
               sandbox,
             };
+
             const pullRequest = {
               dryRun: settings.dryRun,
               log: repositoryLog,
@@ -482,6 +503,7 @@ export const evaluateRenovateUpdatesEverywhere = async ({
               repo,
               reviewer,
             };
+
             await forEachConcurrently(
               renovatePulls,
               SWEEP_SANDBOX_CONCURRENCY,

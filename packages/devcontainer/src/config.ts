@@ -19,6 +19,7 @@ export const parseFeatureReferences = (
   text: string
 ): FeatureReferencesParseResult => {
   const errors: ParseError[] = [];
+
   const config: unknown = parse(text, errors, {
     allowTrailingComma: true,
   });

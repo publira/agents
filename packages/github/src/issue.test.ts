@@ -36,6 +36,7 @@ const createCommentBody = z.object({ body: z.string() });
 /** The comments of publira/agents#51, kept as GitHub keeps them. */
 const commentStore = (initial: Partial<Comment>[] = []) => {
   let nextId = 100;
+
   const store: Comment[] = initial.map((comment, index) => ({
     body,
     created_at: "2026-10-05T03:00:01Z",
@@ -44,12 +45,15 @@ const commentStore = (initial: Partial<Comment>[] = []) => {
     user: { login: bot },
     ...comment,
   }));
+
   const listComments = dynamic(({ url }) => {
     const after = new Date(url.searchParams.get("since") ?? 0).getTime();
-    return store
-      .filter((comment) => new Date(comment.updated_at).getTime() >= after)
-      .map((comment) => ({ ...comment }));
+
+    return store.flatMap((comment) =>
+      new Date(comment.updated_at).getTime() >= after ? [{ ...comment }] : []
+    );
   });
+
   const createComment = dynamic(({ body: request }) => {
     const comment = {
       body: createCommentBody.parse(request).body,
@@ -58,19 +62,26 @@ const commentStore = (initial: Partial<Comment>[] = []) => {
       updated_at: "2026-10-05T03:00:02Z",
       user: { login: bot },
     };
+
     nextId += 1;
     store.push(comment);
+
     return comment;
   });
+
   const deleteComment = (id: number) =>
     dynamic(() => {
       const index = store.findIndex((comment) => comment.id === id);
+
       if (index === -1) {
         return Response.json({ message: "Not Found" }, { status: 404 });
       }
+
       store.splice(index, 1);
+
       return new Response(null, { status: 204 });
     });
+
   const routes = Object.fromEntries([
     [`GET ${comments}`, listComments],
     [`POST ${comments}`, createComment],
@@ -197,6 +208,7 @@ describe(ensureIssueComment, () => {
 
   describe("with a marker", () => {
     const marker = "<!-- chachamaru-lint-findings head=abc -->";
+
     const marked = {
       ...options,
       body: `${marker}\nThe check still fails.`,

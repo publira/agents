@@ -10,10 +10,13 @@ import {
 
 const DIND = "ghcr.io/devcontainers/features/docker-in-docker";
 const GH_CLI = "ghcr.io/devcontainers/features/github-cli";
+
 const OLD_DIGEST =
   "sha256:ad3d6d36d95ee7f880f61f98862257f3e70253d3faef09f86af42fb87ee60429";
+
 const GH_CLI_DIGEST =
   "sha256:bd7ab48a832228f633239277552c30b353867fef2e5b037e064b4e64f0b843f2";
+
 const CONFIG = ".devcontainer/devcontainer.json";
 const LOCK_FILE = ".devcontainer/devcontainer-lock.json";
 
@@ -28,6 +31,7 @@ ${features.map((feature) => `    "${feature}": {},`).join("\n")}
 
 const entry = (reference: string, version: string, digest: string) => {
   const name = reference.slice(0, reference.lastIndexOf(":"));
+
   return `    "${reference}": {
       "version": "${version}",
       "resolved": "${name}@${digest}",
@@ -47,12 +51,14 @@ const manifest = JSON.stringify({
   },
   schemaVersion: 2,
 });
+
 const NEW_DIGEST = `sha256:${createHash("sha256").update(manifest).digest("hex")}`;
 
 const staleLockFile = lockFile(
   entry(`${DIND}:4.1.2`, "4.1.2", OLD_DIGEST),
   entry(`${GH_CLI}:1.1.3`, "1.1.3", GH_CLI_DIGEST)
 );
+
 const syncedLockFile = lockFile(
   entry(`${DIND}:4.1.3`, "4.1.3", NEW_DIGEST),
   entry(`${GH_CLI}:1.1.3`, "1.1.3", GH_CLI_DIGEST)
@@ -93,6 +99,7 @@ const fakeGitHub = ({
   moved = false,
 }: Scenario = {}) => {
   const writes: { route: string; body: Json | undefined }[] = [];
+
   const routes = new Map(
     Object.entries({
       "GET /repos/publira/agents/compare/base...head": {
@@ -130,6 +137,7 @@ const fakeGitHub = ({
   const respondWithFile = (url: URL, path: string) => {
     const files = url.searchParams.get("ref") === "merge-base" ? base : head;
     const file = files[path];
+
     return file === undefined
       ? notFound()
       : Response.json({
@@ -155,6 +163,7 @@ const fakeGitHub = ({
     const path = CONTENTS_ROUTE.exec(route)?.groups?.path;
     const result = routes.get(route);
     let response: Response;
+
     if (path !== undefined) {
       response = respondWithFile(url, path);
     } else if (result === undefined) {
@@ -162,7 +171,9 @@ const fakeGitHub = ({
     } else {
       response = result instanceof Response ? result : Response.json(result);
     }
+
     Object.defineProperty(response, "url", { value: url.href });
+
     return Promise.resolve(response);
   });
 

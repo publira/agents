@@ -27,11 +27,13 @@ interface Review {
 }
 
 const createReviewBody = z.object({ body: z.string(), commit_id: z.string() });
+
 const reviewStates = {
   APPROVE: "APPROVED",
   COMMENT: "COMMENTED",
   REQUEST_CHANGES: "CHANGES_REQUESTED",
 };
+
 const submitReviewBody = z.object({
   event: z.enum(["APPROVE", "COMMENT", "REQUEST_CHANGES"]),
 });
@@ -45,6 +47,7 @@ const unprocessable = (message: string) =>
  */
 const reviewStore = (initial: Partial<Review>[] = []) => {
   let nextId = 100;
+
   const store: Review[] = initial.map((review, index) => ({
     body: "",
     commit_id: "head",
@@ -53,8 +56,10 @@ const reviewStore = (initial: Partial<Review>[] = []) => {
     user: { login: bot },
     ...review,
   }));
+
   const pendingReview = (id: number) =>
     store.find((review) => review.id === id && review.state === "PENDING");
+
   const createReview = dynamic(({ body }) => {
     if (
       store.some(({ state, user }) => state === "PENDING" && user.login === bot)
@@ -63,7 +68,9 @@ const reviewStore = (initial: Partial<Review>[] = []) => {
         "User can only have one pending review per pull request"
       );
     }
+
     const { body: text, commit_id: commitId } = createReviewBody.parse(body);
+
     const review = {
       body: text,
       commit_id: commitId,
@@ -71,28 +78,39 @@ const reviewStore = (initial: Partial<Review>[] = []) => {
       state: "PENDING",
       user: { login: bot },
     };
+
     nextId += 1;
     store.push(review);
+
     return { ...review };
   });
+
   const submitReview = (id: number) =>
     dynamic(({ body }) => {
       const review = pendingReview(id);
+
       if (review === undefined) {
         return unprocessable("Can not submit a non-pending review");
       }
+
       review.state = reviewStates[submitReviewBody.parse(body).event];
+
       return { ...review };
     });
+
   const deleteReview = (id: number) =>
     dynamic(() => {
       const review = pendingReview(id);
+
       if (review === undefined) {
         return unprocessable("Can not delete a non-pending review");
       }
+
       store.splice(store.indexOf(review), 1);
+
       return { ...review };
     });
+
   const routes = Object.fromEntries([
     [`GET ${reviews}`, dynamic(() => store.map((review) => ({ ...review })))],
     [`POST ${reviews}`, createReview],
@@ -246,20 +264,25 @@ const reviewNodeStore = (initial: Partial<ReviewNode>[], perPage = 100) => {
     state: "APPROVED",
     ...review,
   }));
+
   const graphql = dynamic(({ body }) => {
     const { query, variables } = graphqlRequest.parse(body);
 
     if (query.includes("minimizeComment")) {
       const review = store.find(({ id }) => id === variables.id);
+
       if (review === undefined) {
         return { data: null, errors: [{ message: "Could not resolve" }] };
       }
+
       review.isMinimized = true;
+
       return { data: { minimizeComment: { clientMutationId: null } } };
     }
 
     const start = variables.after === null ? 0 : Number(variables.after);
     const end = start + perPage;
+
     return {
       data: {
         repository: {
@@ -283,6 +306,7 @@ const reviewNodeStore = (initial: Partial<ReviewNode>[], perPage = 100) => {
 const minimized = (requests: { body: unknown }[]) =>
   requests.flatMap(({ body }) => {
     const { query, variables } = graphqlRequest.parse(body);
+
     return query.includes("minimizeComment") ? [variables.id] : [];
   });
 

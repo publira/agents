@@ -37,6 +37,7 @@ export const listAppRepositories = async (
     app.octokit.rest.apps.listInstallations,
     { per_page: 100 }
   );
+
   // A suspended installation cannot get a token.
   const repositories = await Promise.all(
     installations

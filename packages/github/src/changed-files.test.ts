@@ -8,10 +8,12 @@ const location = { owner: "publira", repo: "agents", sha: "head" };
 describe(listChangedFiles, () => {
   it("lists the files of every page", async () => {
     const files = Array.from({ length: 150 }, (_, index) => `src/${index}.ts`);
+
     const fetchImpl = vi.fn<typeof fetch>((input) => {
       const url = new URL(String(input));
       const perPage = Number(url.searchParams.get("per_page"));
       const page = Number(url.searchParams.get("page"));
+
       return Promise.resolve(
         Response.json({
           files: files

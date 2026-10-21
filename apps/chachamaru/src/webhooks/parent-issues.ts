@@ -90,6 +90,7 @@ export const createParentIssueHandlers = ({
 
     try {
       let octokit: Octokit;
+
       if (
         parent.owner === deliveredTo.owner &&
         parent.repo === deliveredTo.repo
@@ -102,11 +103,13 @@ export const createParentIssueHandlers = ({
           if (!notInstalled.safeParse(error).success) {
             throw error;
           }
+
           jobLog(
             "info",
             "Parent issue left: the App is not installed on its repository",
             { modelInvoked: false, status: "left" }
           );
+
           return;
         }
       }
@@ -117,6 +120,7 @@ export const createParentIssueHandlers = ({
         dryRun,
         octokit,
       });
+
       jobLog(
         "info",
         "Parent issue evaluated",
@@ -138,8 +142,10 @@ export const createParentIssueHandlers = ({
       if (payload.action !== "closed") {
         return;
       }
+
       const { dryRun } = read(context.log);
       const subIssue = issueLocationOf(payload.issue);
+
       const parent = await getParentIssue(
         await context.app.getInstallationOctokit(payload.installation.id),
         subIssue
@@ -167,6 +173,7 @@ export const createParentIssueHandlers = ({
       if (payload.action !== "sub_issue_removed") {
         return;
       }
+
       const { dryRun } = read(context.log);
       const parent = issueLocationOf(payload.parent_issue);
 

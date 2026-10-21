@@ -165,6 +165,7 @@ const sandboxTools = ({
   deadline,
 }: LintFindingsFixRequest) => {
   const resolve = (file: string) => path.posix.resolve(worktree, file);
+
   // A command ends by the deadline at the latest, so none is still running
   // in the worktree when the job checks it.
   const commandTimeout = () =>
@@ -177,12 +178,15 @@ const sandboxTools = ({
   const applyPatch = async ({ directory, patch }: ApplyPatchCommand) => {
     const base = path.posix.resolve(worktree, directory ?? ".");
     let patched: Map<string, string>;
+
     try {
       const updates = parsePatch(patch).map(({ path: file, hunks }) => ({
         file: path.posix.resolve(base, file),
         hunks,
       }));
+
       const files = [...new Set(updates.map(({ file }) => file))];
+
       const reads = await Promise.all(
         files.map((file) =>
           sandbox.run({
@@ -192,29 +196,37 @@ const sandboxTools = ({
           })
         )
       );
+
       patched = new Map(
         files.map((file, index) => {
           const read = reads[index];
+
           if (read?.exitCode !== 0) {
             throw new Error(`Cannot read ${file}: ${read?.stderr}`);
           }
+
           return [file, read.stdout];
         })
       );
+
       // A file updated twice gets the second update on the first's result.
       for (const { file, hunks } of updates) {
         patched.set(file, applyHunks(patched.get(file) ?? "", hunks));
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+
       return `Exit code 1\nThe patch was not applied, and nothing changed: ${message}`;
     }
+
     await Promise.all(
       [...patched].map(([file, content]) => sandbox.writeFile(file, content))
     );
+
     const files = [...patched.keys()].map((file) =>
       path.posix.relative(worktree, file)
     );
+
     return `Exit code 0\nApplied the patch to ${files.join(", ")}.`;
   };
 
@@ -224,9 +236,11 @@ const sandboxTools = ({
         "Run a command with bash in the repository's directory. Returns its exit code and the end of its output.",
       async execute({ command }) {
         const applyPatchCommand = readApplyPatchCommand(command);
+
         if (applyPatchCommand !== undefined) {
           return applyPatch(applyPatchCommand);
         }
+
         const result = await sandbox.run({
           args: ["-c", command],
           cmd: "bash",
@@ -234,6 +248,7 @@ const sandboxTools = ({
           env: { CI: "true", NO_COLOR: "1" },
           timeoutMs: commandTimeout(),
         });
+
         return `Exit code ${result.exitCode}\n${tail(`${result.stdout}${result.stderr}`)}`;
       },
       inputSchema: z.object({ command: z.string().min(1) }),
@@ -247,9 +262,11 @@ const sandboxTools = ({
           cmd: "cat",
           timeoutMs: commandTimeout(),
         });
+
         if (result.exitCode !== 0) {
           return `Cannot read ${file}: ${result.stderr}`;
         }
+
         return result.stdout.length > READ_LIMIT
           ? `${file} has ${result.stdout.length} characters, too many to read whole. Read parts of it with bash, such as with sed -n.`
           : result.stdout;
@@ -261,6 +278,7 @@ const sandboxTools = ({
         "Replace the whole content of a file of the repository, by its path relative to the repository's directory.",
       async execute({ path: file, content }) {
         await sandbox.writeFile(resolve(file), content);
+
         return `Wrote ${file}.`;
       },
       inputSchema: z.object({
@@ -303,22 +321,28 @@ const waitingOutRateLimits = (model: ModelObject) =>
             return await doGenerate();
           } catch (error) {
             const refused = rateLimitedCall.safeParse(error);
+
             if (!refused.success) {
               throw error;
             }
+
             const { cause, responseHeaders } = refused.data;
+
             const seconds = Number(
               (responseHeaders ?? cause?.responseHeaders)?.["retry-after"]
             );
+
             // The deadline's abort ends the wait, as it ends a call.
             await setTimeout(
               Number.isFinite(seconds) ? seconds * 1000 : RATE_LIMIT_WAIT_MS,
               undefined,
               { signal: params.abortSignal }
             );
+
             return generate();
           }
         };
+
         return generate();
       },
     },
@@ -366,6 +390,7 @@ const toolCallsOf = (
       toolName === "bash"
         ? EXIT_CODE.exec(String(output))?.groups?.code
         : undefined;
+
     return code === undefined ? toolName : `${toolName} (exit ${code})`;
   });
 
@@ -379,11 +404,14 @@ export const createModelLintFindingsFixer =
   (model: ModelObject = gateway(LINT_FINDINGS_MODEL)): LintFindingsFixer =>
   async (request) => {
     const lastStep = Math.min(Date.now() + WORK_MS, request.deadline);
+
     const abortSignal = AbortSignal.timeout(
       Math.max(0, request.deadline - Date.now())
     );
+
     // The model that answered the last step done, for a run cut off later.
     let answered: string | undefined;
+
     const run: LintFindingsModelRun = {
       failedCalls: [],
       steps: 0,
@@ -407,21 +435,26 @@ export const createModelLintFindingsFixer =
         stopWhen: [stepCountIs(MAX_STEPS), () => Date.now() >= lastStep],
         tools: sandboxTools(request),
       });
+
       // A model stopped by a condition ends on a step that called tools.
       const stopped = finishReason === "tool-calls";
+
       if (stopped) {
         run.stopReason = run.steps >= MAX_STEPS ? "steps" : "time";
       } else {
         run.reply = cut(text);
       }
+
       return { model: response.modelId, run, stopped };
     } catch (error) {
       // What the model changed before the deadline cut it off is checked
       // like a finished fix.
       if (abortSignal.aborted && answered !== undefined) {
         run.stopReason = "deadline";
+
         return { model: answered, run, stopped: true };
       }
+
       throw new LintFindingsRunError(
         error instanceof Error ? error.message : String(error),
         run,

@@ -18,7 +18,7 @@
     "oxlint": "1.88.0",
     "turbo": "2.11.9",
     "typescript": "catalog:",
-    "ultracite": "8.0.0"
+    "ultracite": "8.0.1"
   },
   "devEngines": {
     "runtime": {

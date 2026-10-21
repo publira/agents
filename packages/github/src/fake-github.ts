@@ -40,14 +40,18 @@ const respond = (route: FakeRoute | undefined, request: FakeRequest) => {
   if (route === undefined) {
     return Response.json({ message: "Not Found" }, { status: 404 });
   }
+
   const result = route instanceof DynamicRoute ? route.respond(request) : route;
+
   return result instanceof Response ? result : Response.json(result);
 };
 
 export const fakeGitHub = (routes: Readonly<Record<string, FakeRoute>>) => {
   const requests: FakeRequest[] = [];
+
   const fetchImpl = vi.fn<typeof fetch>((input, init) => {
     const url = new URL(String(input));
+
     const request: FakeRequest = {
       // Octokit sends JSON bodies as strings.
       body:
@@ -56,11 +60,13 @@ export const fakeGitHub = (routes: Readonly<Record<string, FakeRoute>>) => {
       method: init?.method ?? "GET",
       url,
     };
+
     requests.push(request);
 
     const response = respond(routes[routeOf(request)], request);
     // A fetched response knows its URL; the pagination plugin reads it.
     Object.defineProperty(response, "url", { value: url.href });
+
     return Promise.resolve(response);
   });
 

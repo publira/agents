@@ -54,6 +54,7 @@ export const getCommitChecks = async (
       repo,
     }),
   ]);
+
   const latestStatuses = new Map<string, CommitStatusState>();
 
   for (const { context, state } of statuses) {
@@ -101,6 +102,7 @@ export const getRequiredStatusChecks = async (
     per_page: 100,
     repo,
   });
+
   const required = new Map<string, RequiredStatusCheck>();
 
   for (const rule of rules) {

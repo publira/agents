@@ -19,6 +19,7 @@ export const devContainerLockFilePathOf = (configPath: string): string => {
   const slash = configPath.lastIndexOf("/");
   const directory = configPath.slice(0, slash + 1);
   const name = configPath.slice(slash + 1);
+
   return `${directory}${name.startsWith(".") ? "." : ""}devcontainer-lock.json`;
 };
 
@@ -45,6 +46,7 @@ export const parseFeatureReference = (
   reference: string
 ): FeatureReference | undefined => {
   const groups = FEATURE_REFERENCE.exec(reference)?.groups;
+
   return groups?.registry === undefined ||
     groups.repository === undefined ||
     groups.tag === undefined
@@ -97,12 +99,14 @@ export const findFeatureBumps = (
   ] as const) {
     for (const reference of references) {
       const parsed = parseFeatureReference(reference);
+
       if (parsed === undefined) {
         return {
           reason: `${reference} is not a Feature in an OCI registry referenced by a tag`,
           result: "unsupported",
         };
       }
+
       const feature = `${parsed.registry}/${parsed.repository}`;
       const sides = byFeature.get(feature) ?? { from: [], to: [] };
       sides[side].push(parsed);
@@ -123,16 +127,19 @@ export const findFeatureBumps = (
       toReference === undefined
     ) {
       let change = "changed more than one reference of";
+
       if (from.length === 0) {
         change = "added";
       } else if (to.length === 0) {
         change = "removed";
       }
+
       return {
         reason: `the pull request ${change} ${feature}`,
         result: "unsupported",
       };
     }
+
     bumps.push({ from: fromReference, to: toReference });
   }
 
@@ -202,10 +209,12 @@ export const syncLockFileEntries = ({
     key,
     entry,
   ]);
+
   const changed: string[] = [];
 
   for (const { from, to } of bumps) {
     const feature = resolved.get(to.reference);
+
     if (feature === undefined) {
       return {
         reason: `${to.reference} was not resolved`,
@@ -223,6 +232,7 @@ export const syncLockFileEntries = ({
         result: "unsupported",
       };
     }
+
     if (!sameReferences(current[1].dependsOn, feature.dependsOn)) {
       return {
         reason: `${to.reference} depends on other Features than ${current[0]}`,
@@ -235,6 +245,7 @@ export const syncLockFileEntries = ({
       resolved: `${to.registry}/${to.repository}@${feature.digest}`,
       version: feature.version,
     };
+
     if (feature.dependsOn.length > 0) {
       entry.dependsOn = [...feature.dependsOn];
     }
@@ -254,6 +265,7 @@ export const syncLockFileEntries = ({
       if (at === position) {
         return [[to.reference, entry]];
       }
+
       return pair[0] === from.reference ? [] : [pair];
     });
     changed.push(to.reference);

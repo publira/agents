@@ -24,6 +24,7 @@ export const getRepositoryLabelState = async (
 ): Promise<RepositoryLabelState> => {
   try {
     const { data } = await octokit.rest.issues.getLabel({ name, owner, repo });
+
     return archivedLabel.safeParse(data).data?.archived_at
       ? "archived"
       : "active";
@@ -31,6 +32,7 @@ export const getRepositoryLabelState = async (
     if (requestFailure.safeParse(error).data?.status === 404) {
       return "missing";
     }
+
     throw error;
   }
 };
@@ -51,11 +53,13 @@ export const removeIssueLabel = async (
       owner,
       repo,
     });
+
     return true;
   } catch (error) {
     if (requestFailure.safeParse(error).data?.status === 404) {
       return false;
     }
+
     throw error;
   }
 };

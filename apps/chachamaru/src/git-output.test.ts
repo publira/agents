@@ -125,6 +125,7 @@ describe(parseAddedLines, () => {
 describe(parseCatFileBatch, () => {
   it("reads each object's bytes, binary ones included", () => {
     const binary = Buffer.from([0x00, 0xff, 0x0a, 0x0a]);
+
     const output = Buffer.concat([
       Buffer.from(`${sha("a")} blob 4\n`),
       binary,

@@ -9,6 +9,7 @@ import type { AgentAssistanceLabelInput } from "./agent-assistance.ts";
 
 const assisted =
   "feat: add a maintenance policy\n\nAssisted-by: Claude Code:claude-opus-5-5\n";
+
 const unassisted = "fix: handle a missing label\n\nSigned-off-by: A Person\n";
 
 describe(disclosesAgentAssistance, () => {

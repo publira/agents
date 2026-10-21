@@ -55,6 +55,7 @@ const hasChanges = ({ oldLines, newLines }: PatchHunk) =>
 // Adds a line of a hunk to it.
 const addHunkLine = (hunk: PatchHunk, line: string) => {
   const text = line.slice(1);
+
   switch (line[0]) {
     // An empty line stands for an empty line that stays.
     case undefined:
@@ -63,14 +64,17 @@ const addHunkLine = (hunk: PatchHunk, line: string) => {
       hunk.newLines.push(text);
       break;
     }
+
     case "-": {
       hunk.oldLines.push(text);
       break;
     }
+
     case "+": {
       hunk.newLines.push(text);
       break;
     }
+
     default: {
       throw new Error(
         `A line of a hunk has to start with " ", "-", or "+", found: ${line}`
@@ -81,6 +85,7 @@ const addHunkLine = (hunk: PatchHunk, line: string) => {
 
 const refuseFileOperation = (line: string) => {
   const refused = REFUSED.find(([marker]) => line.startsWith(marker));
+
   if (refused !== undefined) {
     throw new Error(
       `The patch ${refused[1]} (${line}), which is not allowed: only update files`
@@ -94,6 +99,7 @@ const refuseFileOperation = (line: string) => {
  */
 export const parsePatch = (patch: string): FilePatch[] => {
   const lines = patch.trim().split(/\r?\n/u);
+
   if (lines[0]?.trim() !== BEGIN || lines.at(-1)?.trim() !== END) {
     throw new Error(
       `The patch has to start with "${BEGIN}" and end with "${END}"`
@@ -109,7 +115,9 @@ export const parsePatch = (patch: string): FilePatch[] => {
     if (line.trim() === END || line.trim() === BEGIN) {
       continue;
     }
+
     refuseFileOperation(line);
+
     if (line.startsWith(UPDATE)) {
       // A file the patch updates twice stays two updates, each applied to
       // the result of the one before it.
@@ -118,37 +126,45 @@ export const parsePatch = (patch: string): FilePatch[] => {
       hunk = undefined;
       continue;
     }
+
     if (file === undefined) {
       throw new Error(`Expected "${UPDATE}<path>", found: ${line}`);
     }
+
     if (line === "@@" || line.startsWith("@@ ")) {
       hunk = emptyHunk(line === "@@" ? undefined : line.slice(3));
       file.hunks.push(hunk);
       continue;
     }
+
     if (line.trim() === END_OF_FILE) {
       if (hunk === undefined) {
         throw new Error(`"${END_OF_FILE}" has to end a hunk`);
       }
+
       hunk.endOfFile = true;
       continue;
     }
+
     if (hunk === undefined) {
       // The first hunk of a file may leave out its `@@` line.
       hunk = emptyHunk();
       file.hunks.push(hunk);
     }
+
     addHunkLine(hunk, line);
   }
 
   if (files.length === 0) {
     throw new Error("The patch updates no file");
   }
+
   for (const { path, hunks } of files) {
     if (!hunks.some(hasChanges)) {
       throw new Error(`The patch changes nothing in ${path}`);
     }
   }
+
   return files;
 };
 
@@ -181,19 +197,23 @@ const find = (
   endOfFile: boolean
 ) => {
   const last = lines.length - pattern.length;
+
   for (const normalize of COMPARISONS) {
     if (endOfFile) {
       if (last >= from && matchesAt(lines, pattern, last, normalize)) {
         return last;
       }
+
       continue;
     }
+
     for (let start = from; start <= last; start += 1) {
       if (matchesAt(lines, pattern, start, normalize)) {
         return start;
       }
     }
   }
+
   return -1;
 };
 
@@ -215,21 +235,27 @@ export const applyHunks = (
   for (const { anchor, oldLines, newLines, endOfFile } of hunks) {
     if (anchor !== undefined) {
       const at = find(lines, [anchor], cursor, false);
+
       if (at === -1) {
         throw new Error(`Cannot find the line of "@@ ${anchor}"`);
       }
+
       cursor = at + 1;
     }
+
     // A hunk that only adds lines goes after its anchor, or at the end of
     // the file without one.
     const insertAt = anchor === undefined ? lines.length : cursor;
+
     const at =
       oldLines.length === 0
         ? insertAt
         : find(lines, oldLines, cursor, endOfFile);
+
     if (at === -1) {
       throw new Error(`Cannot find these lines:\n${quote(oldLines)}`);
     }
+
     lines.splice(at, oldLines.length, ...newLines);
     cursor = at + newLines.length;
   }
@@ -256,12 +282,15 @@ export const readApplyPatchCommand = (
   command: string
 ): ApplyPatchCommand | undefined => {
   const groups = APPLY_PATCH_COMMAND.exec(command)?.groups;
+
   if (groups?.patch === undefined) {
     return;
   }
+
   const directory = groups.directory?.replace(
     /^(?<quote>["'])(?<path>.*)\k<quote>$/u,
     "$<path>"
   );
+
   return { directory, patch: groups.patch };
 };

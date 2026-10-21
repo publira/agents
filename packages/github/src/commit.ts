@@ -86,6 +86,7 @@ const treeEntriesOf = async ({
         owner,
         repo,
       });
+
       entries.push({ mode, path, sha: blob.sha, type: "blob" as const });
       // oxlint-disable-next-line no-await-in-loop -- one write at a time
       await sleep(BLOB_UPLOAD_INTERVAL_MS);
@@ -120,6 +121,7 @@ export const commitToBranch = async (
     owner,
     repo,
   });
+
   // Git objects are content-addressed, so the same change on the same base
   // always yields the same tree.
   const { data: tree } = await octokit.rest.git.createTree({
@@ -141,6 +143,7 @@ export const commitToBranch = async (
       owner,
       repo,
     });
+
     if (
       branchCommit.tree.sha === tree.sha &&
       branchCommit.parents.length === 1 &&
@@ -181,6 +184,7 @@ export const commitToBranch = async (
       if (requestFailure.safeParse(error).data?.status !== 422) {
         throw error;
       }
+
       await moveBranch();
     }
   } else {
@@ -236,6 +240,7 @@ export const addCommitToBranch = async (
     owner,
     repo,
   });
+
   const { data: tree } = await octokit.rest.git.createTree({
     base_tree: headCommit.tree.sha,
     owner,
@@ -269,6 +274,7 @@ export const addCommitToBranch = async (
     if (requestFailure.safeParse(error).data?.status === 422) {
       return { status: "moved" };
     }
+
     throw error;
   }
 

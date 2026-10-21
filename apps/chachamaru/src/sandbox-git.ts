@@ -24,7 +24,9 @@ export const excerpt = (output: string, limit = OUTPUT_LIMIT): string => {
   if (output.length <= limit) {
     return output;
   }
+
   const half = Math.floor(limit / 2);
+
   return `${output.slice(0, half)}\n[${output.length - 2 * half} characters left out]\n${output.slice(-half)}`;
 };
 
@@ -34,11 +36,13 @@ export const runChecked = async (
   command: SandboxCommand
 ): Promise<string> => {
   const result = await sandbox.run(command);
+
   if (result.exitCode !== 0) {
     throw new Error(
       `${[command.cmd, ...(command.args ?? [])].join(" ")} exited with ${result.exitCode}: ${tail(result.stderr)}`
     );
   }
+
   return result.stdout;
 };
 
@@ -80,6 +84,7 @@ export const stageChanges = async (
   { trackedOnly = false }: { trackedOnly?: boolean } = {}
 ): Promise<GitFileChange[]> => {
   await git(sandbox, worktree, "add", trackedOnly ? "--update" : "--all");
+
   return parseRawDiff(
     await git(
       sandbox,

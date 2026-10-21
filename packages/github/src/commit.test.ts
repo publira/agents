@@ -42,6 +42,7 @@ describe(commitToBranch, () => {
 
     const body = (route: string) =>
       github.requests[github.routes.indexOf(route)]?.body;
+
     expect(body(`POST ${repository}/git/trees`)).toStrictEqual({
       base_tree: "base-tree",
       tree: [
@@ -70,6 +71,7 @@ describe(commitToBranch, () => {
       ...gitRoutes(),
       [`POST ${repository}/git/blobs`]: { sha: "font-blob" },
     });
+
     const font = Uint8Array.of(0, 1, 0, 0, 0xff);
 
     await commitToBranch(createGitHubClient({ fetch: github.fetch }), {
@@ -91,6 +93,7 @@ describe(commitToBranch, () => {
 
     const body = (route: string) =>
       github.requests[github.routes.indexOf(route)]?.body;
+
     expect(body(`POST ${repository}/git/blobs`)).toStrictEqual({
       content: Buffer.from(font).toString("base64"),
       encoding: "base64",
@@ -128,14 +131,17 @@ describe(commitToBranch, () => {
 
   it("writes the blobs and then the tree one at a time, a second apart", async () => {
     const writtenAt: number[] = [];
+
     const github = fakeGitHub({
       ...gitRoutes(),
       [`POST ${repository}/git/blobs`]: dynamic(() => {
         writtenAt.push(Date.now());
+
         return { sha: `blob-${writtenAt.length}` };
       }),
       [`POST ${repository}/git/trees`]: dynamic(() => {
         writtenAt.push(Date.now());
+
         return { sha: "new-tree" };
       }),
     });
@@ -152,6 +158,7 @@ describe(commitToBranch, () => {
     const gaps = writtenAt
       .slice(1)
       .map((time, index) => time - (writtenAt[index] ?? 0));
+
     expect(gaps).toHaveLength(2);
     expect(Math.min(...gaps)).toBeGreaterThanOrEqual(990);
   });
@@ -222,6 +229,7 @@ describe(commitToBranch, () => {
 
 describe(addCommitToBranch, () => {
   const branch = "renovate/docker-in-docker-4.x";
+
   const addOptions = {
     branch,
     files: { ".devcontainer/devcontainer-lock.json": "{}\n" },
@@ -230,6 +238,7 @@ describe(addCommitToBranch, () => {
     owner: "publira",
     repo: "agents",
   };
+
   const routes = {
     [`GET ${repository}/git/commits/head`]: { tree: { sha: "head-tree" } },
     [`PATCH ${repository}/git/refs/heads/${branch}`]: {},
@@ -246,6 +255,7 @@ describe(addCommitToBranch, () => {
 
     const body = (route: string) =>
       github.requests[github.routes.indexOf(route)]?.body;
+
     expect(body(`POST ${repository}/git/trees`)).toStrictEqual({
       base_tree: "head-tree",
       tree: [

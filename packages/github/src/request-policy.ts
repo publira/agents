@@ -62,6 +62,7 @@ const rateLimitWait = (
   if (headers?.["retry-after"] !== undefined) {
     return headers["retry-after"] * 1000;
   }
+
   if (
     headers?.["x-ratelimit-remaining"] === 0 &&
     headers["x-ratelimit-reset"] !== undefined
@@ -111,6 +112,7 @@ export const applyRequestPolicy = (
 
   octokit.hook.wrap("request", (request, options) => {
     const callerSignal = options.request?.signal;
+
     const attempt = async (
       retry: number
     ): Promise<Awaited<ReturnType<typeof request>>> => {
@@ -140,7 +142,9 @@ export const applyRequestPolicy = (
         if (wait === undefined) {
           throw error;
         }
+
         await sleep(wait);
+
         return attempt(retry + 1);
       }
     };

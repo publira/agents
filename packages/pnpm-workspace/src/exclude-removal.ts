@@ -30,12 +30,15 @@ type BlockLine =
   | { kind: "other" };
 
 const isBlank = (line: string | undefined) => line?.trim() === "";
+
 const isComment = (line: string | undefined) =>
   line?.trimStart().startsWith("#") ?? false;
+
 const indentOf = (line: string) => line.length - line.trimStart().length;
 
 const splitLines = (source: string) => {
   const eol = source.includes("\r\n") ? "\r\n" : "\n";
+
   return { eol, lines: source.split(eol) };
 };
 
@@ -46,6 +49,7 @@ const readItem = (line: string): string | undefined => {
   if (!/^\s*- /u.test(line)) {
     return undefined;
   }
+
   try {
     return singleItemSchema.safeParse(parse(line.trim())).data?.[0];
   } catch {
@@ -57,10 +61,13 @@ const classify = (line: string): BlockLine => {
   if (isBlank(line)) {
     return { kind: "blank" };
   }
+
   if (isComment(line)) {
     return { kind: "comment" };
   }
+
   const value = readItem(line);
+
   return value === undefined ? { kind: "other" } : { kind: "item", value };
 };
 
@@ -68,18 +75,21 @@ const classify = (line: string): BlockLine => {
 // lines and unindented comments belong to what follows.
 const findBlockEnd = (lines: readonly string[], keyIndex: number): number => {
   let end = keyIndex + 1;
+
   while (
     end < lines.length &&
     !/^[^\s#-]|^-{3}|^\.{3}/u.test(lines[end] ?? "")
   ) {
     end += 1;
   }
+
   while (
     end > keyIndex + 1 &&
     (isBlank(lines[end - 1]) || lines[end - 1]?.startsWith("#"))
   ) {
     end -= 1;
   }
+
   return end;
 };
 
@@ -97,6 +107,7 @@ const readList = (
   end: number
 ): Map<number, BlockLine> | undefined => {
   const list = new Map<number, BlockLine>();
+
   for (let index = keyIndex + 1; index < end; index += 1) {
     list.set(index, classify(lines[index] ?? ""));
   }
@@ -104,6 +115,7 @@ const readList = (
   const items = [...list].flatMap(([index, line]) =>
     line.kind === "item" ? [{ index, value: line.value }] : []
   );
+
   const listed = listSchema.safeParse(parse(source)).data?.[KEY];
 
   return [...list.values()].some(({ kind }) => kind === "other") ||
@@ -133,12 +145,14 @@ const findRuns = (list: ReadonlyMap<number, BlockLine>): Run[] => {
   // neighbor, but they may still describe the entries just above.
   const closeComments = () => {
     const previous = runs.at(-1);
+
     if (
       previous !== undefined &&
       comments[0] === (previous.items.at(-1) ?? 0) + 1
     ) {
       previous.trailingComments = comments;
     }
+
     comments = [];
   };
 
@@ -148,10 +162,12 @@ const findRuns = (list: ReadonlyMap<number, BlockLine>): Run[] => {
         current = { comments, items: [], trailingComments: [] };
         runs.push(current);
       }
+
       current.items.push(index);
       comments = [];
     } else {
       current = undefined;
+
       if (kind === "comment") {
         comments.push(index);
       } else {
@@ -159,6 +175,7 @@ const findRuns = (list: ReadonlyMap<number, BlockLine>): Run[] => {
       }
     }
   }
+
   closeComments();
 
   return runs;
@@ -183,11 +200,13 @@ const planDeletions = (
         reason: `a comment follows entries that are removed: line ${(run.trailingComments[0] ?? 0) + 1}`,
       };
     }
+
     if (removed.length > 0 && !whole && run.comments.length > 0) {
       return {
         reason: `a comment describes entries of which only some are removed: line ${(run.comments[0] ?? 0) + 1}`,
       };
     }
+
     for (const index of whole ? [...run.comments, ...removed] : removed) {
       deleted.add(index);
     }
@@ -203,9 +222,11 @@ const deleteSurroundingBlank = (
 ) => {
   for (const index of [...deleted].toSorted((a, b) => a - b)) {
     let spanEnd = index;
+
     while (deleted.has(spanEnd + 1)) {
       spanEnd += 1;
     }
+
     if (
       !deleted.has(index - 1) &&
       isBlank(lines[index - 1]) &&
@@ -238,6 +259,7 @@ export const removeReleaseAgeExclusions = (
   }
 
   const end = findBlockEnd(lines, keyIndex);
+
   const ambiguous = (reason: string, start = keyIndex): ExcludeRemoval => ({
     block: { lines: lines.slice(start, end), start },
     reason,
@@ -255,8 +277,10 @@ export const removeReleaseAgeExclusions = (
   }
 
   const targets = new Set(selectors);
+
   const isTarget = (index: number) => {
     const line = list.get(index);
+
     return line?.kind === "item" && targets.has(line.value);
   };
 
@@ -265,9 +289,11 @@ export const removeReleaseAgeExclusions = (
   ) {
     // The comments above the key may describe the setting as a whole.
     let start = keyIndex;
+
     while (start > 0 && isComment(lines[start - 1])) {
       start -= 1;
     }
+
     return ambiguous(`removing every entry leaves ${KEY} empty`, start);
   }
 
@@ -308,6 +334,7 @@ export const deleteBlockLines = (
         `Line ${lineNumber} is outside the ${block.lines.length} lines of the block`
       );
     }
+
     deleted.add(block.start + lineNumber - 1);
   }
 

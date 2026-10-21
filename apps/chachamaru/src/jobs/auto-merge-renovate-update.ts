@@ -106,6 +106,7 @@ const describeApproval = (
   if (result.status === "would-approve") {
     return { approvable: true, headSha: result.headSha };
   }
+
   const failed =
     result.status === "skipped"
       ? result.conditions.find(({ passed }) => !passed)
@@ -135,6 +136,7 @@ const findOwnApproval = async (
     pull_number: pullNumber,
     repo,
   });
+
   const approval = reviews.find(
     (review) =>
       review.user?.login === reviewer &&
@@ -164,12 +166,14 @@ const findOwnRequest = (
       since: state.autoMerge.enabledAt,
     };
   }
+
   if (state.mergeQueueEntry?.enqueuedBy === reviewer) {
     return {
       kind: "merge-queue",
       since: state.mergeQueueEntry.enqueuedAt,
     };
   }
+
   return undefined;
 };
 
@@ -188,9 +192,11 @@ const staleReason = (
   if (approvedAt === undefined) {
     return `the bot's approval of the head ${shortSha(headSha)} does not stand`;
   }
+
   if (approvedAt.getTime() > request.since.getTime()) {
     return `it was decided for an earlier head than ${shortSha(headSha)}`;
   }
+
   return undefined;
 };
 
@@ -208,6 +214,7 @@ const withdraw = async (
   } catch (error) {
     // A concurrent run, someone, or a push may have taken it back first.
     const latest = await getPullRequestMergeState(octokit, options);
+
     if (findOwnRequest(latest, options.reviewer) !== undefined) {
       throw error;
     }
@@ -261,6 +268,7 @@ const reconsider = async (
         },
       };
     }
+
     if (state.mergeQueueEntry !== null) {
       return {
         outcome: {
@@ -269,6 +277,7 @@ const reconsider = async (
         },
       };
     }
+
     return { withdrew: undefined };
   }
 
@@ -279,9 +288,11 @@ const reconsider = async (
   if (withdrew === undefined) {
     return { standing: request };
   }
+
   if (!dryRun) {
     await withdraw(options, state, request);
   }
+
   return enabled
     ? { withdrew }
     : { outcome: { reason: withdrew, status: "withdrawn" } };
@@ -301,7 +312,9 @@ const decide = async (
     precedentScanCache,
     approve = approveEquivalentRenovateUpdate,
   } = options;
+
   const approvedByBot = approvedAt !== undefined;
+
   // The rest is read only when the bot's approval stands.
   const [approval, workflows, rules] = approvedByBot
     ? await Promise.all([
@@ -318,6 +331,7 @@ const decide = async (
         getBranchMergeRules(octokit, { branch: state.baseRef, owner, repo }),
       ])
     : [];
+
   const verdict = canAutoMerge({
     approval: approval === undefined ? undefined : describeApproval(approval),
     approvedByBot,
@@ -359,13 +373,16 @@ const merge = async (
     if (enabled === "enabled") {
       return { mergeMethod, status: "enabled" };
     }
+
     if (mergeQueue) {
       await enqueuePullRequest(octokit, {
         expectedHeadSha: headSha,
         pullRequestId,
       });
+
       return { mergeMethod, status: "enqueued" };
     }
+
     await octokit.rest.pulls.merge({
       merge_method: REST_MERGE_METHODS[mergeMethod],
       owner,
@@ -373,12 +390,15 @@ const merge = async (
       repo,
       sha: headSha,
     });
+
     return { mergeMethod, status: "merged" };
   } catch (error) {
     const reason = refusal.safeParse(error).data;
+
     if (reason === undefined) {
       throw error;
     }
+
     return { reason, status: "refused" };
   }
 };
@@ -410,6 +430,7 @@ export const autoMergeRenovateUpdate = async (
   if (state.state !== "OPEN") {
     return { headSha, status: "closed" };
   }
+
   if (!enabled && findOwnRequest(state, reviewer) === undefined) {
     return { headSha, status: "disabled" };
   }
@@ -430,9 +451,11 @@ export const autoMergeRenovateUpdate = async (
     if (verdict.result === "merge") {
       return { headSha, status: "pending" };
     }
+
     if (!dryRun) {
       await withdraw(options, state, settled.standing);
     }
+
     return {
       headSha,
       reason: verdict.reason,
@@ -452,6 +475,7 @@ export const autoMergeRenovateUpdate = async (
   if (dryRun) {
     return { ...decided, mergeMethod, mergeQueue, status: "would-merge" };
   }
+
   return {
     ...decided,
     ...(await merge(options, state, mergeMethod, mergeQueue)),

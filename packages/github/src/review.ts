@@ -59,23 +59,29 @@ export const ensureReview = async (
   }: EnsureReviewOptions
 ): Promise<EnsureReviewResult> => {
   const pullRequest = { owner, pull_number: pullNumber, repo };
+
   const listOwnReviews = async () => {
     const reviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
       ...pullRequest,
       per_page: 100,
     });
+
     return reviews.filter((review) => review.user?.login === reviewer);
   };
+
   const findSubmitted = async () => {
     const reviews = await listOwnReviews();
+
     return reviews.find(
       (review) =>
         review.commit_id === commitId &&
         (review.state === reviewStates[event] || review.state === "DISMISSED")
     );
   };
+
   const findPending = async () => {
     const reviews = await listOwnReviews();
+
     return reviews.find((review) => review.state === "PENDING");
   };
 
@@ -87,6 +93,7 @@ export const ensureReview = async (
     if (leftover?.commit_id === commitId) {
       return leftover;
     }
+
     // A pending review for another commit was left by a run that failed.
     if (leftover !== undefined) {
       await octokit.rest.pulls.deletePendingReview({
@@ -102,23 +109,28 @@ export const ensureReview = async (
         body,
         commit_id: commitId,
       });
+
       return data;
     } catch (error) {
       // A concurrent run holds the pending review.
       if (requestFailure.safeParse(error).data?.status !== 422) {
         throw error;
       }
+
       const other = await findPending();
+
       // Submitting another run's review of another commit would put this
       // outcome on that commit.
       if (other === undefined || other.commit_id !== commitId) {
         throw error;
       }
+
       return other;
     }
   };
 
   const submitted = await findSubmitted();
+
   if (submitted !== undefined) {
     return { created: false, id: submitted.id };
   }
@@ -128,6 +140,7 @@ export const ensureReview = async (
   // A concurrent run may have submitted its review before this one took the
   // pending review.
   const submittedMeanwhile = await findSubmitted();
+
   if (submittedMeanwhile !== undefined) {
     // Unless the run whose pending review this one adopted submitted it.
     if (submittedMeanwhile.id !== pending.id) {
@@ -144,6 +157,7 @@ export const ensureReview = async (
         }
       }
     }
+
     return { created: false, id: submittedMeanwhile.id };
   }
 
@@ -158,10 +172,13 @@ export const ensureReview = async (
     if (!goneStatuses.has(requestFailure.safeParse(error).data?.status ?? 0)) {
       throw error;
     }
+
     const submittedByOther = await findSubmitted();
+
     if (submittedByOther === undefined) {
       throw error;
     }
+
     return { created: false, id: submittedByOther.id };
   }
 
@@ -210,6 +227,7 @@ const listReviewNodes = async (
   after: string | null = null
 ): Promise<ReviewNode[]> => {
   const { owner, repo, pullNumber } = location;
+
   const response = await octokit.graphql(
     `query ($owner: String!, $repo: String!, $number: Int!, $after: String) {
       repository(owner: $owner, name: $repo) {
@@ -229,6 +247,7 @@ const listReviewNodes = async (
     }`,
     { after, number: pullNumber, owner, repo }
   );
+
   const { nodes, pageInfo } =
     reviewsResponse.parse(response).repository.pullRequest.reviews;
 
@@ -252,6 +271,7 @@ export const minimizeOutdatedReviews = async (
   options: MinimizeOutdatedReviewsOptions
 ): Promise<number> => {
   const reviews = await listReviewNodes(octokit, options);
+
   const outdated = reviews.filter(
     ({ author, fullDatabaseId, isMinimized, state }) =>
       author !== null &&

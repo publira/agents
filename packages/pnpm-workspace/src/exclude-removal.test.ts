@@ -28,12 +28,15 @@ const nextRelease = [
 
 const edited = (source: string, selectors: readonly string[]) => {
   const removal = removeReleaseAgeExclusions(source, selectors);
+
   if (removal.result !== "edited") {
     throw new Error(`Expected an edit, got: ${removal.reason}`);
   }
+
   expect(
     verifyReleaseAgeExclusionRemoval(source, removal.source, selectors)
   ).toStrictEqual([]);
+
   return removal.source;
 };
 
@@ -220,6 +223,7 @@ minimumReleaseAgeExclude:
 describe(deleteBlockLines, () => {
   it("deletes lines by their number in the block", () => {
     const source = "packages: []\nminimumReleaseAgeExclude:\n  - a\n  - b\n";
+
     const block = {
       lines: ["minimumReleaseAgeExclude:", "  - a", "  - b"],
       start: 1,

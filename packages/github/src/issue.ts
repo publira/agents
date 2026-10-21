@@ -27,6 +27,7 @@ export const issueLocationOf = ({
       `Expected a repository API URL, got ${JSON.stringify(repositoryUrl)}`
     );
   }
+
   return { issueNumber: number, owner, repo };
 };
 
@@ -44,11 +45,13 @@ export const getParentIssue = async (
       owner,
       repo,
     });
+
     return issueLocationOf(data);
   } catch (error) {
     if (requestFailure.safeParse(error).data?.status === 404) {
       return undefined;
     }
+
     throw error;
   }
 };
@@ -101,6 +104,7 @@ export const findIssueComment = async (
     repo,
     since: since?.toISOString(),
   });
+
   const same = comments.filter(
     (comment) =>
       comment.user?.login === author &&
@@ -110,6 +114,7 @@ export const findIssueComment = async (
       (since === undefined ||
         new Date(comment.created_at).getTime() >= since.getTime())
   );
+
   const [earliest] = same.toSorted((a, b) => a.id - b.id);
 
   return earliest === undefined ? undefined : { id: earliest.id };
@@ -129,6 +134,7 @@ export const ensureIssueComment = async (
 ): Promise<EnsureIssueCommentResult> => {
   const { owner, repo, issueNumber, body } = options;
   const existing = await findIssueComment(octokit, options);
+
   if (existing !== undefined) {
     return { created: false, id: existing.id };
   }
@@ -139,6 +145,7 @@ export const ensureIssueComment = async (
     owner,
     repo,
   });
+
   const earliest = await findIssueComment(octokit, options);
 
   if (earliest === undefined || earliest.id === posted.id) {
@@ -157,5 +164,6 @@ export const ensureIssueComment = async (
       throw error;
     }
   }
+
   return { created: false, id: earliest.id };
 };

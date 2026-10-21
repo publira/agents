@@ -146,6 +146,7 @@ const describeCommits = (verdict: RenovateCommitsVerdict): string => {
     case "accepted": {
       const { count, lintFixCommits, lockFileCommits, regenerationCommits } =
         verdict;
+
       const botCommits = [
         ...(lockFileCommits === 0
           ? []
@@ -157,16 +158,20 @@ const describeCommits = (verdict: RenovateCommitsVerdict): string => {
           ? []
           : [`${lintFixCommits} applying automatic lint fixes`]),
       ];
+
       return botCommits.length === 0
         ? `Renovate made all ${count} commit(s), signed by GitHub`
         : `Renovate made ${count - lockFileCommits - regenerationCommits - lintFixCommits} commit(s), and Chachamaru ${botCommits.join(" and ")}, all signed by GitHub`;
     }
+
     case "no-commits": {
       return "the pull request has no commits";
     }
+
     case "stale": {
       return `the commits end at ${shortSha(verdict.headSha)}, not at the head`;
     }
+
     case "foreign-commit": {
       const problems = {
         author: "was not authored by Renovate",
@@ -177,8 +182,10 @@ const describeCommits = (verdict: RenovateCommitsVerdict): string => {
           "is Chachamaru's commit of a model's lint fixes, which a maintainer reviews",
         unverified: "has no verified signature",
       };
+
       return `commit ${shortSha(verdict.sha)} ${problems[verdict.problem]}`;
     }
+
     default: {
       return "unknown";
     }
@@ -190,18 +197,23 @@ const describeChecks = (verdict: CommitChecksVerdict): string => {
     case "passed": {
       return `all ${verdict.count} check(s) passed, ${verdict.required} of them required`;
     }
+
     case "failed": {
       return `failed: ${verdict.names.join(", ")}`;
     }
+
     case "pending": {
       return `still running: ${verdict.names.join(", ")}`;
     }
+
     case "required-missing": {
       return `required but not reported yet: ${verdict.names.join(", ")}`;
     }
+
     case "no-checks": {
       return "no check reported on the head";
     }
+
     default: {
       return "unknown";
     }
@@ -248,6 +260,7 @@ const listOwnerRepositories = async ({
           type: "owner",
           username: owner,
         });
+
   return repositories.map(({ name }) => name);
 };
 
@@ -265,9 +278,11 @@ const listClosedFromBranch = async (
         repo,
         state: "closed",
       });
+
       return pulls.map((pull) => ({ ...pull, repo }));
     })
   );
+
   return closed.flat();
 };
 
@@ -301,9 +316,11 @@ const memoize = <T>(
   load: () => Promise<T>
 ): Promise<T> => {
   const cached = cache.get(key);
+
   if (cached !== undefined) {
     return cached;
   }
+
   const loaded = (async () => {
     try {
       return await load();
@@ -313,7 +330,9 @@ const memoize = <T>(
       throw error;
     }
   })();
+
   cache.set(key, loaded);
+
   return loaded;
 };
 
@@ -372,6 +391,7 @@ const findMaintainer = async ({
       `${owner}/${repo}\0${username}`,
       () => getRepositoryPermission(octokit, { owner, repo, username })
     );
+
     if (permission === undefined) {
       unreadable.push(username);
     } else if (isMaintainerPermission(permission)) {
@@ -400,6 +420,7 @@ const findPrecedent = async ({
   const { octokit, owner, headRef } = scan;
   const closed = await scanClosedFromBranch(scan, cache);
   const permissions = cache?.permissions ?? new Map();
+
   const candidates = closed
     .flatMap((pull) => {
       if (
@@ -409,7 +430,9 @@ const findPrecedent = async ({
       ) {
         return [];
       }
+
       const parsed = parseRenovateUpdates(pull.body ?? "");
+
       return parsed.result === "parsed" &&
         fingerprintRenovateUpdates(parsed.updates) === fingerprint
         ? [
@@ -436,11 +459,13 @@ const findPrecedent = async ({
 
   for (const candidate of candidates) {
     const name = `${owner}/${candidate.repo}#${candidate.number}`;
+
     const location = {
       owner,
       pullNumber: candidate.number,
       repo: candidate.repo,
     };
+
     // oxlint-disable-next-line no-await-in-loop -- the first precedent ends the search
     const reviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
       owner,
@@ -448,6 +473,7 @@ const findPrecedent = async ({
       pull_number: candidate.number,
       repo: candidate.repo,
     });
+
     // oxlint-disable-next-line no-await-in-loop -- the first precedent ends the search
     const { maintainer, unreadable } = await findMaintainer({
       approvers: findPrecedentApprovers({
@@ -506,6 +532,7 @@ const reviewBody = (
 ) => {
   const detail = (condition: ApprovalCondition) =>
     conditions.find((result) => result.condition === condition)?.detail ?? "";
+
   const name = `${precedent.owner}/${precedent.repo}#${precedent.number}`;
   const listed = listUpdates(updates);
   const precedentListed = listUpdates(precedent.updates);
@@ -563,15 +590,19 @@ const unreviewableReason = (
   if (pullRequest.state !== "open") {
     return "it is closed";
   }
+
   if (pullRequest.draft === true) {
     return "it is a draft";
   }
+
   if (pullRequest.locked) {
     return "it is locked";
   }
+
   if (pullRequest.head.repo?.full_name !== pullRequest.base.repo.full_name) {
     return "its branch is in another repository";
   }
+
   if (pullRequest.mergeable === false) {
     return "it has conflicts";
   }
@@ -579,6 +610,7 @@ const unreviewableReason = (
 
 const checkReviewable = (pullRequest: PullRequestData): Verdict => {
   const reason = unreviewableReason(pullRequest);
+
   return reason === undefined
     ? { detail: "open, ready for review, and without conflicts", passed: true }
     : { detail: reason, passed: false };
@@ -618,10 +650,13 @@ const readRegeneration = async ({
     ref: pullRequest.base.sha,
     repo,
   });
+
   if (source === undefined) {
     return;
   }
+
   const parsed = parseRegenerationConfig(source);
+
   return parsed.result === "valid" ? parsed.config : undefined;
 };
 
@@ -633,9 +668,11 @@ const readBotCommitScope = async (
   { botShas, renovateShas }: { botShas: string[]; renovateShas: string[] }
 ) => {
   const { octokit, owner, repo, pullNumber, reviewer } = context;
+
   if (botShas.length === 0) {
     return { files: new Map<string, string[]>(), scope: undefined };
   }
+
   const [changed, files, regeneration] = await Promise.all([
     octokit.paginate(octokit.rest.pulls.listFiles, {
       owner,
@@ -651,6 +688,7 @@ const readBotCommitScope = async (
     ),
     readRegeneration(context),
   ]);
+
   return {
     files: new Map(files),
     scope: {
@@ -663,12 +701,14 @@ const readBotCommitScope = async (
 
 const checkCommits = async (context: PullRequestContext): Promise<Verdict> => {
   const { octokit, owner, repo, pullNumber, pullRequest, reviewer } = context;
+
   const commits = await octokit.paginate(octokit.rest.pulls.listCommits, {
     owner,
     per_page: 100,
     pull_number: pullNumber,
     repo,
   });
+
   const { files, scope } = await readBotCommitScope(context, {
     botShas: commits
       .filter(({ author }) => author?.login === reviewer)
@@ -677,6 +717,7 @@ const checkCommits = async (context: PullRequestContext): Promise<Verdict> => {
       .filter(({ author }) => author?.login === RENOVATE_LOGIN)
       .map(({ sha }) => sha),
   });
+
   const verdict = evaluateRenovateCommits(
     commits.map((commit) => ({
       authorLogin: commit.author?.login,
@@ -710,6 +751,7 @@ const checkCI = async ({
       repo,
     }),
   ]);
+
   const verdict = evaluateCommitChecks({ ...checks, required });
 
   return verdict.result === "passed"
@@ -727,12 +769,14 @@ const checkHead = (latest: PullRequestData, headSha: string): Verdict => {
       passed: false,
     };
   }
+
   if (latest.state !== "open" || latest.draft === true) {
     return {
       detail: "the pull request was closed or turned into a draft meanwhile",
       passed: false,
     };
   }
+
   return { detail: `still ${shortSha(headSha)}`, passed: true };
 };
 
@@ -749,8 +793,10 @@ const evaluateConditions = async (
 ): Promise<Evaluation> => {
   const { pullRequest } = context;
   const conditions: ConditionResult[] = [];
+
   const record = (condition: ApprovalCondition, verdict: Verdict) => {
     conditions.push({ condition, ...verdict });
+
     return verdict.passed;
   };
 
@@ -765,8 +811,10 @@ const evaluateConditions = async (
 
   if (parsed.result === "invalid") {
     record("metadata", { detail: parsed.reason, passed: false });
+
     return { conditions };
   }
+
   record("metadata", {
     detail: parsed.updates.map(formatRenovateUpdate).join(", "),
     passed: true,
@@ -797,6 +845,7 @@ const evaluateConditions = async (
 
   if ("reasons" in found) {
     record("precedent", { detail: found.reasons.join("; "), passed: false });
+
     return { conditions };
   }
 
@@ -805,6 +854,7 @@ const evaluateConditions = async (
     detail: `${precedent.owner}/${precedent.repo}#${precedent.number} made the same updates, and ${precedent.approvedBy} approved the head it was merged at`,
     passed: true,
   });
+
   return { conditions, precedent, updates: parsed.updates };
 };
 
@@ -839,10 +889,13 @@ export const approveEquivalentRenovateUpdate = async ({
   precedentScanCache,
 }: ApproveEquivalentRenovateUpdateOptions): Promise<ApproveEquivalentRenovateUpdateResult> => {
   const location = { owner, pull_number: pullNumber, repo };
+
   const readPullRequest = async () => {
     const response = await octokit.rest.pulls.get(location);
+
     return response.data;
   };
+
   const pullRequest = await readPullRequest();
   const headSha = pullRequest.head.sha;
 
@@ -852,12 +905,14 @@ export const approveEquivalentRenovateUpdate = async ({
       ...location,
       per_page: 100,
     });
+
     const own = reviews.find(
       (review) =>
         review.user?.login === reviewer &&
         review.commit_id === headSha &&
         (review.state === "APPROVED" || review.state === "DISMISSED")
     );
+
     if (own !== undefined) {
       return { headSha, reviewId: own.id, status: "already-reviewed" };
     }
@@ -891,6 +946,7 @@ export const approveEquivalentRenovateUpdate = async ({
   if (dryRun) {
     return { body, conditions, headSha, precedent, status: "would-approve" };
   }
+
   const review = await ensureReview(octokit, {
     body,
     commitId: headSha,
@@ -900,6 +956,7 @@ export const approveEquivalentRenovateUpdate = async ({
     repo,
     reviewer,
   });
+
   // A push between the check above and the submission leaves an approval of
   // a commit that is no longer the head, which could still count. Read the
   // head again even when a concurrent run submitted the review: that run may
@@ -919,6 +976,7 @@ export const approveEquivalentRenovateUpdate = async ({
         throw error;
       }
     }
+
     return {
       conditions,
       headSha,
@@ -934,6 +992,7 @@ export const approveEquivalentRenovateUpdate = async ({
   }
 
   let outdatedReviews: OutdatedReviews;
+
   try {
     outdatedReviews = {
       minimized: await minimizeOutdatedReviews(octokit, {
@@ -973,13 +1032,17 @@ export const summarizeApprovalResult = (
     result.status === "skipped"
       ? result.conditions.find(({ passed }) => !passed)
       : undefined;
+
   const precedent =
     result.status === "skipped" || result.status === "already-reviewed"
       ? undefined
       : result.precedent;
+
   let review: { id: number; created?: boolean } | undefined;
+
   const outdated =
     result.status === "approved" ? result.outdatedReviews : undefined;
+
   const minimizeFailure =
     outdated !== undefined && "error" in outdated ? outdated : undefined;
 

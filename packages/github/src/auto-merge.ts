@@ -102,8 +102,10 @@ export const getPullRequestMergeState = async (
     }`,
     { number: pullNumber, owner, repo }
   );
+
   const { repository } = mergeStateResponse.parse(response);
   const { pullRequest } = repository;
+
   const allowed: [MergeMethod, boolean][] = [
     ["MERGE", repository.mergeCommitAllowed],
     ["REBASE", repository.rebaseMergeAllowed],
@@ -137,9 +139,9 @@ export const getPullRequestMergeState = async (
     mergeStateStatus: pullRequest.mergeStateStatus,
     repository: {
       autoMergeAllowed: repository.autoMergeAllowed,
-      mergeMethods: allowed
-        .filter(([, isAllowed]) => isAllowed)
-        .map(([method]) => method),
+      mergeMethods: allowed.flatMap(([method, isAllowed]) =>
+        isAllowed ? [method] : []
+      ),
     },
     state: pullRequest.state,
   };
@@ -187,6 +189,7 @@ export const enablePullRequestAutoMerge = async (
       }`,
       { expectedHeadOid: expectedHeadSha, mergeMethod, pullRequestId }
     );
+
     return "enabled";
   } catch (error) {
     const messages = graphqlRequestFailure.safeParse(error).data ?? [];
@@ -194,6 +197,7 @@ export const enablePullRequestAutoMerge = async (
     if (messages.some((message) => CLEAN_STATUS.test(message))) {
       return "already-mergeable";
     }
+
     throw error;
   }
 };
@@ -284,6 +288,7 @@ export const getBranchMergeRules = async (
     per_page: 100,
     repo,
   });
+
   const merged: BranchMergeRules = {
     allowedMergeMethods: undefined,
     dismissesStaleReviewsOnPush: false,
@@ -306,6 +311,7 @@ export const getBranchMergeRules = async (
         count
       );
       merged.dismissesStaleReviewsOnPush ||= dismisses;
+
       if (methods !== undefined) {
         const allowed = methods.map((method) => MERGE_METHODS[method]);
         merged.allowedMergeMethods =

@@ -52,9 +52,11 @@ const setup = ({ autoMerge = false } = {}) => {
   const evaluate = vi.fn<typeof evaluateRenovateUpdate>(() =>
     Promise.resolve()
   );
+
   const evaluateEverywhere = vi.fn<typeof evaluateRenovateUpdatesEverywhere>(
     () => Promise.resolve()
   );
+
   const fixLint = vi.fn<typeof fixLintAndLog>(() => Promise.resolve(false));
 
   return {
