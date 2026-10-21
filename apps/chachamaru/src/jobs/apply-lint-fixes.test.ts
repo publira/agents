@@ -19,6 +19,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import { LintFindingsRunError } from "../lint-findings-fixer.ts";
 import type { LintFindingsFixer } from "../lint-findings-fixer.ts";
 import type {
   Sandbox,
@@ -883,6 +884,14 @@ describe(applyLintFixes, () => {
 
 const MODEL = "openai/gpt-5.1-codex-mini";
 
+// What the stand-in model did, as the fixer reports it.
+const MODEL_RUN = {
+  failedCalls: [],
+  reply: "Fixed the findings.",
+  steps: 2,
+  toolCalls: ["write_file"],
+};
+
 // The content of src/index.ts that passes the check.
 const FIXED_SCRIPT = "export const read = () => 1;\n";
 
@@ -902,7 +911,7 @@ const modelWriting = (
         // oxlint-disable-next-line no-await-in-loop -- one file at a time
         await session.writeFile(path.posix.join(worktree, name), content);
       }
-      return { model: MODEL, stopped: false };
+      return { model: MODEL, run: MODEL_RUN, stopped: false };
     }
   );
   return { fixer, networkDenied };
@@ -943,6 +952,7 @@ describe("applyLintFixes with a model for the findings", () => {
         invoked: true,
         model: MODEL,
         paths: ["README.md", "src/index.ts"],
+        run: MODEL_RUN,
         stopped: false,
       },
       headSha: fixture.headSha,
@@ -1019,8 +1029,15 @@ describe("applyLintFixes with a model for the findings", () => {
   it("commits the automatic fix and comments when the model's run fails", async () => {
     const github = fakeGitHub({ fixture });
     const sandbox = localSandbox({ origin: fixture.origin, root });
+    const failedRun = {
+      failedCalls: ["503: The gateway is down"],
+      steps: 0,
+      toolCalls: [],
+    };
     const fixer = vi.fn<LintFindingsFixer>(() =>
-      Promise.reject(new Error("The gateway is down"))
+      Promise.reject(
+        new LintFindingsRunError("The gateway is down", failedRun, undefined)
+      )
     );
 
     await expect(run(github, sandbox, { fixer })).resolves.toStrictEqual({
@@ -1032,6 +1049,7 @@ describe("applyLintFixes with a model for the findings", () => {
         invoked: true,
         paths: [],
         reason: "the model's run failed",
+        run: failedRun,
       },
       headSha: fixture.headSha,
       output: "debugger statement\n",
@@ -1127,6 +1145,7 @@ describe("applyLintFixes with a model for the findings", () => {
         paths: ["README.md", "src/index.ts"],
         reason: "the model added comments that turn findings off",
         refusedPaths: [],
+        run: MODEL_RUN,
         stopped: false,
         suppressions: ["src/index.ts:1"],
       },
@@ -1203,6 +1222,7 @@ describe("applyLintFixes with a model for the findings", () => {
         invoked: true,
         model: MODEL,
         paths: ["README.md", "src/index.ts"],
+        run: MODEL_RUN,
         stopped: false,
       },
       headSha: fixture.headSha,
@@ -1239,6 +1259,7 @@ describe("applyLintFixes with a model for the findings", () => {
         paths: ["src/index.ts"],
         reason: "`ultracite check` still fails after the model's changes",
         refusedPaths: [],
+        run: MODEL_RUN,
         stopped: false,
         suppressions: [],
       },
@@ -1314,11 +1335,16 @@ describe(summarizeLintFixResult, () => {
       model: undefined,
       modelCheckPassed: undefined,
       modelError: undefined,
+      modelFailedCalls: undefined,
       modelInvoked: false,
       modelPaths: undefined,
       modelReason: undefined,
       modelRefusedPaths: undefined,
+      modelReply: undefined,
+      modelSteps: undefined,
+      modelStopReason: undefined,
       modelStopped: undefined,
+      modelToolCalls: undefined,
       output: undefined,
       paths: ["README.md", "pnpm-lock.yaml"],
       reason: "the fix changed files it has no reason to change",
@@ -1368,6 +1394,12 @@ describe(summarizeLintFixResult, () => {
           paths: ["README.md", "src/index.ts"],
           reason: "the model added comments that turn findings off",
           refusedPaths: [],
+          run: {
+            failedCalls: ["429: Rate limit exceeded"],
+            reply: "Fixed the findings.",
+            steps: 3,
+            toolCalls: ["read_file", "bash (exit 0)"],
+          },
           stopped: false,
           suppressions: ["src/index.ts:1"],
         },
@@ -1383,11 +1415,16 @@ describe(summarizeLintFixResult, () => {
       commit: "fixed",
       model: "openai/gpt-5.1-codex-mini",
       modelCheckPassed: true,
+      modelFailedCalls: ["429: Rate limit exceeded"],
       modelInvoked: true,
       modelPaths: ["README.md", "src/index.ts"],
       modelReason: "the model added comments that turn findings off",
       modelRefusedPaths: [],
+      modelReply: "Fixed the findings.",
+      modelSteps: 3,
+      modelStopReason: undefined,
       modelStopped: false,
+      modelToolCalls: ["read_file", "bash (exit 0)"],
       paths: ["README.md"],
       suppressions: ["src/index.ts:1"],
     });
