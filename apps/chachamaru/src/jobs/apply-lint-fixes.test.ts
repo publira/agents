@@ -1602,8 +1602,8 @@ describe(summarizeLintFixResult, () => {
       headSha: "head",
       output: undefined,
       paths: ["README.md"],
-      status: "committed",
-    } as const;
+      status: "committed" as const,
+    };
 
     expect(
       summarizeLintFixResult({
