@@ -87,7 +87,10 @@ case "$1" in
     for file in $files; do
       if grep -q ' $' "$file"; then echo "$file: trailing whitespace"; status=1; fi
     done
-    if git grep -q debugger; then echo "debugger statement"; status=1; fi
+    if git grep -q debugger; then
+      if [ -n "\${COLOR_OUTPUT:-}" ]; then printf '\\033[31mdebugger statement\\033[0m\\n'; else echo "debugger statement"; fi
+      status=1
+    fi
     exit $status;;
   fix)
     [ -n "\${FIX_EXIT_CODE:-}" ] && exit "$FIX_EXIT_CODE"
@@ -646,6 +649,23 @@ describe(applyLintFixes, () => {
         paths: ["README.md"],
         status: "would-commit",
       } satisfies ApplyLintFixesResult
+    );
+  });
+
+  it("leaves out the color codes of the check's output", async () => {
+    commitToFixture(fixture, {
+      "src/index.ts": "export const read = () => {\n  debugger;\n};\n",
+    });
+    const github = fakeGitHub({ fixture });
+
+    const sandbox = localSandbox({
+      env: { COLOR_OUTPUT: "1" },
+      origin: fixture.origin,
+      root,
+    });
+
+    await expect(run(github, sandbox, { dryRun: true })).resolves.toMatchObject(
+      { output: "debugger statement\n" }
     );
   });
 

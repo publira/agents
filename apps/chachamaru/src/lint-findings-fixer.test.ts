@@ -275,6 +275,30 @@ describe(createModelLintFindingsFixer, () => {
     );
   });
 
+  it("gives the model a command's output without its color codes", async () => {
+    const steps = [
+      toolCall("bash", { command: "pnpm exec ultracite check" }),
+      reply,
+    ];
+
+    const model = new MockLanguageModelV4({
+      doGenerate: () => Promise.resolve(steps.shift() ?? reply),
+    });
+
+    const sandbox = fakeSandbox();
+    vi.mocked(sandbox.run).mockResolvedValue({
+      exitCode: 1,
+      stderr: "",
+      stdout: "\u001B[31mdebugger statement\u001B[0m\n",
+    });
+
+    await createModelLintFindingsFixer(model)(request(sandbox));
+
+    expect(JSON.stringify(model.doGenerateCalls[1]?.prompt)).toContain(
+      "Exit code 1\\ndebugger statement\\n"
+    );
+  });
+
   it("refuses to return a file too large to read whole", async () => {
     const steps = [toolCall("read_file", { path: "dist/bundle.js" }), reply];
 
