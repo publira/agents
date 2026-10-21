@@ -1013,7 +1013,44 @@ describe("applyLintFixes with a model for the findings", () => {
 
     // The check's timeout, and the Git commands around it.
     const [request] = fixer.mock.calls[0] ?? [];
-    expect(request?.deadline).toBe(sandbox.stopsAt() - 135_000);
+    expect(request?.deadline).toBe(sandbox.stopsAt() - 165_000);
+  });
+
+  it("runs the automatic fix on the files the model changed before checking them", async () => {
+    const github = fakeGitHub({ fixture });
+    const sandbox = localSandbox({ origin: fixture.origin, root });
+    // The model fixes the finding but leaves trailing whitespace, which
+    // the check rejects and the fix removes.
+    const { fixer } = modelWriting(sandbox, {
+      "docs/usage.md": "Open a comic book. \n",
+      "src/index.ts": FIXED_SCRIPT,
+    });
+
+    await expect(run(github, sandbox, { fixer })).resolves.toMatchObject({
+      findings: {
+        checkPassed: true,
+        paths: ["README.md", "docs/usage.md", "src/index.ts"],
+      },
+      status: "committed",
+    });
+    expect(
+      sandbox.calls().filter((call) => call.includes("ultracite"))
+    ).toStrictEqual([
+      "pnpm exec ultracite check",
+      "pnpm exec ultracite fix",
+      "pnpm exec ultracite check",
+      // Only the files the model changed, not the automatic fix's.
+      "pnpm exec ultracite fix docs/usage.md src/index.ts",
+      "pnpm exec ultracite check",
+    ]);
+    expect(github.writes[0]?.body).toMatchObject({
+      tree: expect.arrayContaining([
+        expect.objectContaining({
+          content: "Open a comic book.\n",
+          path: "docs/usage.md",
+        }),
+      ]),
+    });
   });
 
   it("commits the automatic fix and comments when the model's run fails", async () => {
@@ -1052,7 +1089,7 @@ describe("applyLintFixes with a model for the findings", () => {
     const sandbox = localSandbox({
       origin: fixture.origin,
       root,
-      timeLeftMs: 135_000,
+      timeLeftMs: 165_000,
     });
     const { fixer } = modelWriting(sandbox, { "src/index.ts": FIXED_SCRIPT });
 
