@@ -89,22 +89,23 @@ describe(parsePatch, () => {
     ]);
   });
 
-  it("gives a file the patch names twice the hunks of both", () => {
-    const [file, ...rest] = parsePatch(
+  it("keeps two updates of one file apart", () => {
+    const updates = parsePatch(
       patch(
         "*** Update File: a.ts",
-        "-a",
-        "+b",
+        "-x",
+        "+y",
         "*** Update File: a.ts",
-        "-c",
-        "+d"
+        "-y",
+        "+z"
       )
     );
 
-    expect(rest).toStrictEqual([]);
-    expect(file?.hunks.map(({ newLines }) => newLines)).toStrictEqual([
-      ["b"],
-      ["d"],
+    expect(
+      updates.map(({ path, hunks }) => [path, hunks.length])
+    ).toStrictEqual([
+      ["a.ts", 1],
+      ["a.ts", 1],
     ]);
   });
 

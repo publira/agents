@@ -124,14 +124,15 @@ const sandboxTools = ({
   // apply changes nothing.
   const applyPatch = async ({ directory, patch }: ApplyPatchCommand) => {
     const base = path.posix.resolve(worktree, directory ?? ".");
-    let patched: { file: string; content: string }[];
+    let patched: Map<string, string>;
     try {
-      const files = parsePatch(patch).map(({ path: file, hunks }) => ({
+      const updates = parsePatch(patch).map(({ path: file, hunks }) => ({
         file: path.posix.resolve(base, file),
         hunks,
       }));
+      const files = [...new Set(updates.map(({ file }) => file))];
       const reads = await Promise.all(
-        files.map(({ file }) =>
+        files.map((file) =>
           sandbox.run({
             args: ["--", file],
             cmd: "cat",
@@ -139,21 +140,27 @@ const sandboxTools = ({
           })
         )
       );
-      patched = files.map(({ file, hunks }, index) => {
-        const read = reads[index];
-        if (read?.exitCode !== 0) {
-          throw new Error(`Cannot read ${file}: ${read?.stderr}`);
-        }
-        return { content: applyHunks(read.stdout, hunks), file };
-      });
+      patched = new Map(
+        files.map((file, index) => {
+          const read = reads[index];
+          if (read?.exitCode !== 0) {
+            throw new Error(`Cannot read ${file}: ${read?.stderr}`);
+          }
+          return [file, read.stdout];
+        })
+      );
+      // A file updated twice gets the second update on the first's result.
+      for (const { file, hunks } of updates) {
+        patched.set(file, applyHunks(patched.get(file) ?? "", hunks));
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return `Exit code 1\nThe patch was not applied, and nothing changed: ${message}`;
     }
     await Promise.all(
-      patched.map(({ file, content }) => sandbox.writeFile(file, content))
+      [...patched].map(([file, content]) => sandbox.writeFile(file, content))
     );
-    const files = patched.map(({ file }) =>
+    const files = [...patched.keys()].map((file) =>
       path.posix.relative(worktree, file)
     );
     return `Exit code 0\nApplied the patch to ${files.join(", ")}.`;

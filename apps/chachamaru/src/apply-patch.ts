@@ -111,13 +111,10 @@ export const parsePatch = (patch: string): FilePatch[] => {
     }
     refuseFileOperation(line);
     if (line.startsWith(UPDATE)) {
-      const path = line.slice(UPDATE.length).trim();
-      // A file the patch names twice gets the hunks of both, in order.
-      file = files.find((named) => named.path === path);
-      if (file === undefined) {
-        file = { hunks: [], path };
-        files.push(file);
-      }
+      // A file the patch updates twice stays two updates, each applied to
+      // the result of the one before it.
+      file = { hunks: [], path: line.slice(UPDATE.length).trim() };
+      files.push(file);
       hunk = undefined;
       continue;
     }

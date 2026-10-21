@@ -184,6 +184,35 @@ describe(createModelLintFindingsFixer, () => {
     );
   });
 
+  it("applies a second update of a file to the first's result", async () => {
+    const command = [
+      "apply_patch <<'PATCH'",
+      "*** Begin Patch",
+      "*** Update File: src/index.ts",
+      "-debugger;",
+      "+console.log(1);",
+      "*** End Patch",
+      "*** Begin Patch",
+      "*** Update File: ./src/index.ts",
+      "-console.log(1);",
+      "+export {};",
+      "*** End Patch",
+      "PATCH",
+    ].join("\n");
+    const steps = [toolCall("bash", { command }), reply];
+    const model = new MockLanguageModelV4({
+      doGenerate: () => Promise.resolve(steps.shift() ?? reply),
+    });
+    const sandbox = fakeSandbox();
+
+    await createModelLintFindingsFixer(model)(request(sandbox));
+
+    expect(sandbox.writeFile).toHaveBeenCalledExactlyOnceWith(
+      "/tmp/repository/src/index.ts",
+      "export {};\n"
+    );
+  });
+
   it("changes nothing when a patch does not apply", async () => {
     const command = [
       "apply_patch <<'PATCH'",
