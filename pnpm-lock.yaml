@@ -239,8 +239,8 @@ importers:
         specifier: 7.0.143
         version: 7.0.143(zod@4.6.7)
       eve:
-        specifier: 0.80.1
-        version: 0.80.1(ai@7.0.143(zod@4.6.7))
+        specifier: 0.81.1
+        version: 0.81.1(ai@7.0.143(zod@4.6.7))
       zod:
         specifier: 'catalog:'
         version: 4.6.7
@@ -1317,8 +1317,8 @@ packages:
   estree-walker@3.0.3:
     resolution: {integrity: sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==}
 
-  eve@0.80.1:
-    resolution: {integrity: sha512-s890vy5W9Cqovq2ceIb+oe7zLVclPPidceso9ln17ljNwRLGE+92uGz1K7tayvhcXVK/z5bjx0szLNeLR2ItPA==}
+  eve@0.81.1:
+    resolution: {integrity: sha512-kOjykogXDocRtz65OJtxFvkvoSXai/sWDonzTVXA2NKkJr4/Nnxt1RAuwQo2haf614CX54oQy1eY4y9pHbc1Iw==}
     engines: {node: '>=24'}
     hasBin: true
     peerDependencies:
@@ -1813,6 +1813,17 @@ packages:
           targets:
             - cpu: x64
               os: win32
+        - resolution:
+            archive: tarball
+            bin:
+              node: bin/node
+            integrity: sha256-glQSWCWj5eg0vYomDatMgwP3IEZKdBUG7CeYm5uhdps=
+            type: binary
+            url: https://unofficial-builds.nodejs.org/download/release/v24.22.1/node-v24.22.1-linux-arm64-musl.tar.gz
+          targets:
+            - cpu: arm64
+              os: linux
+              libc: musl
         - resolution:
             archive: tarball
             bin:
@@ -2967,7 +2978,7 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.9
 
-  eve@0.80.1(ai@7.0.143(zod@4.6.7)):
+  eve@0.81.1(ai@7.0.143(zod@4.6.7)):
     dependencies:
       ai: 7.0.143(zod@4.6.7)
       nitro: 3.0.260903-beta
