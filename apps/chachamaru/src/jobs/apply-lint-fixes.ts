@@ -18,10 +18,12 @@ import {
   LINT_FIX_COMMIT_SUBJECT,
   readKilledLintTool,
   readLintSetup,
+  readReleaseAgeViolations,
 } from "@publira/maintenance-policies";
 import type {
   LintFindingsFixVerdict,
   LintPackageManager,
+  ReleaseAgeViolationsReading,
 } from "@publira/maintenance-policies";
 
 import { AGENT_NAME } from "#ai/agent-name.ts";
@@ -229,6 +231,11 @@ export type ApplyLintFixesResult =
       output: string;
       /** Which tool was killed, and by which signal, when one was. */
       reason?: string;
+      /**
+       * The versions pnpm refused for `minimumReleaseAge`, when that is why
+       * the install failed.
+       */
+      releaseAge?: Exclude<ReleaseAgeViolationsReading, { result: "none" }>;
       /**
        * What the model did, when a tool was killed during the check after
        * its changes: the model, whether it was stopped, and its paths.
@@ -603,7 +610,12 @@ const fixInSandbox = async (
   const installation = await run(install, INSTALL_TIMEOUT_MS);
 
   if (installation.exitCode !== 0) {
-    return failure("install", installation);
+    const releaseAge = readReleaseAgeViolations(outputOf(installation));
+
+    return {
+      ...failure("install", installation),
+      ...(releaseAge.result !== "none" && { releaseAge }),
+    };
   }
 
   const before = await check();

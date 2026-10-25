@@ -24,6 +24,12 @@ import {
   summarizeAutoMergeResult,
 } from "./auto-merge-renovate-update.ts";
 import {
+  askReleaseAgeExemption,
+  minimizeOutdatedReleaseAgeQuestions,
+  summarizeReleaseAgeExemptionResult,
+} from "./exempt-release-age-violations.ts";
+import type { AskReleaseAgeExemptionResult } from "./exempt-release-age-violations.ts";
+import {
   regenerateGeneratedOutput,
   regenerationMovesHead,
   summarizeRegenerationResult,
@@ -35,6 +41,7 @@ import {
 import type { SyncDevContainerLockFileResult } from "./sync-devcontainer-lock-file.ts";
 
 export interface RenovateUpdateJobs {
+  minimizeOutdatedQuestions: typeof minimizeOutdatedReleaseAgeQuestions;
   syncLockFile: typeof syncDevContainerLockFile;
   regenerate: typeof regenerateGeneratedOutput;
   approve: typeof approveEquivalentRenovateUpdate;
@@ -54,6 +61,11 @@ const DEFERRING_LINT_FIX_STATUSES = new Set<ApplyLintFixesResult["status"]>([
   "head-moved",
   "would-commit",
 ]);
+
+// The same for the bot's commit of the release age exemptions.
+const DEFERRING_EXEMPTION_STATUSES = new Set<
+  AskReleaseAgeExemptionResult["status"]
+>(["committed", "head-moved", "would-commit"]);
 
 /**
  * What a job runs a repository's own commands with, such as its generators
@@ -185,26 +197,95 @@ export interface FixLintOptions {
   fixer?: LintFindingsFixer;
   /** Replaced in tests. */
   fix?: typeof applyLintFixes;
+  /** Replaced in tests. */
+  exempt?: typeof askReleaseAgeExemption;
 }
 
 /**
- * Applies the automatic lint fixes to a Renovate pull request whose checks
- * failed, and logs the outcome or the failure. Tells whether the head moves,
- * or would in a dry run, so approval and auto-merge wait for the push of the
- * bot's commit.
+ * Asks whether to exempt the versions that pnpm refused for
+ * `minimumReleaseAge` on a head whose install failed, or commits the entries
+ * a maintainer already approved, and logs the outcome or the failure. Tells
+ * whether the head moves, or would in a dry run.
  */
-export const fixLintAndLog = async ({
-  octokit,
-  owner,
-  repo,
-  pullNumber,
-  reviewer,
-  dryRun,
-  log,
-  lintFix,
-  fixer,
-  fix = applyLintFixes,
-}: FixLintOptions): Promise<boolean> => {
+const askExemptionAndLog = async (
+  { octokit, owner, repo, pullNumber, reviewer, dryRun, log }: FixLintOptions,
+  {
+    headSha,
+    reading,
+    exempt,
+  }: Pick<
+    Parameters<typeof askReleaseAgeExemption>[0],
+    "headSha" | "reading"
+  > & {
+    exempt: typeof askReleaseAgeExemption;
+  }
+): Promise<boolean> => {
+  const exemptionLog = withFields(log, {
+    dryRun,
+    job: "exempt-release-age-violations",
+    owner,
+    pullRequest: pullNumber,
+    repo,
+  });
+
+  try {
+    const result = await exempt({
+      botLogin: reviewer,
+      dryRun,
+      headSha,
+      octokit,
+      owner,
+      pullNumber,
+      reading,
+      repo,
+    });
+
+    const deferred = DEFERRING_EXEMPTION_STATUSES.has(result.status);
+    exemptionLog(
+      result.status === "refused" ? "warn" : "info",
+      "Release age exemption evaluated",
+      {
+        ...summarizeReleaseAgeExemptionResult(result),
+        evaluationDeferred: deferred,
+      }
+    );
+
+    return deferred;
+  } catch (error) {
+    // The install keeps failing until a maintainer acts or the window ends.
+    exemptionLog("error", "Release age exemption failed", {
+      ...loggableFailure.safeParse(error).data,
+      modelInvoked: false,
+    });
+
+    return false;
+  }
+};
+
+/**
+ * Applies the automatic lint fixes to a Renovate pull request whose checks
+ * failed, and logs the outcome or the failure. When pnpm refused to install
+ * the head for `minimumReleaseAge`, it asks whether to exempt the versions
+ * instead. Tells whether the head moves, or would in a dry run, so approval
+ * and auto-merge wait for the push of the bot's commit.
+ */
+export const fixLintAndLog = async (
+  options: FixLintOptions
+): Promise<boolean> => {
+  const {
+    octokit,
+    owner,
+    repo,
+    pullNumber,
+    reviewer,
+    dryRun,
+    log,
+    lintFix,
+    fixer,
+    fix = applyLintFixes,
+    exempt = askReleaseAgeExemption,
+  } = options;
+
   const lintFixLog = withFields(log, {
     dryRun,
     job: "apply-lint-fixes",
@@ -234,7 +315,13 @@ export const fixLintAndLog = async ({
       { ...summarizeLintFixResult(result), evaluationDeferred: deferred }
     );
 
-    return deferred;
+    return result.status === "failed" && result.releaseAge !== undefined
+      ? askExemptionAndLog(options, {
+          exempt,
+          headSha: result.headSha,
+          reading: result.releaseAge,
+        })
+      : deferred;
   } catch (error) {
     // The files stay as they are, and CI keeps rejecting them.
     lintFixLog(
@@ -248,7 +335,8 @@ export const fixLintAndLog = async ({
 };
 
 /**
- * Evaluates one Renovate pull request: syncs the Dev Container lock files
+ * Evaluates one Renovate pull request: minimizes the bot's questions about
+ * release age exemptions that no longer ask for anything, syncs the Dev Container lock files
  * with the Features it bumps, regenerates the output of the generators it
  * updates, approves it when it is the same update a maintainer approved
  * elsewhere, then has it auto-merged when that is on and allowed. A head that
@@ -269,6 +357,7 @@ export const evaluateRenovateUpdate = async ({
   regeneration,
   precedentScanCache,
   jobs: {
+    minimizeOutdatedQuestions = minimizeOutdatedReleaseAgeQuestions,
     syncLockFile = syncDevContainerLockFile,
     regenerate = regenerateGeneratedOutput,
     approve = approveEquivalentRenovateUpdate,
@@ -285,6 +374,38 @@ export const evaluateRenovateUpdate = async ({
     pullNumber,
     repo,
   };
+
+  const exemptionLog = withFields(log, {
+    ...fields,
+    job: "exempt-release-age-violations",
+  });
+
+  try {
+    // Minimizing is a write.
+    const minimized = dryRun
+      ? 0
+      : await minimizeOutdatedQuestions({
+          botLogin: reviewer,
+          octokit,
+          owner,
+          pullNumber,
+          repo,
+        });
+
+    // Only a change is worth a line: most pull requests have no question.
+    if (minimized > 0) {
+      exemptionLog("info", "Outdated release age questions minimized", {
+        minimizedComments: minimized,
+        modelInvoked: false,
+      });
+    }
+  } catch (error) {
+    // The questions only stay expanded.
+    exemptionLog("warn", "Outdated release age questions not minimized", {
+      ...loggableFailure.safeParse(error).data,
+      modelInvoked: false,
+    });
+  }
 
   const syncLog = withFields(log, {
     ...fields,

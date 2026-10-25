@@ -105,6 +105,28 @@ export {
 } from "./release-age-exclusion.ts";
 
 export type {
+  ReleaseAgeExemptionEntriesInput,
+  ReleaseAgeExemptionEntry,
+  ReleaseAgeExemptionQuestion,
+  ReleaseAgeViolation,
+  ReleaseAgeViolationsReading,
+} from "./release-age-exemption.ts";
+
+export {
+  findApprovedReleaseAgeExemption,
+  formatReleaseAgeExemptionApprovalMarker,
+  formatReleaseAgeExemptionMarker,
+  parseReleaseAgeExemptionQuestion,
+  pendingReleaseAgeExemptionEntries,
+  readReleaseAgeViolations,
+  RELEASE_AGE_EXEMPTION_MARKER_START,
+  RELEASE_AGE_VIOLATION_CODE,
+  releaseAgeExemptionEntries,
+  releaseAgeExemptionHeadMarker,
+  requestsReleaseAgeExemption,
+} from "./release-age-exemption.ts";
+
+export type {
   RegenerationConfig,
   RegenerationConfigParseResult,
   RegenerationTarget,

@@ -110,13 +110,14 @@ exit 2
 
 // Stand in for pnpm and npm: record the call, install into node_modules,
 // and run a binary. pnpm's install can also rewrite a file, as a lifecycle
-// script could.
+// script could, and print what it refused.
 const PNPM = `#!/bin/sh
 echo "pnpm $*" >> "$HOME/calls"
 case "$1" in
   install)
     mkdir -p node_modules
     [ -n "\${INSTALL_WRITES:-}" ] && echo "// installed" >> "$INSTALL_WRITES"
+    [ -n "\${INSTALL_OUTPUT:-}" ] && printf '%s\\n' "$INSTALL_OUTPUT" >&2
     exit "\${INSTALL_EXIT_CODE:-0}";;
   exec) shift; exec "$@";;
 esac
@@ -948,6 +949,42 @@ describe(applyLintFixes, () => {
       expect(github.writes).toStrictEqual([]);
     }
   );
+
+  it("reads the versions pnpm refused for the release age", async () => {
+    const github = fakeGitHub({ fixture });
+
+    const sandbox = localSandbox({
+      env: {
+        INSTALL_EXIT_CODE: "1",
+        INSTALL_OUTPUT: [
+          "Error: ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION",
+          "",
+          "  × installing dependencies",
+          "  ╰─▶ 1 lockfile entry failed verification:",
+          "        playwright@1.64.0 was published at 2026-10-07T18:01:58.238Z, within the",
+          "      minimumReleaseAge cutoff (2026-10-07T09:27:38.533Z)",
+        ].join("\n"),
+      },
+      origin: fixture.origin,
+      root,
+    });
+
+    await expect(run(github, sandbox)).resolves.toMatchObject({
+      releaseAge: {
+        result: "violations",
+        violations: [
+          {
+            name: "playwright",
+            publishedAt: new Date("2026-10-07T18:01:58.238Z"),
+            version: "1.64.0",
+          },
+        ],
+      },
+      status: "failed",
+      step: "install",
+    });
+    expect(github.writes).toStrictEqual([]);
+  });
 
   it.each([
     ["check", { KILL_ON: "check" }, 1],

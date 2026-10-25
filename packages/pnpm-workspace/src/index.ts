@@ -1,3 +1,7 @@
+export type { ExcludeAddition } from "./exclude-addition.ts";
+
+export { addReleaseAgeExclusions } from "./exclude-addition.ts";
+
 export type { ExcludeBlock, ExcludeRemoval } from "./exclude-removal.ts";
 
 export {

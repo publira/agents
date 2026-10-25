@@ -39,11 +39,11 @@ export interface ReleaseAgeExclusionTarget {
 }
 
 // A package name as the npm registry accepts it, which rules out patterns.
-const PACKAGE_NAME =
+export const PACKAGE_NAME =
   /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/u;
 
 // An exact version, as semver defines it, rather than a range or a tag.
-const EXACT_VERSION =
+export const EXACT_VERSION =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 
 const isPublicNpmRegistry = (registryUrl: string): boolean => {
