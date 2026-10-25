@@ -13,15 +13,16 @@ import {
 import type { LanguageModel } from "ai";
 import { z } from "zod";
 
+import { codeBlock } from "#sandbox/code-block.ts";
+import type { Sandbox } from "#sandbox/runner.ts";
+
 import {
   applyHunks,
   parsePatch,
   readApplyPatchCommand,
 } from "./apply-patch.ts";
 import type { ApplyPatchCommand } from "./apply-patch.ts";
-import { codeBlock } from "./code-block.ts";
 import { LINT_FINDINGS_MODEL } from "./models.ts";
-import type { Sandbox } from "./sandbox-runner.ts";
 
 // How long the model may keep starting steps, its tool calls included; the
 // step under way when this runs out is the last. The request's deadline,

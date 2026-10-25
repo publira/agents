@@ -19,7 +19,7 @@ import type {
   SandboxCommand,
   SandboxOptions,
   SandboxRunner,
-} from "#src/sandbox-runner.ts";
+} from "#sandbox/runner.ts";
 
 import {
   REGENERATION_COMMIT_SUBJECT,

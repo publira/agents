@@ -5,9 +5,9 @@ import { z } from "zod";
 import {
   closeCompletedParentIssue,
   summarizeCloseCompletedParentIssueResult,
-} from "#src/jobs/close-completed-parent-issue.ts";
-import { loggableFailure, withFields } from "#src/log.ts";
-import { readSettings } from "#src/settings.ts";
+} from "#jobs/close-completed-parent-issue.ts";
+import { loggableFailure, withFields } from "#runtime/log.ts";
+import { readSettings } from "#runtime/settings.ts";
 
 import type { WebhookHandler } from "./receive-webhook.ts";
 

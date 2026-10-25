@@ -5,8 +5,12 @@ import {
 import type { GitHubApp, WebhookDelivery } from "@publira/github";
 import { z } from "zod";
 
-import { log as defaultLog, loggableFailure, withFields } from "#src/log.ts";
-import type { Log, LogFields } from "#src/log.ts";
+import {
+  log as defaultLog,
+  loggableFailure,
+  withFields,
+} from "#runtime/log.ts";
+import type { Log, LogFields } from "#runtime/log.ts";
 
 /**
  * Handles one event. GitHub can deliver an event more than once, and a

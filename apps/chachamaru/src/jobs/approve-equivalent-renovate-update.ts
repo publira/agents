@@ -30,8 +30,8 @@ import type {
 } from "@publira/maintenance-policies";
 import { z } from "zod";
 
-import { loggableFailure } from "#src/log.ts";
-import type { LogFields } from "#src/log.ts";
+import { loggableFailure } from "#runtime/log.ts";
+import type { LogFields } from "#runtime/log.ts";
 
 /**
  * What the job checks, in order:

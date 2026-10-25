@@ -3,7 +3,7 @@ import type { GitHubApp } from "@publira/github";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import type { Log } from "#src/log.ts";
+import type { Log } from "#runtime/log.ts";
 
 import {
   CLEANUP_BRANCH,

@@ -6,6 +6,15 @@ Conventions for Chachamaru, the maintenance bot, on top of the repository's [AGE
 
 Chachamaru is an eve app deployed to Vercel. It hosts GitHub-facing maintenance jobs and uses eve where agentic behavior helps, while deterministic jobs run without invoking a model. `agent/` is the eve agent (model, instructions, channels, tools); `src/jobs/` holds the deterministic jobs.
 
+The rest of `src/` is grouped by what a module works with, and nothing sits in `src/` itself:
+
+- `src/webhooks/`: the handlers of GitHub's webhook events;
+- `src/ai/`: the models and the steps that call them;
+- `src/sandbox/`: the Vercel Sandboxes the jobs create, and reading what came out of them;
+- `src/runtime/`: what the deployment provides, its GitHub App, its switches, and its log.
+
+Each directory has a subpath import in `package.json`, such as `#jobs/*` for `./src/jobs/*`, so a module outside it imports `#jobs/evaluate-renovate-update.ts`. A new directory gets one too.
+
 ## Deterministic jobs and the agent
 
 A job is a plain async function in `src/jobs/`. It takes its clients (an Octokit, registry options, the current time, the model step it may ask) as arguments, so tests pass fakes and nothing in it starts an eve session or calls a model of its own accord. Two things can call it:
@@ -17,9 +26,9 @@ Keep the decision logic in the job and the packages, not in the tool or the prom
 
 ## Settings and logs
 
-`src/settings.ts` reads the deployment's switches. Every job that writes takes a `dryRun` option and honors `DRY_RUN` by evaluating without writing. Only a dangerous operation, such as having GitHub merge a pull request (`RENOVATE_AUTO_MERGE`), gets a switch of its own, with the README's settings table updated; a job whose writes a maintainer still acts on, such as a review or a pull request, does not. An invalid value reads as the safe side, so keep the default of a new switch on that side.
+`src/runtime/settings.ts` reads the deployment's switches. Every job that writes takes a `dryRun` option and honors `DRY_RUN` by evaluating without writing. Only a dangerous operation, such as having GitHub merge a pull request (`RENOVATE_AUTO_MERGE`), gets a switch of its own, with the README's settings table updated; a job whose writes a maintainer still acts on, such as a review or a pull request, does not. An invalid value reads as the safe side, so keep the default of a new switch on that side.
 
-Jobs log one JSON line per decision through `src/log.ts`. Name the `job` and bind the fields that identify the work with `withFields`, such as the installation and the webhook delivery, and log why a job skipped, what it wrote, and whether a model was asked (`modelInvoked`), so that a decision can be audited from the logs alone. The README lists the fields.
+Jobs log one JSON line per decision through `src/runtime/log.ts`. Name the `job` and bind the fields that identify the work with `withFields`, such as the installation and the webhook delivery, and log why a job skipped, what it wrote, and whether a model was asked (`modelInvoked`), so that a decision can be audited from the logs alone. The README lists the fields.
 
 ## Commands
 
@@ -31,13 +40,13 @@ Run this from the repository root, once the packages are built:
 
 eve is in preview and changes quickly. Read the docs bundled with the installed version in `node_modules/eve/docs/` (start with `README.md`) before authoring tools, channels, schedules, or deployment settings, rather than relying on memory. `pnpm exec eve info` in this directory shows what eve discovered.
 
-Every model the bot uses is an AI Gateway model ID in `src/models.ts`, the agent's included, which `agent/agent.ts` imports; name a model there, not where it is called. On Vercel the deployment reaches the gateway through the project's OIDC token; locally, `eve dev` asks for a connection. A job that needs a model for one narrow step calls it with the AI SDK outside an agent session, as `src/exclusion-editor.ts` does. A model that has to work on a repository's files, as `src/lint-findings-fixer.ts` does on the lint findings the automatic fix leaves, runs in a loop of tool calls with the AI SDK too, with `bash`, `read_file`, and `write_file` tools that run in the job's sandbox. The job, not the model, then checks the result and decides what it commits; keep that decision in the job and the policies.
+Every model the bot uses is an AI Gateway model ID in `src/ai/models.ts`, the agent's included, which `agent/agent.ts` imports; name a model there, not where it is called. On Vercel the deployment reaches the gateway through the project's OIDC token; locally, `eve dev` asks for a connection. A job that needs a model for one narrow step calls it with the AI SDK outside an agent session, as `src/ai/exclusion-editor.ts` does. A model that has to work on a repository's files, as `src/ai/lint-findings-fixer.ts` does on the lint findings the automatic fix leaves, runs in a loop of tool calls with the AI SDK too, with `bash`, `read_file`, and `write_file` tools that run in the job's sandbox. The job, not the model, then checks the result and decides what it commits; keep that decision in the job and the policies.
 
 The `eve` channel accepts Vercel OIDC and, under `eve dev`, localhost. Add an authenticator before exposing a route to anyone else. The one exception is `GET /schemas/:name/:file` (`agent/channels/schemas.ts`), which serves the JSON Schemas of the files under `.chachamaru/`, such as `REGENERATION_CONFIG_JSON_SCHEMA` from `@publira/maintenance-policies` at its `$id`: it returns a public document generated from the parser's Zod definition and reaches neither the agent nor GitHub.
 
 The agent uses no sandbox. `agent/agent.ts` sets `defaultTools: false`, which leaves the agent only its own tools, and `agent/sandbox.ts` replaces eve's default sandbox, which is a Vercel Sandbox on Vercel, with a provider that prepares nothing and refuses to start. Add a sandbox only for a feature that needs one, and say why in the pull request.
 
-A job that has to run a third-party tool, such as the skills update running `npx skills update`, the regeneration running a repository's own generators, or the lint fix running a repository's ultracite, does so in a Vercel Sandbox it creates through `src/sandbox-runner.ts`, not in eve's: eve opens a sandbox only for an agent session, and a schedule handler or a webhook handler that calls a job starts none. The job takes the runner as an argument, so tests run its commands on a local repository instead, and reads back what changed through `src/sandbox-git.ts`. The sandbox gets no credential of the App beyond a token that can only read the one repository, and only for a private repository; the job writes the commit and the pull request from the app runtime.
+A job that has to run a third-party tool, such as the skills update running `npx skills update`, the regeneration running a repository's own generators, or the lint fix running a repository's ultracite, does so in a Vercel Sandbox it creates through `src/sandbox/runner.ts`, not in eve's: eve opens a sandbox only for an agent session, and a schedule handler or a webhook handler that calls a job starts none. The job takes the runner as an argument, so tests run its commands on a local repository instead, and reads back what changed through `src/sandbox/git.ts`. The sandbox gets no credential of the App beyond a token that can only read the one repository, and only for a private repository; the job writes the commit and the pull request from the app runtime.
 
 The model that fixes the lint findings works in the lint fix's sandbox for the same reason: eve opens a sandbox only for an agent session, and a job can start no session with a declared subagent. Before the model starts, the job cuts the sandbox off from the network (`Sandbox.denyNetwork`); the model's calls run in the app runtime, so the sandbox needs none. Give the model only what the bot produces, such as a command's output or a diff, never text someone wrote on GitHub.
 
@@ -49,7 +58,7 @@ A Vercel build has eve prepare its sandbox templates, which needs the project's 
 
 ## GitHub authentication
 
-The bot authenticates as the Publira GitHub App. `@publira/github` signs the App's JWT and requests installation tokens (`createGitHubApp`); `src/github-app.ts` reads its credentials from `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET`. Without them the bot still starts, its tools read public repositories anonymously, and the webhook route answers 503. The README lists the App's permissions and how to configure each environment.
+The bot authenticates as the Publira GitHub App. `@publira/github` signs the App's JWT and requests installation tokens (`createGitHubApp`); `src/runtime/github-app.ts` reads its credentials from `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET`. Without them the bot still starts, its tools read public repositories anonymously, and the webhook route answers 503. The README lists the App's permissions and how to configure each environment.
 
 Do not give the deployed bot a personal access token or a `GITHUB_TOKEN` variable: it would act as a person, with that person's access, instead of as the App. Do not log a token, a key, the webhook secret, or a whole payload; pass the log the fields it needs one by one.
 

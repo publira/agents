@@ -6,9 +6,9 @@ import type {
   evaluateRenovateUpdate,
   evaluateRenovateUpdatesEverywhere,
   fixLintAndLog,
-} from "#src/jobs/evaluate-renovate-update.ts";
-import type { Log } from "#src/log.ts";
-import type { SandboxRunner } from "#src/sandbox-runner.ts";
+} from "#jobs/evaluate-renovate-update.ts";
+import type { Log } from "#runtime/log.ts";
+import type { SandboxRunner } from "#sandbox/runner.ts";
 
 import { createRenovateUpdateHandlers } from "./renovate-updates.ts";
 

@@ -30,7 +30,7 @@ tsdown emits the declarations with TypeScript 7, whose API is still experimental
 
 The code stays within erasable syntax (`erasableSyntaxOnly`), and relative imports name the `.ts` file (`allowImportingTsExtensions`); `@publira/tsconfig` sets both for every package.
 
-A module imports one in another directory of its package through a subpath import that the package's `package.json` declares in `imports`, not through `../`, whose target changes whenever the importing file moves: Chachamaru maps `#src/*` to `./src/*`, so its schedules and jobs import `#src/log.ts`. Imports within one directory stay relative (`./`).
+A module imports one in another directory of its package through a subpath import that the package's `package.json` declares in `imports`, not through `../`, whose target changes whenever the importing file moves: Chachamaru maps each directory of `src/`, such as `#runtime/*` to `./src/runtime/*`, so its schedules and jobs import `#runtime/log.ts`. Imports within one directory stay relative (`./`).
 
 Each package has its own `tsconfig.json`, extending `@publira/tsconfig/base.json`, its own `tsdown.config.ts`, and its own `vitest.config.ts`. Versions that several packages share, such as `typescript`, `tsdown`, `vitest`, `zod`, and `@types/node`, live in the `catalog` of `pnpm-workspace.yaml`, and `catalogMode: strict` keeps the packages on them.
 

@@ -2,18 +2,18 @@ import { createRepositoryReadToken } from "@publira/github";
 import { RENOVATE_LOGIN } from "@publira/maintenance-policies";
 import { z } from "zod";
 
+import { createModelLintFindingsFixer } from "#ai/lint-findings-fixer.ts";
+import type { LintFindingsFixer } from "#ai/lint-findings-fixer.ts";
 import {
   evaluateRenovateUpdate,
   evaluateRenovateUpdatesEverywhere,
   fixLintAndLog,
-} from "#src/jobs/evaluate-renovate-update.ts";
-import { createModelLintFindingsFixer } from "#src/lint-findings-fixer.ts";
-import type { LintFindingsFixer } from "#src/lint-findings-fixer.ts";
-import { withFields } from "#src/log.ts";
-import type { Log } from "#src/log.ts";
-import { createVercelSandboxRunner } from "#src/sandbox-runner.ts";
-import type { SandboxRunner } from "#src/sandbox-runner.ts";
-import { readSettings } from "#src/settings.ts";
+} from "#jobs/evaluate-renovate-update.ts";
+import { withFields } from "#runtime/log.ts";
+import type { Log } from "#runtime/log.ts";
+import { readSettings } from "#runtime/settings.ts";
+import { createVercelSandboxRunner } from "#sandbox/runner.ts";
+import type { SandboxRunner } from "#sandbox/runner.ts";
 
 import type { WebhookHandler } from "./receive-webhook.ts";
 

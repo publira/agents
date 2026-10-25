@@ -2,9 +2,9 @@ import { createGitHubClient } from "@publira/github";
 import type { GitHubApp, WebhookDelivery } from "@publira/github";
 import { describe, expect, it, vi } from "vitest";
 
-import type { closeCompletedParentIssue } from "#src/jobs/close-completed-parent-issue.ts";
-import type { Log } from "#src/log.ts";
-import type { Settings } from "#src/settings.ts";
+import type { closeCompletedParentIssue } from "#jobs/close-completed-parent-issue.ts";
+import type { Log } from "#runtime/log.ts";
+import type { Settings } from "#runtime/settings.ts";
 
 import { createParentIssueHandlers } from "./parent-issues.ts";
 

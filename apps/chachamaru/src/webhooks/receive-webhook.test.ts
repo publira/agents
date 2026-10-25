@@ -4,7 +4,7 @@ import { createGitHubClient } from "@publira/github";
 import type { GitHubApp } from "@publira/github";
 import { describe, expect, it, vi } from "vitest";
 
-import type { Log } from "#src/log.ts";
+import type { Log } from "#runtime/log.ts";
 
 import { combineWebhookHandlers, receiveWebhook } from "./receive-webhook.ts";
 import type { WebhookHandler } from "./receive-webhook.ts";

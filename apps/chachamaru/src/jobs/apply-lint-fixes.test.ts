@@ -19,14 +19,14 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { LintFindingsRunError } from "#src/lint-findings-fixer.ts";
-import type { LintFindingsFixer } from "#src/lint-findings-fixer.ts";
+import { LintFindingsRunError } from "#ai/lint-findings-fixer.ts";
+import type { LintFindingsFixer } from "#ai/lint-findings-fixer.ts";
 import type {
   Sandbox,
   SandboxCommand,
   SandboxOptions,
   SandboxRunner,
-} from "#src/sandbox-runner.ts";
+} from "#sandbox/runner.ts";
 
 import { applyLintFixes, summarizeLintFixResult } from "./apply-lint-fixes.ts";
 import type { ApplyLintFixesResult } from "./apply-lint-fixes.ts";

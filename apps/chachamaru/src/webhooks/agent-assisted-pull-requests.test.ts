@@ -2,8 +2,8 @@ import { createGitHubClient } from "@publira/github";
 import type { GitHubApp, WebhookDelivery } from "@publira/github";
 import { describe, expect, it, vi } from "vitest";
 
-import type { labelAgentAssistedPullRequest } from "#src/jobs/label-agent-assisted-pull-request.ts";
-import type { Log } from "#src/log.ts";
+import type { labelAgentAssistedPullRequest } from "#jobs/label-agent-assisted-pull-request.ts";
+import type { Log } from "#runtime/log.ts";
 
 import { createAgentAssistedPullRequestHandlers } from "./agent-assisted-pull-requests.ts";
 

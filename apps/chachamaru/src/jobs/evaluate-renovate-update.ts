@@ -5,11 +5,11 @@ import {
 import type { GitHubApp, Octokit } from "@publira/github";
 import { isRenovate } from "@publira/maintenance-policies";
 
-import type { LintFindingsFixer } from "#src/lint-findings-fixer.ts";
-import { loggableFailure, withFields } from "#src/log.ts";
-import type { Log } from "#src/log.ts";
-import type { SandboxRunner } from "#src/sandbox-runner.ts";
-import type { Settings } from "#src/settings.ts";
+import type { LintFindingsFixer } from "#ai/lint-findings-fixer.ts";
+import { loggableFailure, withFields } from "#runtime/log.ts";
+import type { Log } from "#runtime/log.ts";
+import type { Settings } from "#runtime/settings.ts";
+import type { SandboxRunner } from "#sandbox/runner.ts";
 
 import { applyLintFixes, summarizeLintFixResult } from "./apply-lint-fixes.ts";
 import type { ApplyLintFixesResult } from "./apply-lint-fixes.ts";

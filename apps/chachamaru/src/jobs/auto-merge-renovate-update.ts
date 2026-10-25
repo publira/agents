@@ -15,7 +15,7 @@ import type {
 } from "@publira/maintenance-policies";
 import { z } from "zod";
 
-import type { LogFields } from "#src/log.ts";
+import type { LogFields } from "#runtime/log.ts";
 
 import { approveEquivalentRenovateUpdate } from "./approve-equivalent-renovate-update.ts";
 import type {

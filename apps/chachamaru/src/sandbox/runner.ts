@@ -2,8 +2,8 @@ import path from "node:path";
 
 import { Sandbox as VercelSandbox } from "@vercel/sandbox";
 
-import { loggableFailure } from "./log.ts";
-import type { Log } from "./log.ts";
+import { loggableFailure } from "#runtime/log.ts";
+import type { Log } from "#runtime/log.ts";
 
 export interface SandboxCommand {
   cmd: string;

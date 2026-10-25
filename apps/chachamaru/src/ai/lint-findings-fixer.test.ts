@@ -4,11 +4,12 @@ import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
 
+import type { Sandbox } from "#sandbox/runner.ts";
+
 import {
   createModelLintFindingsFixer,
   LintFindingsRunError,
 } from "./lint-findings-fixer.ts";
-import type { Sandbox } from "./sandbox-runner.ts";
 
 const usage = {
   inputTokens: {

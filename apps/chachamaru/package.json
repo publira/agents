@@ -6,7 +6,11 @@
   "license": "Apache-2.0",
   "type": "module",
   "imports": {
-    "#src/*": "./src/*"
+    "#ai/*": "./src/ai/*",
+    "#jobs/*": "./src/jobs/*",
+    "#runtime/*": "./src/runtime/*",
+    "#sandbox/*": "./src/sandbox/*",
+    "#webhooks/*": "./src/webhooks/*"
   },
   "scripts": {
     "build": "eve build",
