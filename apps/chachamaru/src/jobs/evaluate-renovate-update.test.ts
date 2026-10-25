@@ -20,6 +20,10 @@ import type {
   RepositorySandbox,
   RenovateUpdateSettings,
 } from "./evaluate-renovate-update.ts";
+import type {
+  askReleaseAgeExemption,
+  minimizeOutdatedReleaseAgeQuestions,
+} from "./exempt-release-age-violations.ts";
 import type { regenerateGeneratedOutput } from "./regenerate-generated-output.ts";
 import type { syncDevContainerLockFile } from "./sync-devcontainer-lock-file.ts";
 
@@ -49,8 +53,10 @@ const setup = ({
       reason: "the base branch has no .chachamaru/regenerate.yml",
       status: "skipped" as const,
     }),
+  minimize = () => Promise.resolve(0),
   sandbox,
 }: {
+  minimize?: typeof minimizeOutdatedReleaseAgeQuestions;
   approval?: typeof approveEquivalentRenovateUpdate;
   merge?: typeof autoMergeRenovateUpdate;
   sync?: typeof syncDevContainerLockFile;
@@ -58,6 +64,9 @@ const setup = ({
   /** Lets the evaluation regenerate. */
   sandbox?: RepositorySandbox;
 } = {}) => {
+  const minimizeOutdatedQuestions =
+    vi.fn<typeof minimizeOutdatedReleaseAgeQuestions>(minimize);
+
   const syncLockFile = vi.fn<typeof syncDevContainerLockFile>(sync);
   const regenerate = vi.fn<typeof regenerateGeneratedOutput>(regeneration);
   const approve = vi.fn<typeof approveEquivalentRenovateUpdate>(approval);
@@ -68,10 +77,17 @@ const setup = ({
     approve,
     autoMerge,
     log,
+    minimizeOutdatedQuestions,
     regenerate,
     run: (settings: Partial<RenovateUpdateSettings> = {}) =>
       evaluateRenovateUpdate({
-        jobs: { approve, autoMerge, regenerate, syncLockFile },
+        jobs: {
+          approve,
+          autoMerge,
+          minimizeOutdatedQuestions,
+          regenerate,
+          syncLockFile,
+        },
         log,
         octokit: createGitHubClient(),
         owner: "publira",
@@ -95,6 +111,62 @@ const regeneration: RepositorySandbox = {
 };
 
 describe(evaluateRenovateUpdate, () => {
+  it("minimizes the release age questions that no longer ask for anything", async () => {
+    const { approve, log, minimizeOutdatedQuestions, run } = setup({
+      minimize: () => Promise.resolve(2),
+    });
+
+    await run();
+
+    expect(minimizeOutdatedQuestions).toHaveBeenCalledWith(
+      expect.objectContaining({ botLogin: BOT, pullNumber: 31 })
+    );
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Outdated release age questions minimized",
+      expect.objectContaining({
+        job: "exempt-release-age-violations",
+        minimizedComments: 2,
+      })
+    );
+    expect(approve).toHaveBeenCalledOnce();
+  });
+
+  it("logs nothing of the questions when none was minimized", async () => {
+    const { log, run } = setup();
+
+    await run();
+
+    expect(log).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining("release age"),
+      expect.anything()
+    );
+  });
+
+  it("minimizes no question in a dry run", async () => {
+    const { minimizeOutdatedQuestions, run } = setup();
+
+    await run({ dryRun: true });
+
+    expect(minimizeOutdatedQuestions).not.toHaveBeenCalled();
+  });
+
+  it("warns when the questions could not be minimized and still evaluates", async () => {
+    const { approve, log, run } = setup({
+      minimize: () => Promise.reject(new Error("Server Error")),
+    });
+
+    await run();
+
+    expect(log).toHaveBeenCalledWith(
+      "warn",
+      "Outdated release age questions not minimized",
+      expect.objectContaining({ error: "Server Error" })
+    );
+    expect(approve).toHaveBeenCalledOnce();
+  });
+
   it("syncs the Dev Container lock files before it approves", async () => {
     const { approve, log, run, syncLockFile } = setup();
 
@@ -570,11 +642,16 @@ describe(evaluateRenovateUpdate, () => {
 });
 
 // Applies the lint fixes with `fix` in place of the job.
-const fixWith = async (fix: typeof applyLintFixes) => {
+const fixWith = async (
+  fix: typeof applyLintFixes,
+  exempt: typeof askReleaseAgeExemption = () =>
+    Promise.reject(new Error("unused"))
+) => {
   const log = vi.fn<Log>();
 
   const deferred = await fixLintAndLog({
     dryRun: true,
+    exempt,
     fix,
     lintFix: regeneration,
     log,
@@ -634,6 +711,113 @@ describe(fixLintAndLog, () => {
         evaluationDeferred: false,
         refusedPaths: ["pnpm-lock.yaml"],
       })
+    );
+  });
+
+  it("asks for exemptions when pnpm refused to install for the release age", async () => {
+    const reading = {
+      result: "violations" as const,
+      violations: [
+        {
+          name: "playwright",
+          publishedAt: new Date("2026-10-07T18:01:58.238Z"),
+          version: "1.64.0",
+        },
+      ],
+    };
+
+    const exempt = vi.fn<typeof askReleaseAgeExemption>(() =>
+      Promise.resolve({
+        entries: ["playwright@1.64.0"],
+        headSha: HEAD,
+        status: "would-ask" as const,
+      })
+    );
+
+    const { deferred, log } = await fixWith(
+      () =>
+        Promise.resolve({
+          exitCode: 1,
+          headSha: HEAD,
+          output: "Error: ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION",
+          releaseAge: reading,
+          status: "failed" as const,
+          step: "install" as const,
+        }),
+      exempt
+    );
+
+    expect(exempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        botLogin: BOT,
+        dryRun: true,
+        headSha: HEAD,
+        reading,
+      })
+    );
+    expect(deferred).toBeFalsy();
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Release age exemption evaluated",
+      expect.objectContaining({
+        entries: ["playwright@1.64.0"],
+        evaluationDeferred: false,
+        job: "exempt-release-age-violations",
+        modelInvoked: false,
+        status: "would-ask",
+      })
+    );
+  });
+
+  it("defers the evaluation to the push of the exemption it would commit", async () => {
+    const { deferred, log } = await fixWith(
+      () =>
+        Promise.resolve({
+          exitCode: 1,
+          headSha: HEAD,
+          output: "Error: ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION",
+          releaseAge: { reason: "unreadable", result: "unreadable" as const },
+          status: "failed" as const,
+          step: "install" as const,
+        }),
+      () =>
+        Promise.resolve({
+          approvedIn:
+            "https://github.com/publira/agents/pull/31#issuecomment-1",
+          entries: ["playwright@1.64.0"],
+          headSha: HEAD,
+          status: "would-commit" as const,
+          subject: "chore(deps): exempt playwright from minimumReleaseAge",
+        })
+    );
+
+    expect(deferred).toBeTruthy();
+    expect(log).toHaveBeenCalledWith(
+      "info",
+      "Release age exemption evaluated",
+      expect.objectContaining({ evaluationDeferred: true })
+    );
+  });
+
+  it("logs an exemption that threw", async () => {
+    const { deferred, log } = await fixWith(
+      () =>
+        Promise.resolve({
+          exitCode: 1,
+          headSha: HEAD,
+          output: "Error: ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION",
+          releaseAge: { reason: "unreadable", result: "unreadable" as const },
+          status: "failed" as const,
+          step: "install" as const,
+        }),
+      () => Promise.reject(new Error("Server Error"))
+    );
+
+    expect(deferred).toBeFalsy();
+    expect(log).toHaveBeenCalledWith(
+      "error",
+      "Release age exemption failed",
+      expect.objectContaining({ error: "Server Error" })
     );
   });
 

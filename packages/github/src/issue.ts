@@ -184,6 +184,12 @@ export interface MinimizeOutdatedIssueCommentsOptions extends IssueLocation {
    * Without it, every comment with the marker is.
    */
   commentId?: number;
+  /**
+   * Tells from a comment's body whether it is outdated, such as for a head
+   * the pull request no longer has. Without it, every comment with the
+   * marker is.
+   */
+  isOutdated?: (body: string) => boolean;
 }
 
 const commentNodes = z.object({
@@ -253,7 +259,7 @@ const listCommentNodes = async (
 /**
  * Minimizes, as outdated, the author's comments on an issue or a pull
  * request that contain the marker, posted before the given one, or all of
- * them without one. A minimized comment stays readable when expanded.
+ * them without one, and that `isOutdated` accepts. A minimized comment stays readable when expanded.
  * Comments already minimized, later ones, and those of other users are left
  * as they are. Returns how many it minimized.
  */
@@ -261,7 +267,7 @@ export const minimizeOutdatedIssueComments = async (
   octokit: Octokit,
   options: MinimizeOutdatedIssueCommentsOptions
 ): Promise<number> => {
-  const { author, marker, commentId } = options;
+  const { author, marker, commentId, isOutdated = () => true } = options;
   const comments = await listCommentNodes(octokit, options);
 
   const outdated = comments.filter(
@@ -269,6 +275,7 @@ export const minimizeOutdatedIssueComments = async (
       comment.author !== null &&
       restLogin(comment.author) === author &&
       comment.body.includes(marker) &&
+      isOutdated(comment.body) &&
       !comment.isMinimized &&
       // Comment IDs grow with each comment posted.
       (commentId === undefined ||

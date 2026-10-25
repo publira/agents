@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { parse, parseDocument } from "yaml";
 import { z } from "zod";
 
-const KEY = "minimumReleaseAgeExclude";
+export const KEY = "minimumReleaseAgeExclude";
 
 /**
  * The lines of `pnpm-workspace.yaml` that hold `minimumReleaseAgeExclude`:
@@ -23,7 +23,7 @@ export type ExcludeRemoval =
    */
   | { result: "ambiguous"; reason: string; block: ExcludeBlock };
 
-type BlockLine =
+export type BlockLine =
   | { kind: "blank" }
   | { kind: "comment" }
   | { kind: "item"; value: string }
@@ -34,9 +34,9 @@ const isBlank = (line: string | undefined) => line?.trim() === "";
 const isComment = (line: string | undefined) =>
   line?.trimStart().startsWith("#") ?? false;
 
-const indentOf = (line: string) => line.length - line.trimStart().length;
+export const indentOf = (line: string) => line.length - line.trimStart().length;
 
-const splitLines = (source: string) => {
+export const splitLines = (source: string) => {
   const eol = source.includes("\r\n") ? "\r\n" : "\n";
 
   return { eol, lines: source.split(eol) };
@@ -73,7 +73,10 @@ const classify = (line: string): BlockLine => {
 
 // The key's line and the lines up to the next top-level key. Trailing blank
 // lines and unindented comments belong to what follows.
-const findBlockEnd = (lines: readonly string[], keyIndex: number): number => {
+export const findBlockEnd = (
+  lines: readonly string[],
+  keyIndex: number
+): number => {
   let end = keyIndex + 1;
 
   while (
@@ -100,7 +103,7 @@ const listSchema = z.object({ [KEY]: z.array(z.string()) });
  * sit on a line of its own. Checking the entries read this way against the
  * parsed list catches the forms this reading does not understand.
  */
-const readList = (
+export const readList = (
   source: string,
   lines: readonly string[],
   keyIndex: number,

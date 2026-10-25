@@ -354,6 +354,18 @@ describe(minimizeOutdatedIssueComments, () => {
     expect(minimized(github.requests)).toStrictEqual(["IC_1", "IC_2"]);
   });
 
+  it("leaves the comments that are not outdated", async () => {
+    const { github } = commentNodeStore([{}, {}, {}]);
+
+    await expect(
+      minimizeOutdatedIssueComments(
+        createGitHubClient({ fetch: github.fetch }),
+        { ...location, isOutdated: (text) => !text.includes("head2 ") }
+      )
+    ).resolves.toBe(2);
+    expect(minimized(github.requests)).toStrictEqual(["IC_1", "IC_3"]);
+  });
+
   it("compares comment IDs as numbers", async () => {
     const { github } = commentNodeStore([
       { fullDatabaseId: "9" },
