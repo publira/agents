@@ -19,7 +19,7 @@ import type {
   ResolvedFeature,
 } from "@publira/maintenance-policies";
 
-import type { LogFields } from "../log.ts";
+import type { LogFields } from "#src/log.ts";
 
 export type SyncDevContainerLockFileResult =
   | { status: "skipped"; headSha: string; reason: string }

@@ -6,14 +6,15 @@ import {
   evaluateRenovateUpdate,
   evaluateRenovateUpdatesEverywhere,
   fixLintAndLog,
-} from "../jobs/evaluate-renovate-update.ts";
-import { createModelLintFindingsFixer } from "../lint-findings-fixer.ts";
-import type { LintFindingsFixer } from "../lint-findings-fixer.ts";
-import { withFields } from "../log.ts";
-import type { Log } from "../log.ts";
-import { createVercelSandboxRunner } from "../sandbox-runner.ts";
-import type { SandboxRunner } from "../sandbox-runner.ts";
-import { readSettings } from "../settings.ts";
+} from "#src/jobs/evaluate-renovate-update.ts";
+import { createModelLintFindingsFixer } from "#src/lint-findings-fixer.ts";
+import type { LintFindingsFixer } from "#src/lint-findings-fixer.ts";
+import { withFields } from "#src/log.ts";
+import type { Log } from "#src/log.ts";
+import { createVercelSandboxRunner } from "#src/sandbox-runner.ts";
+import type { SandboxRunner } from "#src/sandbox-runner.ts";
+import { readSettings } from "#src/settings.ts";
+
 import type { WebhookHandler } from "./receive-webhook.ts";
 
 // Renovate's default branch prefix, which the organization's preset keeps.

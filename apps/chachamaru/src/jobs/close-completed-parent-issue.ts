@@ -2,7 +2,7 @@ import { ensureIssueComment, findIssueComment } from "@publira/github";
 import type { EnsureIssueCommentResult, Octokit } from "@publira/github";
 import { evaluateParentIssue } from "@publira/maintenance-policies";
 
-import type { LogFields } from "../log.ts";
+import type { LogFields } from "#src/log.ts";
 
 // The comment publira/publira's `Close completed epics` workflow job posts.
 export const COMPLETED_PARENT_COMMENT =

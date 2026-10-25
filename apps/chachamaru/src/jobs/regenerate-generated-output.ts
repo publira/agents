@@ -20,8 +20,8 @@ import type {
   RegenerationTarget,
 } from "@publira/maintenance-policies";
 
-import type { GitFileChange } from "../git-output.ts";
-import type { LogFields } from "../log.ts";
+import type { GitFileChange } from "#src/git-output.ts";
+import type { LogFields } from "#src/log.ts";
 import {
   git,
   GIT_TIMEOUT_MS,
@@ -30,8 +30,8 @@ import {
   runChecked,
   stageChanges,
   tail,
-} from "../sandbox-git.ts";
-import type { Sandbox, SandboxRunner } from "../sandbox-runner.ts";
+} from "#src/sandbox-git.ts";
+import type { Sandbox, SandboxRunner } from "#src/sandbox-runner.ts";
 
 /** The subject of the bot's commit of regenerated output. */
 export const REGENERATION_COMMIT_SUBJECT =

@@ -19,7 +19,8 @@ import type {
   SandboxCommand,
   SandboxOptions,
   SandboxRunner,
-} from "../sandbox-runner.ts";
+} from "#src/sandbox-runner.ts";
+
 import {
   REGENERATION_COMMIT_SUBJECT,
   regenerateGeneratedOutput,

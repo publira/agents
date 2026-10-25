@@ -5,6 +5,9 @@
   "description": "Publira's maintenance jobs, deployed to Vercel with eve.",
   "license": "Apache-2.0",
   "type": "module",
+  "imports": {
+    "#src/*": "./src/*"
+  },
   "scripts": {
     "build": "eve build",
     "dev": "eve dev",

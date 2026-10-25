@@ -24,17 +24,17 @@ import type {
   LintPackageManager,
 } from "@publira/maintenance-policies";
 
-import { AGENT_NAME } from "../agent-name.ts";
-import { codeBlock } from "../code-block.ts";
-import { parseAddedLines } from "../git-output.ts";
-import type { GitFileChange } from "../git-output.ts";
-import { LintFindingsRunError } from "../lint-findings-fixer.ts";
+import { AGENT_NAME } from "#src/agent-name.ts";
+import { codeBlock } from "#src/code-block.ts";
+import { parseAddedLines } from "#src/git-output.ts";
+import type { GitFileChange } from "#src/git-output.ts";
+import { LintFindingsRunError } from "#src/lint-findings-fixer.ts";
 import type {
   LintFindingsFixer,
   LintFindingsModelRun,
-} from "../lint-findings-fixer.ts";
-import { loggableFailure } from "../log.ts";
-import type { LogFields } from "../log.ts";
+} from "#src/lint-findings-fixer.ts";
+import { loggableFailure } from "#src/log.ts";
+import type { LogFields } from "#src/log.ts";
 import {
   excerpt,
   git,
@@ -43,12 +43,12 @@ import {
   runChecked,
   stageChanges,
   tail,
-} from "../sandbox-git.ts";
+} from "#src/sandbox-git.ts";
 import type {
   Sandbox,
   SandboxCommandResult,
   SandboxRunner,
-} from "../sandbox-runner.ts";
+} from "#src/sandbox-runner.ts";
 
 // Where the sandbox checks the pull request out.
 const WORKTREE = "/tmp/repository";

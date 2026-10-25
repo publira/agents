@@ -1,8 +1,8 @@
 import { defineChannel, POST } from "eve/channels";
 
-import { getGitHubApp, readGitHubAppConfig } from "../../src/github-app.ts";
-import { webhookHandlers } from "../../src/webhooks/handlers.ts";
-import { receiveWebhook } from "../../src/webhooks/receive-webhook.ts";
+import { getGitHubApp, readGitHubAppConfig } from "#src/github-app.ts";
+import { webhookHandlers } from "#src/webhooks/handlers.ts";
+import { receiveWebhook } from "#src/webhooks/receive-webhook.ts";
 
 // The GitHub App's webhook URL. The signature, checked against
 // GITHUB_WEBHOOK_SECRET, authenticates the request; the handlers run jobs
