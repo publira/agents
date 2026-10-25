@@ -2,8 +2,8 @@ import { createGitHubClient, parseRepositoryName } from "@publira/github";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 
-import { getGitHubApp } from "../../src/github-app.ts";
-import { checkReleaseAgeExclusions } from "../../src/jobs/check-release-age-exclusions.ts";
+import { checkReleaseAgeExclusions } from "#jobs/check-release-age-exclusions.ts";
+import { getGitHubApp } from "#runtime/github-app.ts";
 
 export default defineTool({
   description:

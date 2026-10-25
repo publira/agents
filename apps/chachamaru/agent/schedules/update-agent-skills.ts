@@ -1,10 +1,10 @@
 import { defineSchedule } from "eve/schedules";
 
-import { getGitHubApp } from "../../src/github-app.ts";
-import { updateAgentSkillsEverywhere } from "../../src/jobs/update-agent-skills.ts";
-import { log, withFields } from "../../src/log.ts";
-import { createVercelSandboxRunner } from "../../src/sandbox-runner.ts";
-import { readSettings } from "../../src/settings.ts";
+import { updateAgentSkillsEverywhere } from "#jobs/update-agent-skills.ts";
+import { getGitHubApp } from "#runtime/github-app.ts";
+import { log, withFields } from "#runtime/log.ts";
+import { readSettings } from "#runtime/settings.ts";
+import { createVercelSandboxRunner } from "#sandbox/runner.ts";
 
 // Opens a pull request in each repository the App is installed on that has
 // a skills-lock.json, with the updates to its vendored agent skills. The

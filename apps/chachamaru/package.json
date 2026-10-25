@@ -5,6 +5,13 @@
   "description": "Publira's maintenance jobs, deployed to Vercel with eve.",
   "license": "Apache-2.0",
   "type": "module",
+  "imports": {
+    "#ai/*": "./src/ai/*",
+    "#jobs/*": "./src/jobs/*",
+    "#runtime/*": "./src/runtime/*",
+    "#sandbox/*": "./src/sandbox/*",
+    "#webhooks/*": "./src/webhooks/*"
+  },
   "scripts": {
     "build": "eve build",
     "dev": "eve dev",

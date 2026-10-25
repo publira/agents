@@ -15,12 +15,13 @@ import { createGitHubClient } from "@publira/github";
 import type { GitHubApp } from "@publira/github";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Log } from "../log.ts";
+import type { Log } from "#runtime/log.ts";
 import type {
   Sandbox,
   SandboxCommand,
   SandboxRunner,
-} from "../sandbox-runner.ts";
+} from "#sandbox/runner.ts";
+
 import {
   SKILLS_UPDATE_BRANCH,
   SKILLS_VERSION,

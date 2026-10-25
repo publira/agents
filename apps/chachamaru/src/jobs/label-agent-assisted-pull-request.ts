@@ -5,7 +5,7 @@ import {
   evaluateAgentAssistanceLabel,
 } from "@publira/maintenance-policies";
 
-import type { LogFields } from "../log.ts";
+import type { LogFields } from "#runtime/log.ts";
 
 export type LabelAgentAssistedPullRequestResult = { commits: number } & (
   | { status: "left"; reason: string }

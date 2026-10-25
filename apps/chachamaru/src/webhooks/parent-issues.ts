@@ -5,9 +5,10 @@ import { z } from "zod";
 import {
   closeCompletedParentIssue,
   summarizeCloseCompletedParentIssueResult,
-} from "../jobs/close-completed-parent-issue.ts";
-import { loggableFailure, withFields } from "../log.ts";
-import { readSettings } from "../settings.ts";
+} from "#jobs/close-completed-parent-issue.ts";
+import { loggableFailure, withFields } from "#runtime/log.ts";
+import { readSettings } from "#runtime/settings.ts";
+
 import type { WebhookHandler } from "./receive-webhook.ts";
 
 const repository = z.object({

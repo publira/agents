@@ -6,9 +6,10 @@ import type {
   evaluateRenovateUpdate,
   evaluateRenovateUpdatesEverywhere,
   fixLintAndLog,
-} from "../jobs/evaluate-renovate-update.ts";
-import type { Log } from "../log.ts";
-import type { SandboxRunner } from "../sandbox-runner.ts";
+} from "#jobs/evaluate-renovate-update.ts";
+import type { Log } from "#runtime/log.ts";
+import type { SandboxRunner } from "#sandbox/runner.ts";
+
 import { createRenovateUpdateHandlers } from "./renovate-updates.ts";
 
 const BOT = "chachamaru-bot[bot]";

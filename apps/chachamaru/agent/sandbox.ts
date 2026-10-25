@@ -14,7 +14,7 @@ const refuse = () =>
 // The skills update job does run in a Vercel Sandbox, but not in this one:
 // eve opens a sandbox only for an agent session, and a schedule handler that
 // calls a job directly starts none. The job creates its own through
-// `src/sandbox-runner.ts`.
+// `src/sandbox/runner.ts`.
 const NoSandbox = defineSandboxProvider({
   environment: () => ({
     prepare: () => Promise.resolve({}),

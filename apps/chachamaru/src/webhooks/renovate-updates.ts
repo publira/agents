@@ -2,18 +2,19 @@ import { createRepositoryReadToken } from "@publira/github";
 import { RENOVATE_LOGIN } from "@publira/maintenance-policies";
 import { z } from "zod";
 
+import { createModelLintFindingsFixer } from "#ai/lint-findings-fixer.ts";
+import type { LintFindingsFixer } from "#ai/lint-findings-fixer.ts";
 import {
   evaluateRenovateUpdate,
   evaluateRenovateUpdatesEverywhere,
   fixLintAndLog,
-} from "../jobs/evaluate-renovate-update.ts";
-import { createModelLintFindingsFixer } from "../lint-findings-fixer.ts";
-import type { LintFindingsFixer } from "../lint-findings-fixer.ts";
-import { withFields } from "../log.ts";
-import type { Log } from "../log.ts";
-import { createVercelSandboxRunner } from "../sandbox-runner.ts";
-import type { SandboxRunner } from "../sandbox-runner.ts";
-import { readSettings } from "../settings.ts";
+} from "#jobs/evaluate-renovate-update.ts";
+import { withFields } from "#runtime/log.ts";
+import type { Log } from "#runtime/log.ts";
+import { readSettings } from "#runtime/settings.ts";
+import { createVercelSandboxRunner } from "#sandbox/runner.ts";
+import type { SandboxRunner } from "#sandbox/runner.ts";
+
 import type { WebhookHandler } from "./receive-webhook.ts";
 
 // Renovate's default branch prefix, which the organization's preset keeps.

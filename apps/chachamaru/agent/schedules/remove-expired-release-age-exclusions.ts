@@ -1,10 +1,10 @@
 import { defineSchedule } from "eve/schedules";
 
-import { createModelExclusionEditor } from "../../src/exclusion-editor.ts";
-import { getGitHubApp } from "../../src/github-app.ts";
-import { removeExpiredReleaseAgeExclusionsEverywhere } from "../../src/jobs/remove-expired-release-age-exclusions.ts";
-import { log, withFields } from "../../src/log.ts";
-import { readSettings } from "../../src/settings.ts";
+import { createModelExclusionEditor } from "#ai/exclusion-editor.ts";
+import { removeExpiredReleaseAgeExclusionsEverywhere } from "#jobs/remove-expired-release-age-exclusions.ts";
+import { getGitHubApp } from "#runtime/github-app.ts";
+import { log, withFields } from "#runtime/log.ts";
+import { readSettings } from "#runtime/settings.ts";
 
 // Opens a pull request in each repository the App is installed on that
 // removes its expired minimumReleaseAgeExclude entries. The job runs without

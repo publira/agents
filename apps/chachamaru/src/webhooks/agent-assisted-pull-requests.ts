@@ -3,9 +3,10 @@ import { z } from "zod";
 import {
   labelAgentAssistedPullRequest,
   summarizeLabelAgentAssistedPullRequestResult,
-} from "../jobs/label-agent-assisted-pull-request.ts";
-import { loggableFailure, withFields } from "../log.ts";
-import { readSettings } from "../settings.ts";
+} from "#jobs/label-agent-assisted-pull-request.ts";
+import { loggableFailure, withFields } from "#runtime/log.ts";
+import { readSettings } from "#runtime/settings.ts";
+
 import type { WebhookHandler } from "./receive-webhook.ts";
 
 const pullRequestEvent = z.object({

@@ -4,8 +4,9 @@ import { createGitHubClient } from "@publira/github";
 import type { GitHubApp } from "@publira/github";
 import { describe, expect, it, vi } from "vitest";
 
-import type { Log } from "../log.ts";
-import type { SandboxRunner } from "../sandbox-runner.ts";
+import type { Log } from "#runtime/log.ts";
+import type { SandboxRunner } from "#sandbox/runner.ts";
+
 import type { applyLintFixes } from "./apply-lint-fixes.ts";
 import type { approveEquivalentRenovateUpdate } from "./approve-equivalent-renovate-update.ts";
 import type { autoMergeRenovateUpdate } from "./auto-merge-renovate-update.ts";

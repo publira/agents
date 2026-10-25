@@ -14,9 +14,10 @@ import {
   verifyReleaseAgeExclusionRemoval,
 } from "@publira/pnpm-workspace";
 
-import { AGENT_NAME } from "../agent-name.ts";
-import { loggableFailure, withFields } from "../log.ts";
-import type { Log, LogFields } from "../log.ts";
+import { AGENT_NAME } from "#ai/agent-name.ts";
+import { loggableFailure, withFields } from "#runtime/log.ts";
+import type { Log, LogFields } from "#runtime/log.ts";
+
 import { judgeReleaseAgeExclusions } from "./check-release-age-exclusions.ts";
 import type { ReleaseAgeExclusionReport } from "./check-release-age-exclusions.ts";
 

@@ -5,7 +5,8 @@ import { z } from "zod";
 import type {
   ExclusionEditor,
   ExclusionEditRequest,
-} from "./jobs/remove-expired-release-age-exclusions.ts";
+} from "#jobs/remove-expired-release-age-exclusions.ts";
+
 import { AGENT_MODEL } from "./models.ts";
 
 // How long the call may take, its retries included. A cleanup that runs out

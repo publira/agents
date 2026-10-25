@@ -2,7 +2,7 @@
 // command changed in a worktree.
 import { parseCatFileBatch, parseRawDiff } from "./git-output.ts";
 import type { GitFileChange } from "./git-output.ts";
-import type { Sandbox, SandboxCommand } from "./sandbox-runner.ts";
+import type { Sandbox, SandboxCommand } from "./runner.ts";
 
 // How much of a failed command's output a result keeps.
 const OUTPUT_LIMIT = 2000;

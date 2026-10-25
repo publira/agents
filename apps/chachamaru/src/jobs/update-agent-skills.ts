@@ -16,18 +16,18 @@ import {
 } from "@publira/maintenance-policies";
 import type { SkillChange } from "@publira/maintenance-policies";
 
-import { parseStagedFiles } from "../git-output.ts";
-import type { GitFile, GitFileChange } from "../git-output.ts";
-import { loggableFailure, withFields } from "../log.ts";
-import type { Log, LogFields } from "../log.ts";
+import { loggableFailure, withFields } from "#runtime/log.ts";
+import type { Log, LogFields } from "#runtime/log.ts";
+import { parseStagedFiles } from "#sandbox/git-output.ts";
+import type { GitFile, GitFileChange } from "#sandbox/git-output.ts";
 import {
   git,
   readBlobs,
   readTokenOptions,
   stageChanges,
   tail,
-} from "../sandbox-git.ts";
-import type { Sandbox, SandboxRunner } from "../sandbox-runner.ts";
+} from "#sandbox/git.ts";
+import type { Sandbox, SandboxRunner } from "#sandbox/runner.ts";
 
 // renovate: datasource=npm depName=skills
 export const SKILLS_VERSION = "1.7.4";
