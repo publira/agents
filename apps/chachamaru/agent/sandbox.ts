@@ -9,7 +9,8 @@ const refuse = () =>
 // The agent has none of eve's sandbox tools (`defaultTools: false`), so no
 // session needs a sandbox. eve's default one would still have every Vercel
 // build prepare a Vercel Sandbox snapshot. This provider prepares nothing and
-// refuses to start, so eve creates no sandbox.
+// refuses to start, so eve creates no sandbox, and a session that ends has none
+// to delete.
 //
 // The skills update job does run in a Vercel Sandbox, but not in this one:
 // eve opens a sandbox only for an agent session, and a schedule handler that
@@ -17,6 +18,7 @@ const refuse = () =>
 // `src/sandbox/runner.ts`.
 const NoSandbox = defineSandboxProvider({
   environment: () => ({
+    onSessionEnd: () => Promise.resolve(),
     prepare: () => Promise.resolve({}),
     resume: refuse,
     start: refuse,
