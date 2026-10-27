@@ -279,16 +279,23 @@ const { $schema, ...jsonSchema } = z.toJSONSchema(regenerationConfig, {
  * validators. It cannot express the refinements of the path patterns, so
  * {@link parseRegenerationConfig} remains the authority.
  */
-export const REGENERATION_CONFIG_JSON_SCHEMA = {
+export const REGENERATION_CONFIG_JSON_SCHEMA: z.core.JSONSchema.JSONSchema = {
   $id: REGENERATION_CONFIG_SCHEMA_URL,
   $schema,
   ...jsonSchema,
 };
 
 /** One regeneration of a declaration, by its name. */
-export type RegenerationTarget = z.infer<typeof regenerationTarget> & {
+export interface RegenerationTarget {
   name: string;
-};
+  command: string;
+  paths: string[];
+  setup: string[];
+  setupTimeout: number;
+  timeout: number;
+  triggers: string[];
+  workflowEnv?: string | undefined;
+}
 
 export interface RegenerationConfig {
   /** In the order the declaration lists them. */

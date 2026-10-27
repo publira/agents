@@ -1,4 +1,4 @@
-import { EXACT_VERSION, PACKAGE_NAME } from "./release-age-exclusion.ts";
+import { isExactVersion, isPackageName } from "./release-age-exclusion.ts";
 
 const MILLISECONDS_PER_MINUTE = 60_000;
 
@@ -72,8 +72,8 @@ export const readReleaseAgeViolations = (
 
     if (
       separator < 1 ||
-      !PACKAGE_NAME.test(name) ||
-      !EXACT_VERSION.test(version) ||
+      !isPackageName(name) ||
+      !isExactVersion(version) ||
       Number.isNaN(publishedAt.getTime())
     ) {
       return {

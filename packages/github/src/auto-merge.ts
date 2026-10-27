@@ -148,7 +148,7 @@ export const getPullRequestMergeState = async (
 };
 
 /** Parses the messages out of the error a failed GraphQL request throws. */
-export const graphqlRequestFailure = z
+export const graphqlRequestFailure: z.ZodType<string[]> = z
   .object({ errors: z.array(z.object({ message: z.string() })) })
   .transform(({ errors }) => errors.map(({ message }) => message));
 

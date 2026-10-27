@@ -6,6 +6,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
-    "./base.json": "./base.json"
+    "./base.json": "./base.json",
+    "./library.json": "./library.json"
   }
 }

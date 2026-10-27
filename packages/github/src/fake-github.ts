@@ -1,6 +1,7 @@
 // A stand-in for the GitHub API in tests: it answers the routes it is given
 // and 404 for the rest, and records every request.
 import { vi } from "vitest";
+import type { Mock } from "vitest";
 
 export type Json =
   | boolean
@@ -26,8 +27,9 @@ class DynamicRoute {
 }
 
 /** A route that answers each request as `respond` decides. */
-export const dynamic = (respond: (request: FakeRequest) => Response | Json) =>
-  new DynamicRoute(respond);
+export const dynamic = (
+  respond: (request: FakeRequest) => Response | Json
+): DynamicRoute => new DynamicRoute(respond);
 
 /** A response, a JSON body, or a {@link dynamic} route. */
 export type FakeRoute = Response | Json | DynamicRoute;
@@ -46,7 +48,16 @@ const respond = (route: FakeRoute | undefined, request: FakeRequest) => {
   return result instanceof Response ? result : Response.json(result);
 };
 
-export const fakeGitHub = (routes: Readonly<Record<string, FakeRoute>>) => {
+export interface FakeGitHub {
+  fetch: Mock<typeof fetch>;
+  requests: FakeRequest[];
+  /** `METHOD /path` of every request, in order. */
+  readonly routes: string[];
+}
+
+export const fakeGitHub = (
+  routes: Readonly<Record<string, FakeRoute>>
+): FakeGitHub => {
   const requests: FakeRequest[] = [];
 
   const fetchImpl = vi.fn<typeof fetch>((input, init) => {
