@@ -26,13 +26,13 @@ Each app describes itself in its own `README.md`, for the people who run it, and
 
 Each package builds `src/index.ts` into `dist/` with [tsdown](https://tsdown.dev/) and exports only that build, which is how the other Publira repositories ship their packages too. A consumer therefore needs the packages built: the Turborepo tasks run `build` in the dependencies first (`dependsOn: ["^build"]`), and a command run outside Turborepo needs `pnpm turbo run build --filter='./packages/*'` once, and again after a package changes. A package's own tests import its sources and need no build.
 
-tsdown emits the declarations with TypeScript 7, whose API is still experimental, so every build warns about it. The warning is expected.
+tsdown emits the declarations with Oxc, which reads each file on its own, so the packages enable `isolatedDeclarations`: every export carries the types its declaration needs, such as a function's return type or a Zod schema's `z.ZodType<...>`, and `pnpm typecheck` reports a missing one. The other generator, `tsc`, needs the classic TypeScript API, which TypeScript 7 does not provide.
 
 The code stays within erasable syntax (`erasableSyntaxOnly`), and relative imports name the `.ts` file (`allowImportingTsExtensions`); `@publira/tsconfig` sets both for every package.
 
 A module imports one in another directory of its package through a subpath import that the package's `package.json` declares in `imports`, not through `../`, whose target changes whenever the importing file moves: Chachamaru maps each directory of `src/`, such as `#runtime/*` to `./src/runtime/*`, so its schedules and jobs import `#runtime/log.ts`. Imports within one directory stay relative (`./`).
 
-Each package has its own `tsconfig.json`, extending `@publira/tsconfig/base.json`, its own `tsdown.config.ts`, and its own `vitest.config.ts`. Versions that several packages share, such as `typescript`, `tsdown`, `vitest`, `zod`, and `@types/node`, live in the `catalog` of `pnpm-workspace.yaml`, and `catalogMode: strict` keeps the packages on them.
+Each package has its own `tsconfig.json`, extending `@publira/tsconfig/library.json`, its own `tsdown.config.ts`, and its own `vitest.config.ts`. Versions that several packages share, such as `typescript`, `tsdown`, `vitest`, `zod`, and `@types/node`, live in the `catalog` of `pnpm-workspace.yaml`, and `catalogMode: strict` keeps the packages on them.
 
 The clients of `@publira/github` time out every request and try a failed read again after a server error, a rate limit, or a failed connection (`request-policy.ts`), as `@publira/npm-registry` does for the registry. They never retry a write, which may have been applied before it failed; a job's next run takes it up instead. Do not add retries around them. The clients log no request of their own, so a 404 that a reader answers with `undefined` leaves no `error` line; a job logs the failures it does not handle, with its own fields.
 

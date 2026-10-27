@@ -34,9 +34,15 @@ const isBlank = (line: string | undefined) => line?.trim() === "";
 const isComment = (line: string | undefined) =>
   line?.trimStart().startsWith("#") ?? false;
 
-export const indentOf = (line: string) => line.length - line.trimStart().length;
+export const indentOf = (line: string): number =>
+  line.length - line.trimStart().length;
 
-export const splitLines = (source: string) => {
+export interface SourceLines {
+  eol: string;
+  lines: string[];
+}
+
+export const splitLines = (source: string): SourceLines => {
   const eol = source.includes("\r\n") ? "\r\n" : "\n";
 
   return { eol, lines: source.split(eol) };
