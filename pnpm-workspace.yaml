@@ -9,7 +9,7 @@ allowBuilds:
 # makes `pnpm add` write `catalog:` for a dependency listed here, so the
 # packages cannot drift apart.
 catalog:
-  "@types/node": 24.19.2
+  "@types/node": 26.6.5
   "@vercel/sandbox": 3.9.0
   ajv: 8.20.0
   tsdown: 0.23.2
