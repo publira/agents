@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "create-pr": {
+      "source": "publira/.github",
+      "sourceType": "github",
+      "skillPath": "skills/create-pr/SKILL.md",
+      "computedHash": "a4a30dec269a18b8110d6614c6d60ab23611e3e915ddb017adb13dec1499a0f1"
+    }
+  }
+}
