@@ -5,6 +5,7 @@ export default defineConfig({
   ...ultracite,
   ignorePatterns: [
     ...(ultracite.ignorePatterns ?? []),
+    ".agents/skills/**",
     ".devcontainer/devcontainer-lock.json",
     // Vitest writes these, and the tests compare them byte for byte.
     "**/__snapshots__/**",
