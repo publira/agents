@@ -43,8 +43,14 @@ ${CONFIG.replaceAll(/^/gmu, "    ").trimEnd()}
 `;
 
 // Declares the targets of `paths`, each triggered by its own file.
-const targets = (...paths: string[]) =>
-  `targets:\n${paths.map((path, index) => `  t${index}:\n    triggers: [t${index}]\n    command: make\n    paths: [${path}]\n`).join("")}`;
+const targets = (...paths: string[]) => {
+  const declarations = paths.map(
+    (path, index) =>
+      `  t${index}:\n    triggers: [t${index}]\n    command: make\n    paths: [${path}]\n`
+  );
+
+  return `targets:\n${declarations.join("")}`;
+};
 
 const CODEGEN = {
   command: "task gen",

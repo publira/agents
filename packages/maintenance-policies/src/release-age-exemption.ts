@@ -27,16 +27,18 @@ export type ReleaseAgeViolationsReading =
 export const RELEASE_AGE_VIOLATION_CODE =
   "ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION";
 
-// `3 lockfile entries failed verification:` heads the list.
+// `3 lockfile entries failed verification:` heads the list. Each expression
+// here starts its first group where a run of its characters does, so a long
+// run is not scanned again from each of its characters.
 const FAILED_COUNT =
-  /(?<count>\d+) lockfile entr(?:y|ies) failed verification:/u;
+  /(?<!\d)(?<count>\d+) lockfile entr(?:y|ies) failed verification:/u;
 
 // `is-odd@3.0.1 was published at 2018-05-31T20:04:53.306Z, within the
 // minimumReleaseAge cutoff (...)`, one for each entry. pnpm wraps the lines
 // at the terminal's width, so the output is read with its whitespace
 // collapsed.
 const VIOLATION =
-  /(?<selector>\S+) was published at (?<time>[^\s,]+), within the minimumReleaseAge cutoff/gu;
+  /(?<!\S)(?<selector>\S+) was published at (?<time>[^\s,]+), within the minimumReleaseAge cutoff/gu;
 
 /**
  * Reads the versions that pnpm's `install --frozen-lockfile` refused for

@@ -12,6 +12,9 @@ import { requestFailure } from "./request-error.ts";
  */
 export type FileMode = "100644" | "100755" | "120000";
 
+/** A file's new contents: text, bytes, or `null` to delete it. */
+type FileContents = string | Uint8Array | null;
+
 export interface CommitToBranchOptions {
   owner: string;
   repo: string;
@@ -24,7 +27,7 @@ export interface CommitToBranchOptions {
    * New contents by path, as text or as bytes, which need not be UTF-8;
    * `null` deletes the file.
    */
-  files: Readonly<Record<string, string | Uint8Array | null>>;
+  files: Readonly<Record<string, FileContents>>;
   /** The mode of each file by path. A file without one is regular. */
   modes?: Readonly<Record<string, FileMode>>;
 }
@@ -48,7 +51,7 @@ interface TreeEntriesOptions {
   octokit: Octokit;
   owner: string;
   repo: string;
-  files: Readonly<Record<string, string | Uint8Array | null>>;
+  files: Readonly<Record<string, FileContents>>;
   modes: Readonly<Record<string, FileMode>>;
 }
 
@@ -206,7 +209,7 @@ export interface AddCommitToBranchOptions {
    * New contents by path, as text or as bytes, which need not be UTF-8;
    * `null` deletes the file.
    */
-  files: Readonly<Record<string, string | Uint8Array | null>>;
+  files: Readonly<Record<string, FileContents>>;
   /** The mode of each file by path. A file without one is regular. */
   modes?: Readonly<Record<string, FileMode>>;
 }

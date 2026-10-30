@@ -79,11 +79,12 @@ const parseBearerChallenge = (header: string | null) => {
     return;
   }
 
+  // A key starts where a word does, so a long word is not scanned again from
+  // each of its characters.
   const parameters = new Map(
-    [...header.matchAll(/(?<key>\w+)="(?<value>[^"]*)"/gu)].map((match) => [
-      match.groups?.key ?? "",
-      match.groups?.value ?? "",
-    ])
+    [...header.matchAll(/(?<!\w)(?<key>\w+)="(?<value>[^"]*)"/gu)].map(
+      (match) => [match.groups?.key ?? "", match.groups?.value ?? ""]
+    )
   );
 
   const realm = parameters.get("realm");

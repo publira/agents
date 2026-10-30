@@ -13,6 +13,8 @@
     "fix": "ultracite fix"
   },
   "devDependencies": {
+    "eslint-plugin-github": "6.1.2",
+    "eslint-plugin-sonarjs": "4.2.2",
     "lefthook": "2.2.2",
     "oxfmt": "0.75.0",
     "oxlint": "1.90.0",

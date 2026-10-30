@@ -308,20 +308,15 @@ export const updateAgentSkills = async ({
 
   const lockChange = committed.find(({ path }) => path === SKILLS_LOCK_FILE);
 
+  const readSide = (side: { sha: string } | undefined) =>
+    decode(side === undefined ? undefined : blobs.get(side.sha));
+
   const skills =
     lockChange === undefined
       ? []
       : diffSkillsLocks(
-          decode(
-            lockChange.before === undefined
-              ? undefined
-              : blobs.get(lockChange.before.sha)
-          ),
-          decode(
-            lockChange.after === undefined
-              ? undefined
-              : blobs.get(lockChange.after.sha)
-          )
+          readSide(lockChange.before),
+          readSide(lockChange.after)
         );
 
   const paths = committed.map(({ path }) => path);
