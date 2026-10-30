@@ -167,12 +167,6 @@ catalogs:
     '@types/node':
       specifier: 26.6.5
       version: 26.6.5
-    '@vercel/sandbox':
-      specifier: 3.9.0
-      version: 3.9.0
-    ajv:
-      specifier: 8.20.0
-      version: 8.20.0
     tsdown:
       specifier: 0.23.2
       version: 0.23.2
@@ -233,7 +227,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/pnpm-workspace
       '@vercel/sandbox':
-        specifier: 'catalog:'
+        specifier: 3.9.0
         version: 3.9.0
       ai:
         specifier: 7.0.154
@@ -330,7 +324,7 @@ importers:
         specifier: 'catalog:'
         version: 26.6.5
       ajv:
-        specifier: 'catalog:'
+        specifier: 8.20.0
         version: 8.20.0
       tsdown:
         specifier: 'catalog:'
