@@ -23,7 +23,7 @@
   "devDependencies": {
     "@publira/tsconfig": "workspace:*",
     "@types/node": "catalog:",
-    "ajv": "catalog:",
+    "ajv": "8.20.0",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
