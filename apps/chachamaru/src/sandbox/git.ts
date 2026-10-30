@@ -64,13 +64,18 @@ export const git = (
  * not stored in the repository's configuration, where the commands run in
  * the worktree afterwards could read it.
  */
-export const readTokenOptions = (readToken: string | undefined): string[] =>
-  readToken === undefined
-    ? []
-    : [
-        "-c",
-        `http.extraHeader=Authorization: Basic ${Buffer.from(`x-access-token:${readToken}`).toString("base64")}`,
-      ];
+export const readTokenOptions = (readToken: string | undefined): string[] => {
+  if (readToken === undefined) {
+    return [];
+  }
+
+  const credentials = Buffer.from(`x-access-token:${readToken}`);
+
+  return [
+    "-c",
+    `http.extraHeader=Authorization: Basic ${credentials.toString("base64")}`,
+  ];
+};
 
 /**
  * Stages every change in the worktree and lists them against `HEAD`, with

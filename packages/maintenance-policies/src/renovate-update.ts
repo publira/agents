@@ -222,6 +222,10 @@ export const fingerprintRenovateUpdates = (
 const shortDigest = (digest: string) =>
   digest.replace(/^sha256:/u, "").slice(0, 7);
 
+// One side of an update's digests, empty when the update leaves it out.
+const digestSide = (digest: string | undefined) =>
+  digest === undefined ? "" : shortDigest(digest);
+
 /**
  * Describes an update for people, such as
  * `npm:npm:next:16.3.6->16.3.8:patch`: manager, datasource, name, versions,
@@ -232,7 +236,7 @@ export const formatRenovateUpdate = (update: RenovateUpdate): string => {
   const digests =
     update.currentDigest === undefined && update.newDigest === undefined
       ? ""
-      : `@${update.currentDigest === undefined ? "" : shortDigest(update.currentDigest)}->${update.newDigest === undefined ? "" : shortDigest(update.newDigest)}`;
+      : `@${digestSide(update.currentDigest)}->${digestSide(update.newDigest)}`;
 
   const name =
     update.packageName === undefined || update.packageName === update.depName

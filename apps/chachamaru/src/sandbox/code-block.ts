@@ -10,5 +10,7 @@ export const codeBlock = (text: string, language = ""): string => {
 
   const fence = "`".repeat(Math.max(3, longest + 1));
 
-  return `${fence}${language}\n${text.endsWith("\n") ? text : `${text}\n`}${fence}`;
+  const body = text.endsWith("\n") ? text : `${text}\n`;
+
+  return `${fence}${language}\n${body}${fence}`;
 };

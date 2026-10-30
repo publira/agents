@@ -294,7 +294,7 @@ export interface RegenerationTarget {
   setupTimeout: number;
   timeout: number;
   triggers: string[];
-  workflowEnv?: string | undefined;
+  workflowEnv?: string;
 }
 
 export interface RegenerationConfig {
