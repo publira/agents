@@ -8,7 +8,7 @@ allowBuilds:
 # Versions shared by more than one workspace package.
 catalog:
   "@types/node": 26.6.6
-  tsdown: 0.23.4
+  tsdown: 0.23.5
   typescript: 7.0.2
   vitest: 5.1.0
   yaml: 2.9.1
