@@ -19,7 +19,7 @@
       "version": "29.3.1"
     }
   },
-  "image": "ghcr.io/publira/base-images/publira-dev:2026.11.06@sha256:f65f2d4ebcb2688c26b9a2c950c21e2758e9c6880b0b89e1d5b473678266d85c",
+  "image": "ghcr.io/publira/base-images/publira-dev:2026.11.07@sha256:0bfc936bd0ee04e5f72a7fa767370ce859a51ce6eccb5007516331bf297db1e0",
   "mounts": [
     "source=publira-agents-claude-${devcontainerId},target=/home/vscode/.claude,type=volume",
     "source=publira-agents-codex-${devcontainerId},target=/home/vscode/.codex,type=volume",
