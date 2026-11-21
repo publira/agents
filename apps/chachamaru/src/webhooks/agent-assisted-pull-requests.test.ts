@@ -52,8 +52,8 @@ describe(createAgentAssistedPullRequestHandlers, () => {
       await handlers.pull_request(delivery(action), context);
 
       expect(label).toHaveBeenCalledWith({
-        dryRun: true,
         octokit,
+        dryRun: true,
         owner: "publira",
         pullNumber: 70,
         repo: "agents",

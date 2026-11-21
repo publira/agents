@@ -18,9 +18,9 @@ export const listChangedFiles = async (
   const { data } = await octokit.rest.repos.getCommit({
     owner,
     page,
+    repo,
     per_page: FILES_PER_PAGE,
     ref: sha,
-    repo,
   });
 
   const files = (data.files ?? []).map(({ filename }) => filename);

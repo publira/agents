@@ -29,20 +29,20 @@ const toolCall = (
     {
       input: JSON.stringify(input),
       toolCallId: toolName,
-      toolName,
       type: "tool-call" as const,
+      toolName,
     },
   ],
   finishReason: { raw: "tool_use", unified: "tool-calls" as const },
-  usage,
   warnings: [],
+  usage,
 });
 
 const reply = {
   content: [{ text: "Removed the debugger statement.", type: "text" as const }],
   finishReason: { raw: "stop", unified: "stop" as const },
-  usage,
   warnings: [],
+  usage,
 };
 
 // A model call that answers only by failing once it is aborted.
@@ -87,11 +87,11 @@ const fakeSandbox = () => {
 
 const request = (sandbox: Sandbox, deadline = Date.now() + 60_000) => ({
   command: "pnpm exec ultracite check",
-  deadline,
   diff: "",
   output: "src/index.ts: debugger statement\n",
-  sandbox,
   worktree: "/tmp/repository",
+  deadline,
+  sandbox,
 });
 
 describe(createModelLintFindingsFixer, () => {

@@ -273,10 +273,10 @@ const listClosedFromBranch = async (
     repositories.map(async (repo) => {
       const pulls = await octokit.paginate(octokit.rest.pulls.list, {
         head: `${owner}:${headRef}`,
-        owner,
         per_page: 100,
-        repo,
         state: "closed",
+        owner,
+        repo,
       });
 
       return pulls.map((pull) => ({ ...pull, repo }));
@@ -481,10 +481,10 @@ const findPrecedent = async ({
         mergedAt: candidate.mergedAt,
         reviews: reviews.map(toReview),
       }),
+      repo: candidate.repo,
       octokit,
       owner,
       permissions,
-      repo: candidate.repo,
     });
 
     if (maintainer === undefined) {
@@ -511,10 +511,10 @@ const findPrecedent = async ({
         approvedBy: maintainer,
         mergedAt: candidate.mergedAt,
         number: candidate.number,
-        owner,
         repo: candidate.repo,
         updates: candidate.updates,
         url: candidate.html_url,
+        owner,
       },
     };
   }
@@ -645,9 +645,9 @@ const readRegeneration = async ({
   pullRequest,
 }: PullRequestContext) => {
   const source = await readOptionalRepositoryFile(octokit, {
-    owner,
     path: REGENERATION_CONFIG_PATH,
     ref: pullRequest.base.sha,
+    owner,
     repo,
   });
 
@@ -675,9 +675,9 @@ const readBotCommitScope = async (
 
   const [changed, files, regeneration] = await Promise.all([
     octokit.paginate(octokit.rest.pulls.listFiles, {
-      owner,
       per_page: 100,
       pull_number: pullNumber,
+      owner,
       repo,
     }),
     Promise.all(
@@ -703,9 +703,9 @@ const checkCommits = async (context: PullRequestContext): Promise<Verdict> => {
   const { octokit, owner, repo, pullNumber, pullRequest, reviewer } = context;
 
   const commits = await octokit.paginate(octokit.rest.pulls.listCommits, {
-    owner,
     per_page: 100,
     pull_number: pullNumber,
+    owner,
     repo,
   });
 
@@ -744,7 +744,7 @@ const checkCI = async ({
   pullRequest,
 }: PullRequestContext): Promise<Verdict> => {
   const [checks, required] = await Promise.all([
-    getCommitChecks(octokit, { owner, ref: pullRequest.head.sha, repo }),
+    getCommitChecks(octokit, { ref: pullRequest.head.sha, owner, repo }),
     getRequiredStatusChecks(octokit, {
       branch: pullRequest.base.ref,
       owner,
@@ -888,7 +888,7 @@ export const approveEquivalentRenovateUpdate = async ({
   dryRun = false,
   precedentScanCache,
 }: ApproveEquivalentRenovateUpdateOptions): Promise<ApproveEquivalentRenovateUpdateResult> => {
-  const location = { owner, pull_number: pullNumber, repo };
+  const location = { pull_number: pullNumber, owner, repo };
 
   const readPullRequest = async () => {
     const response = await octokit.rest.pulls.get(location);
@@ -948,9 +948,9 @@ export const approveEquivalentRenovateUpdate = async ({
   }
 
   const review = await ensureReview(octokit, {
-    body,
     commitId: headSha,
     event: "APPROVE",
+    body,
     owner,
     pullNumber,
     repo,
@@ -980,8 +980,8 @@ export const approveEquivalentRenovateUpdate = async ({
     return {
       conditions,
       headSha,
-      newHeadSha: after.head.sha,
       precedent,
+      newHeadSha: after.head.sha,
       review: { id: review.id },
       status: "withdrawn",
     };
@@ -999,8 +999,8 @@ export const approveEquivalentRenovateUpdate = async ({
         owner,
         pullNumber,
         repo,
-        reviewId: review.id,
         reviewer,
+        reviewId: review.id,
       }),
     };
   } catch (error) {

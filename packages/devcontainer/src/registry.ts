@@ -225,7 +225,7 @@ export const resolveFeature = async (
 
   return {
     dependsOn: Object.keys(metadata.dependsOn ?? {}),
-    digest,
     version: metadata.version,
+    digest,
   };
 };

@@ -15,8 +15,8 @@ describe(readGitHubAppConfig, () => {
   it("reads the App's credentials", () => {
     expect(readGitHubAppConfig(env)).toStrictEqual({
       appId: "123",
-      privateKey,
       webhookSecret: "test-secret",
+      privateKey,
     });
   });
 

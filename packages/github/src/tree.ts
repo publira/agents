@@ -38,8 +38,8 @@ export const listCommitFiles = async (
 
   const { data: tree } = await octokit.rest.git.getTree({
     owner,
-    recursive: "true",
     repo,
+    recursive: "true",
     tree_sha: commit.tree.sha,
   });
 

@@ -31,9 +31,9 @@ export const ensurePullRequest = async (
   const findOpen = async () => {
     const { data } = await octokit.rest.pulls.list({
       base,
-      head: `${owner}:${head}`,
       owner,
       repo,
+      head: `${owner}:${head}`,
       state: "open",
     });
 
@@ -70,9 +70,9 @@ export const ensurePullRequest = async (
 
   if (pullRequest.title !== title || pullRequest.body !== body) {
     await octokit.rest.pulls.update({
+      pull_number: pullRequest.number,
       body,
       owner,
-      pull_number: pullRequest.number,
       repo,
       title,
     });

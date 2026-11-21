@@ -133,10 +133,10 @@ const regenerateAndLog = async ({
   regenerate,
 }: RegenerateOptions): Promise<boolean> => {
   const regenerationLog = withFields(log, {
-    dryRun,
     job: "regenerate-generated-output",
-    owner,
     pullRequest: pullNumber,
+    dryRun,
+    owner,
     repo,
   });
 
@@ -221,10 +221,10 @@ const askExemptionAndLog = async (
   }
 ): Promise<boolean> => {
   const exemptionLog = withFields(log, {
-    dryRun,
     job: "exempt-release-age-violations",
-    owner,
     pullRequest: pullNumber,
+    dryRun,
+    owner,
     repo,
   });
 
@@ -287,10 +287,10 @@ export const fixLintAndLog = async (
   } = options;
 
   const lintFixLog = withFields(log, {
-    dryRun,
     job: "apply-lint-fixes",
-    owner,
     pullRequest: pullNumber,
+    dryRun,
+    owner,
     repo,
   });
 
@@ -364,7 +364,7 @@ export const evaluateRenovateUpdate = async ({
     autoMerge = autoMergeRenovateUpdate,
   } = {},
 }: EvaluateRenovateUpdateOptions): Promise<void> => {
-  const fields = { dryRun, owner, pullRequest: pullNumber, repo };
+  const fields = { dryRun, owner, repo, pullRequest: pullNumber };
 
   const location = {
     dryRun,
@@ -598,10 +598,10 @@ export const evaluateRenovateUpdatesEverywhere = async ({
 
           const pulls = await octokit.paginate(octokit.rest.pulls.list, {
             head: headRef === undefined ? undefined : `${owner}:${headRef}`,
-            owner,
             per_page: 100,
-            repo,
             state: "open",
+            owner,
+            repo,
           });
 
           const renovatePulls = pulls

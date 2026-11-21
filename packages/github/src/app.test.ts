@@ -92,8 +92,8 @@ describe(createGitHubApp, () => {
     const app = createGitHubApp({
       appId: 123,
       fetch: github.fetch,
-      privateKey,
       requestPolicy: { retryDelay: 0 },
+      privateKey,
     });
 
     const octokit = await app.getInstallationOctokit(42);

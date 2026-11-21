@@ -79,12 +79,12 @@ const delivery = (
   payload: Readonly<Record<string, Json>>
 ): WebhookDelivery => ({
   id: "delivery-1",
-  name,
   payload: {
     installation: { id: 42 },
     repository: { name: "agents", owner: { login: "publira" } },
     ...payload,
   },
+  name,
 });
 
 describe("issues", () => {

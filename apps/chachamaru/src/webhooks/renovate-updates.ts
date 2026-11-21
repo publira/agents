@@ -145,9 +145,7 @@ export const createRenovateUpdateHandlers = ({
 
     return {
       log: installationLog,
-      octokit,
       owner: payload.repository.owner.login,
-      repo,
       repositorySandbox: () => ({
         createReadToken: () =>
           createRepositoryReadToken(app, {
@@ -156,8 +154,10 @@ export const createRenovateUpdateHandlers = ({
           }),
         sandbox: createSandbox(installationLog),
       }),
-      reviewer,
       settings: read(log),
+      octokit,
+      repo,
+      reviewer,
     };
   };
 

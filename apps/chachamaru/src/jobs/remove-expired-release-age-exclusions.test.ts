@@ -695,8 +695,8 @@ describe(removeExpiredReleaseAgeExclusions, () => {
     it("leaves an open pull request whose commit names the model", async () => {
       const github = fake({
         headMessage: `chore(deps): remove expired minimumReleaseAgeExclude entries\n\nAssisted-by: Chachamaru:${MODEL}`,
-        manifest,
         openPullRequest: modelEdited,
+        manifest,
       });
 
       await expect(
@@ -859,8 +859,8 @@ describe(removeExpiredReleaseAgeExclusionsEverywhere, () => {
     );
 
     await removeExpiredReleaseAgeExclusionsEverywhere({
-      app,
       dryRun: true,
+      app,
       job,
       log,
     });

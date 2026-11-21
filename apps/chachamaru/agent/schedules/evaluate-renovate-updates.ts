@@ -35,10 +35,10 @@ export default defineSchedule({
     const settings = readSettings(scheduleLog);
     scheduleLog("info", "Schedule started", { ...settings });
     await evaluateRenovateUpdatesEverywhere({
-      app,
       fixer: createModelLintFindingsFixer(),
       log: scheduleLog,
       sandbox: createVercelSandboxRunner({ log: scheduleLog }),
+      app,
       settings,
     });
   },

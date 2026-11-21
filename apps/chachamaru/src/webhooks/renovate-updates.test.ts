@@ -61,23 +61,23 @@ const setup = ({ autoMerge = false } = {}) => {
   const fixLint = vi.fn<typeof fixLintAndLog>(() => Promise.resolve(false));
 
   return {
-    context: { app, log: vi.fn<Log>() },
     evaluate,
     evaluateEverywhere,
+    fixLint,
+    context: { app, log: vi.fn<Log>() },
     /** The pull requests evaluated one by one. */
     evaluated: () => evaluate.mock.calls.map(([options]) => options.pullNumber),
-    fixLint,
     /** The pull requests the lint fixes were applied to. */
     fixed: () => fixLint.mock.calls.map(([options]) => options.pullNumber),
     handlers: createRenovateUpdateHandlers({
       createSandbox: () => sandbox,
-      evaluate,
-      evaluateEverywhere,
-      fixLint,
       readSettings: () => ({
         dryRun: false,
         renovateAutoMerge: autoMerge,
       }),
+      evaluate,
+      evaluateEverywhere,
+      fixLint,
     }),
   };
 };
@@ -87,12 +87,12 @@ const delivery = (
   payload: Readonly<Record<string, Json>>
 ): WebhookDelivery => ({
   id: "delivery-1",
-  name,
   payload: {
     installation: { id: 42 },
     repository: { name: "agents", owner: { login: "publira" } },
     ...payload,
   },
+  name,
 });
 
 const pullRequest = (fields: Readonly<Record<string, Json>> = {}) => ({

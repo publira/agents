@@ -123,8 +123,8 @@ const listComments = async ({
 }: PullRequestOptions): Promise<IssueComment[]> => {
   const comments = await octokit.paginate(octokit.rest.issues.listComments, {
     issue_number: pullNumber,
-    owner,
     per_page: 100,
+    owner,
     repo,
   });
 
@@ -157,9 +157,9 @@ const readManifest = async (
   headSha: string
 ) => {
   const source = await readOptionalRepositoryFile(octokit, {
-    owner,
     path: MANIFEST_PATH,
     ref: headSha,
+    owner,
     repo,
   });
 
@@ -212,8 +212,8 @@ const minimizeEarlierQuestions = async (
 ): Promise<OutdatedQuestions> => {
   try {
     const { data: pullRequest } = await octokit.rest.pulls.get({
-      owner,
       pull_number: pullNumber,
+      owner,
       repo,
     });
 
@@ -224,9 +224,9 @@ const minimizeEarlierQuestions = async (
     return {
       minimized: await minimizeOutdatedIssueComments(octokit, {
         author: botLogin,
-        commentId,
         issueNumber: pullNumber,
         marker: RELEASE_AGE_EXEMPTION_MARKER_START,
+        commentId,
         owner,
         repo,
       }),
@@ -259,7 +259,7 @@ const commitExemption = async (
 ): Promise<ExemptionCommitResult> => {
   const { octokit, owner, repo, pullNumber, dryRun = false } = options;
   const selectors = selectorsOf(entries);
-  const decided = { approvedIn, entries: selectors, headSha };
+  const decided = { entries: selectors, approvedIn, headSha };
 
   const addition = addReleaseAgeExclusions(source, selectors, [
     `Exempted for #${pullNumber}, a Renovate update, on a maintainer's approval:`,
@@ -268,8 +268,8 @@ const commitExemption = async (
 
   if (addition.result === "refused") {
     return {
-      entries: selectors,
       headSha,
+      entries: selectors,
       reason: addition.reason,
       status: "refused",
     };
@@ -282,9 +282,7 @@ const commitExemption = async (
   }
 
   const commit = await addCommitToBranch(octokit, {
-    branch,
     files: { [MANIFEST_PATH]: addition.source },
-    headSha,
     message: [
       subject,
       "",
@@ -297,6 +295,8 @@ const commitExemption = async (
       "",
       `A maintainer asked to exempt them in ${approvedIn}.`,
     ].join("\n"),
+    branch,
+    headSha,
     owner,
     repo,
   });
@@ -350,8 +350,8 @@ export const askReleaseAgeExemption = async (
   }
 
   const { data: pullRequest } = await octokit.rest.pulls.get({
-    owner,
     pull_number: pullNumber,
+    owner,
     repo,
   });
 
@@ -370,8 +370,8 @@ export const askReleaseAgeExemption = async (
   const entries = pendingReleaseAgeExemptionEntries(
     releaseAgeExemptionEntries({
       minimumReleaseAge: manifest.minimumReleaseAge,
-      now,
       violations: reading.violations,
+      now,
     }),
     { excluded: manifest.minimumReleaseAgeExclude, now }
   );
@@ -398,7 +398,7 @@ export const askReleaseAgeExemption = async (
   }
 
   if (dryRun) {
-    return { entries: selectors, headSha, status: "would-ask" };
+    return { entries: selectors, status: "would-ask", headSha };
   }
 
   const comment = await ensureIssueComment(octokit, {
@@ -487,8 +487,8 @@ export const approveReleaseAgeExemption = async (
   }
 
   const { data: pullRequest } = await octokit.rest.pulls.get({
-    owner,
     pull_number: pullNumber,
+    owner,
     repo,
   });
 
@@ -549,9 +549,9 @@ export const approveReleaseAgeExemption = async (
   return commitExemption(options, {
     approvedIn: comment.url,
     branch: pullRequest.head.ref,
+    source: workspace.source,
     entries,
     headSha,
-    source: workspace.source,
   });
 };
 
@@ -572,8 +572,8 @@ export const minimizeOutdatedReleaseAgeQuestions = async ({
   now = new Date(),
 }: MinimizeOutdatedReleaseAgeQuestionsOptions): Promise<number> => {
   const { data: pullRequest } = await octokit.rest.pulls.get({
-    owner,
     pull_number: pullNumber,
+    owner,
     repo,
   });
 

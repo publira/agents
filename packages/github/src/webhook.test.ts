@@ -31,7 +31,7 @@ const deliveryHeaders = (overrides: Record<string, string | null> = {}) => {
 describe(verifyWebhookDelivery, () => {
   it("parses a delivery signed with the secret", async () => {
     await expect(
-      verifyWebhookDelivery({ body, headers: deliveryHeaders(), secret })
+      verifyWebhookDelivery({ headers: deliveryHeaders(), body, secret })
     ).resolves.toStrictEqual({
       id: "72d3162e-cc78-11e3-81ab-4c9367dc0958",
       name: "pull_request",
@@ -47,8 +47,8 @@ describe(verifyWebhookDelivery, () => {
   ])("rejects a signature made with %s", async (_label, signature) => {
     await expect(
       verifyWebhookDelivery({
-        body,
         headers: deliveryHeaders({ "x-hub-signature-256": signature }),
+        body,
         secret,
       })
     ).rejects.toThrow(WebhookVerificationError);
@@ -59,8 +59,8 @@ describe(verifyWebhookDelivery, () => {
     async (header) => {
       await expect(
         verifyWebhookDelivery({
-          body,
           headers: deliveryHeaders({ [header]: null }),
+          body,
           secret,
         })
       ).rejects.toThrow(WebhookVerificationError);

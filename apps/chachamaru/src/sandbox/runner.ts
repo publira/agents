@@ -91,9 +91,9 @@ export const createVercelSandboxRunner =
         },
         async run({ cmd, args = [], cwd, env, timeoutMs: commandTimeoutMs }) {
           const command = await sandbox.runCommand({
-            args: [...args],
             cmd,
             cwd,
+            args: [...args],
             env: { ...env },
             timeoutMs: commandTimeoutMs,
           });
@@ -105,11 +105,11 @@ export const createVercelSandboxRunner =
 
           return { exitCode: command.exitCode, stderr, stdout };
         },
-        stopsAt,
         async writeFile(file, content) {
           await sandbox.fs.mkdir(path.posix.dirname(file), { recursive: true });
           await sandbox.fs.writeFile(file, content);
         },
+        stopsAt,
       });
     } finally {
       // The sandbox stops at its timeout anyway, so a failed delete is

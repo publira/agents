@@ -445,9 +445,9 @@ const fixFindingsInSandbox = async (
     fix = await fixer({
       command,
       deadline,
+      sandbox,
       diff: tail(diff, MODEL_INPUT_LIMIT),
       output: tail(output, MODEL_INPUT_LIMIT),
-      sandbox,
       worktree: WORKTREE,
     });
   } catch (error) {
@@ -499,8 +499,8 @@ const fixFindingsInSandbox = async (
       ...killed,
       findings: {
         invoked: true,
-        model,
         paths: changes.map(({ path }) => path),
+        model,
         run,
         stopped,
       },
@@ -524,8 +524,8 @@ const fixFindingsInSandbox = async (
         "HEAD"
       )
     ),
-    checkPassed,
     paths: changes.map(({ path }) => path),
+    checkPassed,
   });
 
   return {
@@ -539,11 +539,11 @@ const fixFindingsInSandbox = async (
             )
           )
         : new Map(),
+    status: "checked",
     changes,
     checkPassed,
     model,
     run,
-    status: "checked",
     stopped,
     verdict,
   };
@@ -597,10 +597,10 @@ const fixInSandbox = async (
 
   const run = (args: readonly string[], timeoutMs: number) =>
     sandbox.run({
-      args,
       cmd: packageManager,
       cwd: WORKTREE,
       env: { CI: "true", NO_COLOR: "1" },
+      args,
       timeoutMs,
     });
 
@@ -690,10 +690,10 @@ const fixInSandbox = async (
 
   const findings = await fixFindingsInSandbox(sandbox, {
     check,
+    fixer,
     command: checkCommand(packageManager),
     fixFiles: (paths) =>
       run([...exec, "ultracite", "fix", ...paths], MODEL_FILES_FIX_TIMEOUT_MS),
-    fixer,
     output: outputOf(after),
   });
 
@@ -716,9 +716,9 @@ const plan = async (
   headSha: string
 ): Promise<LintPackageManager | Skip> => {
   const manifest = await readOptionalRepositoryFile(octokit, {
-    owner,
     path: "package.json",
     ref: headSha,
+    owner,
     repo,
   });
 
@@ -733,7 +733,7 @@ const plan = async (
   }
 
   const checks = evaluateCommitChecks({
-    ...(await getCommitChecks(octokit, { owner, ref: headSha, repo })),
+    ...(await getCommitChecks(octokit, { ref: headSha, owner, repo })),
     required: [],
   });
 
@@ -760,10 +760,10 @@ const isBotLintFix = async (
   headSha: string
 ) => {
   const { data: head } = await octokit.rest.repos.getCommit({
-    owner,
     // Only the commit is needed, not its files.
     per_page: 1,
     ref: headSha,
+    owner,
     repo,
   });
 
@@ -906,8 +906,8 @@ const minimizeOutdatedFindings = async (
 ): Promise<OutdatedComments> => {
   try {
     const { data: pullRequest } = await octokit.rest.pulls.get({
-      owner,
       pull_number: pullNumber,
+      owner,
       repo,
     });
 
@@ -918,9 +918,9 @@ const minimizeOutdatedFindings = async (
     return {
       minimized: await minimizeOutdatedIssueComments(octokit, {
         author: botLogin,
-        commentId,
         issueNumber: pullNumber,
         marker: FINDINGS_MARKER_START,
+        commentId,
         owner,
         repo,
       }),
@@ -943,9 +943,9 @@ const commitFindingsFix = async (
   const findings = summarizeFindings(fix);
 
   const fixedByModel = {
-    checkPassed: true,
     findings,
     headSha,
+    checkPassed: true,
     output: undefined,
     paths: findings.paths,
   };
@@ -1065,8 +1065,8 @@ const commitAutomaticFix = async (
     return {
       headSha,
       paths,
-      reason: "the fix changed files it has no reason to change",
       refusedPaths,
+      reason: "the fix changed files it has no reason to change",
       status: "refused",
     };
   }
@@ -1151,8 +1151,8 @@ export const applyLintFixes = async (
   } = options;
 
   const { data: pullRequest } = await octokit.rest.pulls.get({
-    owner,
     pull_number: pullNumber,
+    owner,
     repo,
   });
 
@@ -1233,8 +1233,8 @@ export const applyLintFixes = async (
   }
 
   const settlement = {
-    botLogin,
     branch: pullRequest.head.ref,
+    botLogin,
     dryRun,
     headSha,
     octokit,

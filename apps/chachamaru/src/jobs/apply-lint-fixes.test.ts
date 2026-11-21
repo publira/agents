@@ -49,8 +49,8 @@ const manifest = (packageManager: string) =>
     {
       devDependencies: { ultracite: "7.12.4" },
       name: "comic-viewer",
-      packageManager,
       private: true,
+      packageManager,
     },
     null,
     2
@@ -188,7 +188,7 @@ const createFixture = (root: string): Fixture => {
   write(origin, "src/index.ts", "export const read = () => 1;\n");
   const headSha = commitAll(origin, "chore(deps): update oxc monorepo");
 
-  return { headSha, manifest: manifest("pnpm@12.10.1"), origin };
+  return { manifest: manifest("pnpm@12.10.1"), headSha, origin };
 };
 
 const commitToFixture = (
@@ -321,14 +321,14 @@ const localSandbox = ({
     /** The package manager calls, in order. */
     calls: () =>
       readFileSync(path.join(home, "calls"), "utf-8").trim().split("\n"),
-    commands,
     networkDenied: () => networkDenied,
     /** What each sandbox the job started asked for. */
     requested: () => requested,
-    runner,
     started: () => requested.length,
     /** When the sandbox stops, as the job was told. */
     stopsAt: () => sandbox.stopsAt,
+    commands,
+    runner,
     worktree,
   };
 };
@@ -908,8 +908,8 @@ describe(applyLintFixes, () => {
 
     await expect(run(github, sandbox)).resolves.toStrictEqual({
       headSha: fixture.headSha,
-      reason,
       status: "skipped",
+      reason,
     });
     expect(sandbox.started()).toBe(0);
   });
@@ -938,12 +938,12 @@ describe(applyLintFixes, () => {
     "leaves the pull request alone when the %s fails",
     async (step, env, exitCode) => {
       const github = fakeGitHub({ fixture });
-      const sandbox = localSandbox({ env, origin: fixture.origin, root });
+      const sandbox = localSandbox({ origin: fixture.origin, env, root });
 
       await expect(run(github, sandbox)).resolves.toMatchObject({
-        exitCode,
         headSha: fixture.headSha,
         status: "failed",
+        exitCode,
         step,
       });
       expect(github.writes).toStrictEqual([]);
@@ -994,7 +994,7 @@ describe(applyLintFixes, () => {
     "leaves the pull request alone when a tool is killed during the %s",
     async (_, env, ultraciteRuns) => {
       const github = fakeGitHub({ fixture });
-      const sandbox = localSandbox({ env, origin: fixture.origin, root });
+      const sandbox = localSandbox({ origin: fixture.origin, env, root });
       const fixer = vi.fn<LintFindingsFixer>();
 
       const result = await run(github, sandbox, { fixer });
@@ -1303,8 +1303,8 @@ describe("applyLintFixes with a model for the findings", () => {
     // The steps before the model took all but the time the check needs.
     const sandbox = localSandbox({
       origin: fixture.origin,
-      root,
       timeLeftMs: 165_000,
+      root,
     });
 
     const { fixer } = modelWriting(sandbox, { "src/index.ts": FIXED_SCRIPT });
@@ -1567,8 +1567,8 @@ describe("applyLintFixes with a model for the findings", () => {
       comments: [
         "<!-- chachamaru-lint-findings head=newer -->\nThe check fails.",
       ],
-      fixture,
       headMovesTo: "newer",
+      fixture,
     });
 
     const sandbox = localSandbox({ origin: fixture.origin, root });
@@ -1593,8 +1593,8 @@ describe("applyLintFixes with a model for the findings", () => {
       comments: [
         "<!-- chachamaru-lint-findings head=earlier -->\nThe check fails.",
       ],
-      fixture,
       minimizeRefused: true,
+      fixture,
     });
 
     const sandbox = localSandbox({ origin: fixture.origin, root });

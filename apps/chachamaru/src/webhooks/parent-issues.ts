@@ -159,8 +159,8 @@ export const createParentIssueHandlers = ({
       await evaluate(
         {
           deliveredTo: subIssue,
-          dryRun,
           installationId: payload.installation.id,
+          dryRun,
           parent,
           subIssue,
         },
@@ -187,10 +187,10 @@ export const createParentIssueHandlers = ({
                   owner: payload.repository.owner.login,
                   repo: payload.repository.name,
                 },
-          dryRun,
           installationId: payload.installation.id,
-          parent,
           subIssue: issueLocationOf(payload.sub_issue),
+          dryRun,
+          parent,
         },
         context
       );

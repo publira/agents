@@ -17,10 +17,10 @@ const since = new Date("2026-10-05T03:00:00Z");
 
 const options = {
   author: bot,
-  body,
   issueNumber: 51,
   owner: "publira",
   repo: "agents",
+  body,
   since,
 };
 

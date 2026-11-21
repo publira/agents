@@ -285,8 +285,8 @@ export const getBranchMergeRules = async (
   const rules = await octokit.paginate(octokit.rest.repos.getBranchRules, {
     branch,
     owner,
-    per_page: 100,
     repo,
+    per_page: 100,
   });
 
   const merged: BranchMergeRules = {

@@ -271,8 +271,8 @@ export const removeReleaseAgeExclusions = (
 
   const ambiguous = (reason: string, start = keyIndex): ExcludeRemoval => ({
     block: { lines: lines.slice(start, end), start },
-    reason,
     result: "ambiguous",
+    reason,
   });
 
   if (!/^[^:]+:\s*(?:#.*)?$/u.test(lines[keyIndex] ?? "")) {

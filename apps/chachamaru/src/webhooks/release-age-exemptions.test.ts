@@ -35,12 +35,12 @@ const setup = ({
   const log = vi.fn<Log>();
 
   return {
-    approve,
     context: { app, log },
     handlers: createReleaseAgeExemptionHandlers({
       approve,
       readSettings: () => ({ dryRun, renovateAutoMerge: false }),
     }),
+    approve,
     log,
   };
 };
@@ -85,10 +85,10 @@ describe(createReleaseAgeExemptionHandlers, () => {
         url: URL,
       },
       dryRun: true,
-      octokit,
       owner: "publira",
       pullNumber: 3949,
       repo: "publira",
+      octokit,
     });
     expect(log).toHaveBeenCalledWith(
       "info",

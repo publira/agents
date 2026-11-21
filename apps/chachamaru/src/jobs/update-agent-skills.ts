@@ -274,9 +274,9 @@ export const updateAgentSkills = async ({
   const branch = repository.default_branch;
 
   const lockFile = await readOptionalRepositoryFile(octokit, {
-    owner,
     path: SKILLS_LOCK_FILE,
     ref: branch,
+    owner,
     repo,
   });
 
@@ -331,9 +331,9 @@ export const updateAgentSkills = async ({
       base: branch,
       body: pullRequestBody(skills, paths),
       head: SKILLS_UPDATE_BRANCH,
+      title: TITLE,
       owner,
       repo,
-      title: TITLE,
     });
 
   const {
@@ -341,10 +341,10 @@ export const updateAgentSkills = async ({
   } = await octokit.rest.pulls.list({
     base: branch,
     head: `${owner}:${SKILLS_UPDATE_BRANCH}`,
-    owner,
     per_page: 1,
-    repo,
     state: "open",
+    owner,
+    repo,
   });
 
   if (
@@ -377,7 +377,6 @@ export const updateAgentSkills = async ({
   };
 
   await commitToBranch(octokit, {
-    baseSha,
     branch: SKILLS_UPDATE_BRANCH,
     files: Object.fromEntries(
       committed.map((change) => [change.path, contentOf(change)])
@@ -388,6 +387,7 @@ export const updateAgentSkills = async ({
         after === undefined ? [] : [[path, after.mode]]
       )
     ),
+    baseSha,
     owner,
     repo,
   });
@@ -450,10 +450,10 @@ export const updateAgentSkillsEverywhere = async ({
       .filter(({ archived }) => !archived)
       .map(async ({ installationId, owner, repo }) => {
         const repositoryLog = withFields(log, {
-          dryRun,
           installation: installationId,
           job: "update-agent-skills",
           modelInvoked: false,
+          dryRun,
           owner,
           repo,
         });
@@ -462,8 +462,8 @@ export const updateAgentSkillsEverywhere = async ({
           const result = await job({
             createReadToken: () =>
               createRepositoryReadToken(app, { installationId, repo }),
-            dryRun,
             octokit: await app.getInstallationOctokit(installationId),
+            dryRun,
             owner,
             repo,
             sandbox,

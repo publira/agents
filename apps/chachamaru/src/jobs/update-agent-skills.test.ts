@@ -143,7 +143,7 @@ const updatedTree = (root: string, origin: string) => {
       const [meta = "", file] = line.split("\t");
       const [mode, type, sha] = meta.split(" ");
 
-      return { mode, path: file, sha, type };
+      return { path: file, mode, sha, type };
     });
 };
 
@@ -242,7 +242,7 @@ const localSandbox = ({
     return task(sandbox);
   };
 
-  return { commands, runner, started: () => started, worktree };
+  return { commands, runner, worktree, started: () => started };
 };
 
 const repository = "/repos/publira/publira";
@@ -518,12 +518,12 @@ describe(updateAgentSkills, () => {
 
     const sandbox = localSandbox({
       origin: fixture.origin,
-      root,
       update: (worktree) => {
         write(worktree, ".agents/skills/fonts/Serif.ttf", Buffer.from([0xff]));
 
         return { exitCode: 0 };
       },
+      root,
     });
 
     await updateAgentSkills({
@@ -603,12 +603,12 @@ describe(updateAgentSkills, () => {
 
     const sandbox = localSandbox({
       origin: fixture.origin,
-      root,
       update: (worktree) => {
         write(worktree, "skills/canvas/SKILL.md", "# Canvas\n");
 
         return { exitCode: 0 };
       },
+      root,
     });
 
     await expect(
@@ -654,8 +654,8 @@ describe(updateAgentSkills, () => {
 
     const sandbox = localSandbox({
       origin: fixture.origin,
-      root,
       update: () => ({ exitCode: 1, stderr: "Failed to fetch skill" }),
+      root,
     });
 
     await expect(
@@ -795,9 +795,9 @@ describe(updateAgentSkillsEverywhere, () => {
 
     await updateAgentSkillsEverywhere({
       app,
-      dryRun: true,
       job,
       log,
+      dryRun: true,
       sandbox: (task) =>
         task({
           denyNetwork: () => Promise.reject(new Error("unused")),

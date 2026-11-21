@@ -38,7 +38,7 @@ export const labelAgentAssistedPullRequest = async ({
   pullNumber,
   dryRun = false,
 }: LabelAgentAssistedPullRequestOptions): Promise<LabelAgentAssistedPullRequestResult> => {
-  const pull = { owner, pull_number: pullNumber, repo };
+  const pull = { pull_number: pullNumber, owner, repo };
 
   const [{ data }, commits, labelState] = await Promise.all([
     octokit.rest.pulls.get(pull),
@@ -53,8 +53,8 @@ export const labelAgentAssistedPullRequest = async ({
     commitCount: data.commits,
     commitMessages: commits.map(({ commit }) => commit.message),
     draft: data.draft === true,
-    labelState,
     labels: data.labels.map(({ name }) => name),
+    labelState,
   });
 
   const counted = { commits: commits.length };

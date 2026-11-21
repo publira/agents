@@ -58,7 +58,7 @@ export const ensureReview = async (
     reviewer,
   }: EnsureReviewOptions
 ): Promise<EnsureReviewResult> => {
-  const pullRequest = { owner, pull_number: pullNumber, repo };
+  const pullRequest = { pull_number: pullNumber, owner, repo };
 
   const listOwnReviews = async () => {
     const reviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
@@ -245,7 +245,7 @@ const listReviewNodes = async (
         }
       }
     }`,
-    { after, number: pullNumber, owner, repo }
+    { number: pullNumber, after, owner, repo }
   );
 
   const { nodes, pageInfo } =

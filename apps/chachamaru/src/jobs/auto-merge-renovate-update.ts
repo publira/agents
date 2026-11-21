@@ -132,9 +132,9 @@ const findOwnApproval = async (
   headSha: string
 ): Promise<Date | undefined> => {
   const reviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
-    owner,
     per_page: 100,
     pull_number: pullNumber,
+    owner,
     repo,
   });
 
@@ -229,9 +229,9 @@ const changesWorkflows = async ({
   pullNumber,
 }: AutoMergeRenovateUpdateOptions): Promise<boolean> => {
   const files = await octokit.paginate(octokit.rest.pulls.listFiles, {
-    owner,
     per_page: 100,
     pull_number: pullNumber,
+    owner,
     repo,
   });
 
@@ -321,12 +321,12 @@ const decide = async (
     ? await Promise.all([
         approve({
           dryRun: true,
+          reviewer: options.reviewer,
           octokit,
           owner,
           precedentScanCache,
           pullNumber,
           repo,
-          reviewer: options.reviewer,
         }),
         changesWorkflows(options),
         getBranchMergeRules(octokit, { branch: state.baseRef, owner, repo }),
@@ -334,8 +334,8 @@ const decide = async (
     : [];
 
   const verdict = canAutoMerge({
-    approval: approval === undefined ? undefined : describeApproval(approval),
     approvedByBot,
+    approval: approval === undefined ? undefined : describeApproval(approval),
     changesWorkflows: workflows ?? false,
     enabled: options.enabled,
     headSha: state.headSha,
@@ -386,10 +386,10 @@ const merge = async (
 
     await octokit.rest.pulls.merge({
       merge_method: REST_MERGE_METHODS[mergeMethod],
-      owner,
       pull_number: pullNumber,
-      repo,
       sha: headSha,
+      owner,
+      repo,
     });
 
     return { mergeMethod, status: "merged" };

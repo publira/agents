@@ -41,15 +41,15 @@ export const getCommitChecks = async (
   const [checkRuns, statuses] = await Promise.all([
     octokit.paginate(octokit.rest.checks.listForRef, {
       filter: "latest",
-      owner,
       per_page: 100,
+      owner,
       ref,
       repo,
     }),
     // Newest first, with every status a context ever reported.
     octokit.paginate(octokit.rest.repos.listCommitStatusesForRef, {
-      owner,
       per_page: 100,
+      owner,
       ref,
       repo,
     }),
@@ -99,8 +99,8 @@ export const getRequiredStatusChecks = async (
   const rules = await octokit.paginate(octokit.rest.repos.getBranchRules, {
     branch,
     owner,
-    per_page: 100,
     repo,
+    per_page: 100,
   });
 
   const required = new Map<string, RequiredStatusCheck>();

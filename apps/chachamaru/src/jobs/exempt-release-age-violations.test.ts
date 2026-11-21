@@ -133,8 +133,8 @@ const fakeGitHub = ({
         return Response.json(
           comments.map(({ id, body: text, author }) => ({
             body: text,
-            id,
             user: { login: author },
+            id,
           }))
         );
       }
@@ -267,8 +267,8 @@ const fakeGitHub = ({
     comments,
     minimized,
     octokit,
-    tree: () => tree,
     writes,
+    tree: () => tree,
   };
 };
 

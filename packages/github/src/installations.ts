@@ -23,9 +23,9 @@ export const listInstallationRepositories = async (
   return repositories.map((repository) => ({
     archived: repository.archived,
     defaultBranch: repository.default_branch,
-    installationId,
     owner: repository.owner.login,
     repo: repository.name,
+    installationId,
   }));
 };
 

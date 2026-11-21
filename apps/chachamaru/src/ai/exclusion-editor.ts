@@ -52,9 +52,9 @@ export const createModelExclusionEditor =
   (model: LanguageModel = AGENT_MODEL): ExclusionEditor =>
   async (request) => {
     const { output, response } = await generateText({
-      abortSignal: AbortSignal.timeout(TIMEOUT_MS),
       instructions,
       model,
+      abortSignal: AbortSignal.timeout(TIMEOUT_MS),
       output: Output.object({ name: "edit", schema: outputSchema }),
       prompt: prompt(request),
     });

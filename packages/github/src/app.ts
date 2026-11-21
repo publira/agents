@@ -58,11 +58,11 @@ export const createGitHubApp = ({
       // The factory hands the new client this App's token cache.
       factory: (auth: StrategyOptions) =>
         createOctokit(
-          { auth, authStrategy: createAppAuth, request },
+          { authStrategy: createAppAuth, auth, request },
           requestPolicy
         ),
-      installationId,
       type: "installation",
+      installationId,
     }) as Promise<Octokit>;
 
   const fetchBotLogin = async () => {
@@ -87,7 +87,6 @@ export const createGitHubApp = ({
 
       return botLogin;
     },
-    getInstallationOctokit,
     async getRepositoryOctokit({ owner, repo }) {
       const { data } = await octokit.rest.apps.getRepoInstallation({
         owner,
@@ -96,6 +95,7 @@ export const createGitHubApp = ({
 
       return getInstallationOctokit(data.id);
     },
+    getInstallationOctokit,
     octokit,
   };
 };

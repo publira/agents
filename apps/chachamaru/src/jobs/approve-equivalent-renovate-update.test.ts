@@ -395,9 +395,9 @@ const fakeGitHub = ({
   });
 
   return {
+    octokit: createGitHubClient({ fetch: fetchImpl }),
     /** The node IDs of the reviews minimized, in order. */
     minimized,
-    octokit: createGitHubClient({ fetch: fetchImpl }),
     routes,
     writes,
   };
