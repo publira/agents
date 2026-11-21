@@ -612,8 +612,8 @@ describe(regenerateGeneratedOutput, () => {
 
     await expect(run(github, sandbox)).resolves.toStrictEqual({
       headSha: fixture.headSha,
-      reason,
       status: "skipped",
+      reason,
     });
     expect(sandbox.started()).toBe(0);
   });
@@ -697,11 +697,11 @@ describe(regenerateGeneratedOutput, () => {
         targets: [
           {
             exitCode,
+            step,
             output: expect.stringContaining(
               step === "setup" ? "no tool" : "broken"
             ),
             status: "failed",
-            step,
             target: "default",
           },
         ],
@@ -840,7 +840,6 @@ describe(regenerateGeneratedOutput, () => {
       const github = fakeGitHub({
         changed: both,
         config: targets(),
-        fixture,
         onTop: [
           {
             author: BOT,
@@ -848,6 +847,7 @@ describe(regenerateGeneratedOutput, () => {
             message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan on renovate:\n\n- codegen: \`./gen.sh\`\n\nRegenerated-target: codegen`,
           },
         ],
+        fixture,
       });
 
       const sandbox = localSandbox({ origin: fixture.origin, root });
@@ -863,7 +863,6 @@ describe(regenerateGeneratedOutput, () => {
       const github = fakeGitHub({
         changed: both,
         config: targets(),
-        fixture,
         onTop: [
           {
             author: BOT,
@@ -871,6 +870,7 @@ describe(regenerateGeneratedOutput, () => {
             message: `${REGENERATION_COMMIT_SUBJECT}\n\nRan \`./gen.sh\` on renovate.`,
           },
         ],
+        fixture,
       });
 
       const sandbox = localSandbox({ origin: fixture.origin, root });

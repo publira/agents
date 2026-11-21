@@ -18,8 +18,8 @@ describe(evaluateReleaseAgeExclusion, () => {
       evaluateReleaseAgeExclusion({
         minimumReleaseAge: ONE_DAY,
         now: new Date("2026-10-10T00:00:00.000Z"),
-        publishTimes,
         versions: [],
+        publishTimes,
       })
     ).toStrictEqual({ action: "keep", reason: "unpinned" });
   });
@@ -29,8 +29,8 @@ describe(evaluateReleaseAgeExclusion, () => {
       evaluateReleaseAgeExclusion({
         minimumReleaseAge: ONE_DAY,
         now: new Date("2026-09-30T20:00:00.000Z"),
-        publishTimes,
         versions: ["16.3.7", "16.3.8"],
+        publishTimes,
       })
     ).toStrictEqual({
       action: "waiting",
@@ -43,8 +43,8 @@ describe(evaluateReleaseAgeExclusion, () => {
       evaluateReleaseAgeExclusion({
         minimumReleaseAge: ONE_DAY,
         now: new Date("2026-10-01T08:00:00.000Z"),
-        publishTimes,
         versions: ["16.3.7", "16.3.8"],
+        publishTimes,
       })
     ).toStrictEqual({
       action: "expired",
@@ -57,8 +57,8 @@ describe(evaluateReleaseAgeExclusion, () => {
       evaluateReleaseAgeExclusion({
         minimumReleaseAge: ONE_DAY,
         now: new Date("2026-10-10T00:00:00.000Z"),
-        publishTimes,
         versions: ["16.3.8", "16.3.9"],
+        publishTimes,
       })
     ).toStrictEqual({ action: "unknown", missingVersions: ["16.3.9"] });
   });
@@ -75,8 +75,8 @@ describe(findReleaseAgeExclusionKeepReason, () => {
   ])("judges %s@%j", (name, versions) => {
     expect(
       findReleaseAgeExclusionKeepReason({
-        name,
         registryUrl: PUBLIC_NPM,
+        name,
         versions,
       })
     ).toBeUndefined();
@@ -93,8 +93,8 @@ describe(findReleaseAgeExclusionKeepReason, () => {
   ])("keeps %s@%j as unpinned", (name, versions) => {
     expect(
       findReleaseAgeExclusionKeepReason({
-        name,
         registryUrl: PUBLIC_NPM,
+        name,
         versions,
       })
     ).toBe("unpinned");
@@ -110,8 +110,8 @@ describe(findReleaseAgeExclusionKeepReason, () => {
     expect(
       findReleaseAgeExclusionKeepReason({
         name: "@buf/sdk",
-        registryUrl,
         versions: ["1.0.0"],
+        registryUrl,
       })
     ).toBe("other-registry");
   });

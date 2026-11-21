@@ -133,9 +133,9 @@ const readManifest = async (
   }
 
   const source = await readOptionalRepositoryFile(octokit, {
-    owner,
     path: MANIFEST_PATH,
     ref: baseSha,
+    owner,
     repo,
   });
 
@@ -206,13 +206,13 @@ const findCleanupPullRequest = async (
   const {
     data: [pullRequest],
   } = await octokit.rest.pulls.list({
-    base,
     direction: "desc",
     head: `${owner}:${CLEANUP_BRANCH}`,
-    owner,
     per_page: 1,
-    repo,
     sort: "created",
+    base,
+    owner,
+    repo,
     state,
   });
 
@@ -253,9 +253,9 @@ const readCleanupProposal = async ({
       repo,
     }),
     readOptionalRepositoryFile(octokit, {
-      owner,
       path: MANIFEST_PATH,
       ref: head,
+      owner,
       repo,
     }),
   ]);
@@ -372,7 +372,7 @@ export const removeExpiredReleaseAgeExclusions = async ({
   }
 
   const { baseSha, source } = read;
-  const at = { owner, ref: baseSha, repo };
+  const at = { ref: baseSha, owner, repo };
 
   const manifest = parseWorkspaceManifest(source);
 
@@ -383,8 +383,8 @@ export const removeExpiredReleaseAgeExclusions = async ({
   const reports = await judgeReleaseAgeExclusions({
     manifest,
     now,
-    npmrc: await readOptionalRepositoryFile(octokit, { ...at, path: ".npmrc" }),
     registry,
+    npmrc: await readOptionalRepositoryFile(octokit, { ...at, path: ".npmrc" }),
   });
 
   const expired = reports.flatMap(({ selector, verdict }) =>
@@ -410,9 +410,9 @@ export const removeExpiredReleaseAgeExclusions = async ({
       base: baseBranch,
       body: pullRequestBody(expired, manifest.minimumReleaseAge, model),
       head: CLEANUP_BRANCH,
+      title: TITLE,
       owner,
       repo,
-      title: TITLE,
     });
 
   // An open pull request that already holds the cleanup does the job, so no
@@ -424,12 +424,12 @@ export const removeExpiredReleaseAgeExclusions = async ({
     ? undefined
     : await findExistingCleanup({
         base: baseBranch,
-        baseSha,
         isCleanup: (proposed, model) =>
           ruleEdit === undefined
             ? model !== undefined && verify(proposed).length === 0
             : model === undefined && proposed === ruleEdit,
         isDeclined: (proposed) => verify(proposed).length === 0,
+        baseSha,
         octokit,
         owner,
         repo,
@@ -441,9 +441,9 @@ export const removeExpiredReleaseAgeExclusions = async ({
 
   if (existing?.status === "open") {
     return {
+      expired,
       committed: false,
       editedBy: existing.model === undefined ? "rules" : "model",
-      expired,
       model: existing.model,
       pullRequest: await ensureCleanupPullRequest(existing.model),
       status: "pull-request",
@@ -486,19 +486,19 @@ export const removeExpiredReleaseAgeExclusions = async ({
   }
 
   await commitToBranch(octokit, {
-    baseSha,
     branch: CLEANUP_BRANCH,
     files: { [MANIFEST_PATH]: edited },
     message: commitMessage(expired, model),
+    baseSha,
     owner,
     repo,
   });
 
   return {
-    committed: true,
     editedBy,
     expired,
     model,
+    committed: true,
     pullRequest: await ensureCleanupPullRequest(model),
     status: "pull-request",
   };
@@ -563,9 +563,9 @@ export const removeExpiredReleaseAgeExclusionsEverywhere = async ({
       .filter(({ archived }) => !archived)
       .map(async ({ defaultBranch, installationId, owner, repo }) => {
         const repositoryLog = withFields(log, {
-          dryRun,
           installation: installationId,
           job: "remove-expired-release-age-exclusions",
+          dryRun,
           owner,
           repo,
         });
@@ -586,10 +586,10 @@ export const removeExpiredReleaseAgeExclusionsEverywhere = async ({
         try {
           const result = await job({
             base: defaultBranch,
-            dryRun,
             editor: trackedEditor,
-            now,
             octokit: await app.getInstallationOctokit(installationId),
+            dryRun,
+            now,
             owner,
             registry,
             repo,

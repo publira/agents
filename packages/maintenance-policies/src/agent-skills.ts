@@ -66,15 +66,15 @@ export const diffSkillsLocks = (
     if (is === undefined) {
       return was === undefined
         ? []
-        : [{ change: "removed", name, source: was.source }];
+        : [{ change: "removed", source: was.source, name }];
     }
 
     if (was === undefined) {
-      return [{ change: "added", name, source: is.source }];
+      return [{ change: "added", source: is.source, name }];
     }
 
     return isDeepStrictEqual(was, is)
       ? []
-      : [{ change: "updated", name, source: is.source }];
+      : [{ change: "updated", source: is.source, name }];
   });
 };

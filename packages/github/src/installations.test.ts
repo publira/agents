@@ -22,8 +22,8 @@ const tokenResponse = (token: string) => ({
 const repository = (owner: string, name: string) => ({
   archived: false,
   default_branch: "main",
-  name,
   owner: { login: owner },
+  name,
 });
 
 describe(listAppRepositories, () => {

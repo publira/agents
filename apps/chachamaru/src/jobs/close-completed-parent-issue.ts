@@ -89,10 +89,10 @@ export const closeCompletedParentIssue = async ({
   // The comment counts from the close it explains.
   const comment = (closedAt: string | null, updatedAt: string) => ({
     author,
-    body: COMPLETED_PARENT_COMMENT,
     issueNumber,
     owner,
     repo,
+    body: COMPLETED_PARENT_COMMENT,
     since: new Date(closedAt ?? updatedAt),
   });
 

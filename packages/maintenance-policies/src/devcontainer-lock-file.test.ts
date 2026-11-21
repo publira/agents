@@ -161,7 +161,6 @@ describe(syncLockFileEntries, () => {
   it("replaces the bumped entry in place", () => {
     expect(
       syncLockFileEntries({
-        bumps,
         entries: [
           [
             "ghcr.io/anthropics/devcontainer-features/claude-code:1.0.5",
@@ -175,6 +174,7 @@ describe(syncLockFileEntries, () => {
           [`${DIND}:4.1.2`, lockedDind],
           [`${GH_CLI}:1.1.3`, lockedGhCli],
         ],
+        bumps,
         resolved,
       })
     ).toStrictEqual({
@@ -199,11 +199,11 @@ describe(syncLockFileEntries, () => {
   it("finds an entry that is already up to date in sync", () => {
     expect(
       syncLockFileEntries({
-        bumps,
         entries: [
           [`${DIND}:4.1.3`, syncedDind],
           [`${GH_CLI}:1.1.3`, lockedGhCli],
         ],
+        bumps,
         resolved,
       })
     ).toStrictEqual({ result: "in-sync" });
@@ -212,8 +212,8 @@ describe(syncLockFileEntries, () => {
   it("corrects an entry under the new reference whose digest differs", () => {
     expect(
       syncLockFileEntries({
-        bumps,
         entries: [[`${DIND}:4.1.3`, { ...syncedDind, integrity: OLD_DIGEST }]],
+        bumps,
         resolved,
       })
     ).toStrictEqual({
@@ -226,11 +226,11 @@ describe(syncLockFileEntries, () => {
   it("drops a stale entry beside the new one", () => {
     expect(
       syncLockFileEntries({
-        bumps,
         entries: [
           [`${DIND}:4.1.2`, lockedDind],
           [`${DIND}:4.1.3`, syncedDind],
         ],
+        bumps,
         resolved,
       })
     ).toStrictEqual({
@@ -286,8 +286,8 @@ describe(syncLockFileEntries, () => {
   it("leaves a lock file without the Feature", () => {
     expect(
       syncLockFileEntries({
-        bumps,
         entries: [[`${GH_CLI}:1.1.3`, lockedGhCli]],
+        bumps,
         resolved,
       })
     ).toStrictEqual({

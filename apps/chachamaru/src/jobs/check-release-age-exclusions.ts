@@ -81,8 +81,8 @@ export const judgeReleaseAgeExclusions = ({
         const { name, versions } = selectorOf(selector);
 
         const reason = findReleaseAgeExclusionKeepReason({
-          name,
           registryUrl: resolvePackageRegistry(name, { manifest, npmrc }),
+          name,
           versions,
         });
 
@@ -94,8 +94,8 @@ export const judgeReleaseAgeExclusions = ({
           selector,
           verdict: evaluateReleaseAgeExclusion({
             minimumReleaseAge: manifest.minimumReleaseAge,
-            now,
             publishTimes: await getPublishTimes(name),
+            now,
             versions,
           }),
         };
@@ -119,12 +119,12 @@ export const checkReleaseAgeExclusions = async ({
 }: CheckReleaseAgeExclusionsOptions): Promise<ReleaseAgeExclusionReport[]> => {
   const [manifest, npmrc] = await Promise.all([
     readRepositoryFile(octokit, {
-      owner,
       path: "pnpm-workspace.yaml",
+      owner,
       ref,
       repo,
     }),
-    readOptionalRepositoryFile(octokit, { owner, path: ".npmrc", ref, repo }),
+    readOptionalRepositoryFile(octokit, { path: ".npmrc", owner, ref, repo }),
   ]);
 
   return judgeReleaseAgeExclusions({

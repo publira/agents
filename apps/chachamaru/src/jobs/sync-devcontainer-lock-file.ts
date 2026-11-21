@@ -196,8 +196,8 @@ const regenerate = (
     }
 
     const verdict = syncLockFileEntries({
-      bumps,
       entries: lockFile.entries,
+      bumps,
       resolved,
     });
 
@@ -272,8 +272,8 @@ export const syncDevContainerLockFile = async (
   const { octokit, owner, repo, pullNumber, dryRun = false } = options;
 
   const { data: pullRequest } = await octokit.rest.pulls.get({
-    owner,
     pull_number: pullNumber,
+    owner,
     repo,
   });
 
@@ -365,10 +365,10 @@ export const syncDevContainerLockFile = async (
     ? { headSha, lockFiles, status: "head-moved" }
     : {
         commitSha: commit.sha,
+        status: "committed",
         headSha,
         lockFiles,
         message,
-        status: "committed",
       };
 };
 

@@ -460,7 +460,7 @@ export const createModelLintFindingsFixer =
       if (abortSignal.aborted && answered !== undefined) {
         run.stopReason = "deadline";
 
-        return { model: answered, run, stopped: true };
+        return { model: answered, stopped: true, run };
       }
 
       throw new LintFindingsRunError(

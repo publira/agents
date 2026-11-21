@@ -167,9 +167,9 @@ const failure = (
     stderr,
   }: { exitCode: number; stdout: string; stderr: string }
 ) => ({
-  exitCode,
   output: tail(`${stdout}${stderr}`),
   status: "failed" as const,
+  exitCode,
   step,
 });
 
@@ -271,9 +271,9 @@ const readConfig = async (
   baseSha: string
 ): Promise<RegenerationConfig | Skip> => {
   const source = await readOptionalRepositoryFile(octokit, {
-    owner,
     path: REGENERATION_CONFIG_PATH,
     ref: baseSha,
+    owner,
     repo,
   });
 
@@ -297,9 +297,9 @@ const readEnv = async (
   }
 
   const workflow = await readOptionalRepositoryFile(octokit, {
-    owner,
     path: workflowEnv,
     ref: headSha,
+    owner,
     repo,
   });
 
@@ -484,10 +484,10 @@ const regenerateTarget = async (
       ? { ignoredPaths, status: "unchanged", target: target.name }
       : {
           blobs: regenerated.blobs,
-          committed,
-          ignoredPaths,
           paths: committed.map(({ path }) => path),
           status: "regenerated",
+          committed,
+          ignoredPaths,
           target,
         };
   } catch (error) {
@@ -551,8 +551,8 @@ export const regenerateGeneratedOutput = async (
   } = options;
 
   const { data: pullRequest } = await octokit.rest.pulls.get({
-    owner,
     pull_number: pullNumber,
+    owner,
     repo,
   });
 
@@ -637,7 +637,6 @@ export const regenerateGeneratedOutput = async (
         contentOf(blobs)(change),
       ])
     ),
-    headSha,
     message: [
       REGENERATION_COMMIT_SUBJECT,
       `Ran on ${headSha}:`,
@@ -659,6 +658,7 @@ export const regenerateGeneratedOutput = async (
         after === undefined ? [] : [[path, after.mode]]
       )
     ),
+    headSha,
     owner,
     repo,
   });

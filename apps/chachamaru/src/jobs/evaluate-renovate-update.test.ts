@@ -79,8 +79,10 @@ const setup = ({
     log,
     minimizeOutdatedQuestions,
     regenerate,
+    syncLockFile,
     run: (settings: Partial<RenovateUpdateSettings> = {}) =>
       evaluateRenovateUpdate({
+        log,
         jobs: {
           approve,
           autoMerge,
@@ -88,7 +90,6 @@ const setup = ({
           regenerate,
           syncLockFile,
         },
-        log,
         octokit: createGitHubClient(),
         owner: "publira",
         pullNumber: 31,
@@ -101,7 +102,6 @@ const setup = ({
           ...settings,
         },
       }),
-    syncLockFile,
   };
 };
 
@@ -650,11 +650,11 @@ const fixWith = async (
   const log = vi.fn<Log>();
 
   const deferred = await fixLintAndLog({
-    dryRun: true,
     exempt,
     fix,
-    lintFix: regeneration,
     log,
+    dryRun: true,
+    lintFix: regeneration,
     octokit: createGitHubClient(),
     owner: "publira",
     pullNumber: 31,
@@ -1020,9 +1020,9 @@ describe(evaluateRenovateUpdatesEverywhere, () => {
     const log = vi.fn<Log>();
 
     await evaluateRenovateUpdatesEverywhere({
+      headRef: "renovate/turbo-monorepo",
       app,
       evaluate,
-      headRef: "renovate/turbo-monorepo",
       log,
       settings,
     });
@@ -1058,9 +1058,9 @@ describe(evaluateRenovateUpdatesEverywhere, () => {
       app,
       evaluate,
       fixLint,
-      log: vi.fn<Log>(),
       regenerate,
       settings,
+      log: vi.fn<Log>(),
     });
 
     expect(regenerate).not.toHaveBeenCalled();

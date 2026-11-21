@@ -57,8 +57,8 @@ const fakeGitHub = ({
       switch (route) {
         case `GET ${PULL}`: {
           return Response.json({
-            commits: commitCount,
             draft,
+            commits: commitCount,
             labels: labels.map((name) => ({ name })),
             number: 70,
           });
@@ -191,7 +191,7 @@ describe(labelAgentAssistedPullRequest, () => {
 
     await expect(
       labelAgentAssistedPullRequest({ ...options, octokit: github.octokit })
-    ).resolves.toStrictEqual({ commits: 2, reason, status: "left" });
+    ).resolves.toStrictEqual({ commits: 2, status: "left", reason });
     expect(github.writes).toStrictEqual([]);
   });
 

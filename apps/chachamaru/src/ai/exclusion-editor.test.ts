@@ -20,8 +20,8 @@ describe(createModelExclusionEditor, () => {
         content: [{ text: '{"deleteLines":[2,3]}', type: "text" }],
         finishReason: { raw: "stop", unified: "stop" },
         response: { modelId: "openai/gpt-5.2" },
-        usage,
         warnings: [],
+        usage,
       },
     });
 
@@ -54,8 +54,8 @@ describe(createModelExclusionEditor, () => {
       doGenerate: {
         content: [{ text: '{"deleteLines":["next@16.3.8"]}', type: "text" }],
         finishReason: { raw: "stop", unified: "stop" },
-        usage,
         warnings: [],
+        usage,
       },
     });
 

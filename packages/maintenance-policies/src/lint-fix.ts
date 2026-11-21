@@ -214,8 +214,8 @@ export const evaluateLintFindingsFix = ({
   const refuse = (reason: string): LintFindingsFixVerdict => ({
     reason,
     refusedPaths,
-    result: "refused",
     suppressions,
+    result: "refused",
   });
 
   if (paths.length === 0) {

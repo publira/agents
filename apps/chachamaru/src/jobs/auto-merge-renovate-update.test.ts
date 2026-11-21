@@ -155,9 +155,9 @@ const fakeGitHub = ({
   });
 
   return {
+    octokit: createGitHubClient({ fetch: fetchImpl }),
     /** The GraphQL mutations, by name, in order. */
     mutations,
-    octokit: createGitHubClient({ fetch: fetchImpl }),
     routes,
     writes,
   };

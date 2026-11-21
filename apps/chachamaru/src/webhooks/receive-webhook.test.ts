@@ -54,10 +54,10 @@ const setup = (handlers: Record<string, WebhookHandler> = {}) => {
       app,
       handlers,
       log,
+      webhookSecret,
       waitUntil: (task: Promise<unknown>) => {
         tasks.push(task);
       },
-      webhookSecret,
     },
     settle: () => Promise.all(tasks),
   };

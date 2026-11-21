@@ -83,10 +83,10 @@ export const fakeGitHub = (
 
   return {
     fetch: fetchImpl,
-    requests,
     /** `METHOD /path` of every request, in order. */
     get routes() {
       return requests.map(routeOf);
     },
+    requests,
   };
 };

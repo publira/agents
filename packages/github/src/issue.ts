@@ -101,10 +101,10 @@ export const findIssueComment = async (
   // `since` filters by the time a comment was last updated.
   const comments = await octokit.paginate(octokit.rest.issues.listComments, {
     issue_number: issueNumber,
-    owner,
     per_page: 100,
-    repo,
     since: since?.toISOString(),
+    owner,
+    repo,
   });
 
   const same = comments.filter(
@@ -142,8 +142,8 @@ export const ensureIssueComment = async (
   }
 
   const { data: posted } = await octokit.rest.issues.createComment({
-    body,
     issue_number: issueNumber,
+    body,
     owner,
     repo,
   });
@@ -242,7 +242,7 @@ const listCommentNodes = async (
       }
       pageInfo { hasNextPage endCursor }
     }`,
-    { after, number: issueNumber, owner, repo }
+    { number: issueNumber, after, owner, repo }
   );
 
   const { nodes, pageInfo } =

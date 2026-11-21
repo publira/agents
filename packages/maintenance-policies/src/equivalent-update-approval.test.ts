@@ -34,8 +34,8 @@ describe(isRenovate, () => {
 const renovateCommit = (sha: string) => ({
   authorLogin: "renovate[bot]",
   committerLogin: "web-flow",
-  sha,
   verified: true,
+  sha,
 });
 
 describe(evaluateRenovateCommits, () => {
@@ -135,9 +135,9 @@ describe(evaluateRenovateCommits, () => {
     const lockFileCommit = (sha: string, files: readonly string[]) => ({
       authorLogin: BOT,
       committerLogin: BOT,
+      verified: true,
       files,
       sha,
-      verified: true,
     });
 
     const lintFixCommit = (sha: string, files: readonly string[]) => ({
@@ -534,9 +534,9 @@ const ACTIONS = 15_368;
 
 const run = (name: string, conclusion: string | null = "success") => ({
   appId: ACTIONS,
+  status: conclusion === null ? "in_progress" : "completed",
   conclusion,
   name,
-  status: conclusion === null ? "in_progress" : "completed",
 });
 
 describe(evaluateCommitChecks, () => {

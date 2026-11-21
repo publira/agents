@@ -77,9 +77,9 @@ const treeEntriesOf = async ({
     } else if (isUtf8(content)) {
       entries.push({
         content: Buffer.from(content).toString("utf-8"),
+        type: "blob" as const,
         mode,
         path,
-        type: "blob" as const,
       });
     } else {
       // oxlint-disable-next-line no-await-in-loop -- one write at a time
@@ -129,9 +129,9 @@ export const commitToBranch = async (
   // always yields the same tree.
   const { data: tree } = await octokit.rest.git.createTree({
     base_tree: baseCommit.tree.sha,
+    tree: await treeEntriesOf({ files, modes, octokit, owner, repo }),
     owner,
     repo,
-    tree: await treeEntriesOf({ files, modes, octokit, owner, repo }),
   });
 
   if (tree.sha === baseCommit.tree.sha) {
@@ -160,26 +160,26 @@ export const commitToBranch = async (
   const { data: commit } = await octokit.rest.git.createCommit({
     message,
     owner,
-    parents: [baseSha],
     repo,
+    parents: [baseSha],
     tree: tree.sha,
   });
 
   const moveBranch = () =>
     octokit.rest.git.updateRef({
       force: true,
-      owner,
       ref: `heads/${branch}`,
-      repo,
       sha: commit.sha,
+      owner,
+      repo,
     });
 
   if (branchSha === undefined) {
     try {
       await octokit.rest.git.createRef({
         owner,
-        ref: `refs/heads/${branch}`,
         repo,
+        ref: `refs/heads/${branch}`,
         sha: commit.sha,
       });
     } catch (error) {
@@ -246,9 +246,9 @@ export const addCommitToBranch = async (
 
   const { data: tree } = await octokit.rest.git.createTree({
     base_tree: headCommit.tree.sha,
+    tree: await treeEntriesOf({ files, modes, octokit, owner, repo }),
     owner,
     repo,
-    tree: await treeEntriesOf({ files, modes, octokit, owner, repo }),
   });
 
   if (tree.sha === headCommit.tree.sha) {
@@ -259,18 +259,18 @@ export const addCommitToBranch = async (
   const { data: commit } = await octokit.rest.git.createCommit({
     message,
     owner,
-    parents: [headSha],
     repo,
+    parents: [headSha],
     tree: tree.sha,
   });
 
   try {
     await octokit.rest.git.updateRef({
       force: false,
-      owner,
       ref: `heads/${branch}`,
-      repo,
       sha: commit.sha,
+      owner,
+      repo,
     });
   } catch (error) {
     // Not a fast-forward, or the branch is gone.

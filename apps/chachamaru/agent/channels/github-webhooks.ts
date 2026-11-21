@@ -13,8 +13,8 @@ export default defineChannel({
       receiveWebhook(request, {
         app: getGitHubApp(),
         handlers: webhookHandlers,
-        waitUntil,
         webhookSecret: readGitHubAppConfig()?.webhookSecret,
+        waitUntil,
       })
     ),
   ],

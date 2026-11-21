@@ -58,9 +58,9 @@ const fakeGitHub = ({
             closed_at: closedBy === undefined ? null : CLOSED_AT,
             closed_by: closedBy === undefined ? null : { login: closedBy },
             number: 3408,
-            state,
             state_reason: closedBy === undefined ? null : "completed",
             updated_at: CLOSED_AT,
+            state,
           });
         }
 

@@ -28,8 +28,8 @@ describe(isAgentSkillsPath, () => {
 const entry = (source: string, hash: string) => ({
   computedHash: hash,
   skillPath: "SKILL.md",
-  source,
   sourceType: "github",
+  source,
 });
 
 const lock = (skills: Record<string, ReturnType<typeof entry>>) =>
