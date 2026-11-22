@@ -248,8 +248,8 @@ importers:
         specifier: 7.0.176
         version: 7.0.176(zod@4.6.7)
       eve:
-        specifier: 1.0.2
-        version: 1.0.2(ai@7.0.176(zod@4.6.7))(vite@8.3.6(@types/node@26.6.6)(yaml@2.9.1))
+        specifier: 1.1.0
+        version: 1.1.0(ai@7.0.176(zod@4.6.7))(vite@8.3.6(@types/node@26.6.6)(yaml@2.9.1))
       zod:
         specifier: 'catalog:'
         version: 4.6.7
@@ -1935,8 +1935,8 @@ packages:
     resolution: {integrity: sha512-kVscqXk4OCp68SZ0dkgEKVi6/8ij300KBWTJq32P/dYeWTSwK41WyTxalN1eRmA5Z9UU/LX9D7FWSmV9SAYx6g==}
     engines: {node: '>=0.10.0'}
 
-  eve@1.0.2:
-    resolution: {integrity: sha512-isoZ/zG5En2xyJ3/6X2hjw6NlaBv82rvY/NmawK9iAZ+7Fdt1xA+RWGvnT7qzTHbOzuQop5rPKJSHavtRvJK/Q==}
+  eve@1.1.0:
+    resolution: {integrity: sha512-Dblzqj5FENNljN1cPkEPWGjG6OZG8DTUhfxowwVeyAMtbbRgZcVWgTmD4giYIiq8gl3M5AFWpPjhcHrPuET8lQ==}
     engines: {node: '>=24'}
     hasBin: true
     peerDependencies:
@@ -4929,7 +4929,7 @@ snapshots:
 
   esutils@2.0.3: {}
 
-  eve@1.0.2(ai@7.0.176(zod@4.6.7))(vite@8.3.6(@types/node@26.6.6)(yaml@2.9.1)):
+  eve@1.1.0(ai@7.0.176(zod@4.6.7))(vite@8.3.6(@types/node@26.6.6)(yaml@2.9.1)):
     dependencies:
       ai: 7.0.176(zod@4.6.7)
       nitro: 3.0.261103-rc
